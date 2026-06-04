@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+data/projects/
+data/cache/
+data/datasets/
+.env
+.env.local
+
+# Test novel dataset
+2/
+
+# IDE / editor
+.vscode/
+.idea/
+
+# Claude Code local state
+.claude/
+.omc/

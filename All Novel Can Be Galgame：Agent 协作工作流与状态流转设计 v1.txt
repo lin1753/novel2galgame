@@ -1,0 +1,574 @@
+一、工作流结论
+v1 推荐采用：
+
+章节驱动、串行为主、局部并行、审查闭环、状态可回退 的工作流。
+
+更具体地说：
+
+全书级先做结构化准备
+章节级作为主要处理单元
+scene 级作为 VN 转译单元
+review 级形成质量闭环
+项目状态统一由 Orchestrator 管理
+二、工作流总览
+text
+ 
+[Project Created]
+      ↓
+[Structure Stage]
+      ↓
+[Chapter Ready]
+      ↓
+[Narrative Parsing Stage]
+      ↓
+[Attribution Stage]
+      ↓
+[Scene Segmentation Stage]
+      ↓
+[Scene Ready]
+      ↓
+[VN Mapping Stage]
+      ├─→ [Visual Prompt Stage]
+      └─→ [Fidelity Review Stage]
+                ↓
+         [Pass / Retry / Fallback]
+      ↓
+[Chapter Completed]
+      ↓
+[Consistency Review Stage]
+      ↓
+[Project Preview Ready]
+Orchestrator 全程负责：
+
+调度
+路由
+缓存
+重试
+回退
+状态更新
+三、状态流转的核心思想
+建议把状态设计成三层状态：
+
+1. 项目状态（Project State）
+描述整本书整体进度。
+例如：
+
+created
+ingested
+structured
+chapter_processing
+chapter_partial_ready
+preview_ready
+review_failed
+completed
+2. 章节状态（Chapter State）
+描述单章处理到哪一步。
+例如：
+
+raw
+parsed
+attributed
+segmented
+mapped
+reviewed
+completed
+failed
+3. scene 状态（Scene State）
+描述单个 scene 的脚本和视觉结果。
+例如：
+
+pending
+mapped
+visual_prompt_ready
+fidelity_passed
+fidelity_failed
+finalized
+四、推荐的状态机设计
+4.1 项目状态机
+状态列表
+created
+text_cleaned
+structured
+chapter_processing
+chapter_partial_ready
+consistency_reviewing
+preview_ready
+completed
+failed
+状态含义
+created：项目刚建立，原始文本已导入但未处理
+text_cleaned：基础清洗完成
+structured：Structure Agent 已完成，章节结构可用
+chapter_processing：正在逐章处理
+chapter_partial_ready：已有部分章节完成，可预览
+consistency_reviewing：全局一致性检查中
+preview_ready：可生成可玩预览
+completed：全项目核心流程完成
+failed：项目级失败，需要人工介入
+4.2 章节状态机
+状态列表
+raw
+narrative_parsed
+attributed
+segmented
+scene_mapping
+fidelity_reviewing
+chapter_ready
+failed
+含义
+raw：章节文本已切出，但未解析
+narrative_parsed：叙事单元解析完成
+attributed：归因完成
+segmented：scene 切分完成
+scene_mapping：scene 正在映射 VN 脚本
+fidelity_reviewing：VN 脚本保真审查中
+chapter_ready：该章可用于预览
+failed：该章处理失败，需要重跑或人工确认
+4.3 scene 状态机
+状态列表
+pending
+mapped
+visual_prompt_ready
+fidelity_passed
+fidelity_failed
+finalized
+含义
+pending：scene 已定义但还未生成脚本
+mapped：VN Mapping 完成
+visual_prompt_ready：视觉 prompt 已准备好
+fidelity_passed：保真通过
+fidelity_failed：保真失败，需要重试或回退
+finalized：scene 已冻结，可用于最终播放
+五、完整协作工作流设计
+阶段 0：项目创建与输入接收
+触发条件
+用户：
+
+创建项目
+导入 txt 小说
+配置基础参数
+例如：
+
+忠实度模式
+scene 切分策略
+视觉风格模板
+预算模式
+Orchestrator 动作
+创建 ProjectState
+记录原始文件
+初始化状态为 created
+初始化章节任务表为空
+初始化缓存索引
+输出
+原始项目记录
+原始文本存档
+用户配置存档
+阶段 1：Structure Stage
+由 Structure Agent 负责。
+
+输入
+原始 txt
+清洗规则模板
+章节识别规则
+处理内容
+基础清洗
+编码统一
+章节识别
+特殊章节识别
+结构树构建
+输出
+清洗文本
+章节列表
+结构置信度
+特殊章节标签
+状态流转
+项目：
+
+created → text_cleaned → structured
+章节：
+
+所有章节初始化为 raw
+缓存点
+必须缓存：
+
+cleaned_text
+chapter_boundaries
+structure_tree
+失败处理
+轻度失败：章节边界置信度低，允许人工确认章节边界
+重度失败：无法稳定识别章节，项目进入 failed
+阶段 2：Chapter Pipeline 启动
+Orchestrator 会按章节创建子任务。
+
+处理原则
+串行为主：建议按章节顺序处理
+局部并行：不同章节可在后续版本并行，但 v1 先保守
+为什么按章节驱动
+因为章节是天然边界：
+
+易缓存
+易重跑
+易预览
+易做局部失败恢复
+阶段 3：Narrative Parsing Stage
+由 Narrative Parsing Agent 负责。
+
+输入
+单章正文
+章节标题
+上下文摘要（可选）
+输出
+Annotated Narrative Units
+单元类型标签
+解析置信度
+状态流转
+章节：
+
+raw → narrative_parsed
+缓存点
+chapter_units
+parsing_confidence
+suspicious_units
+失败处理
+轻度失败：部分段落混合严重，标记可疑段落，允许继续
+中度失败：解析结果不稳定，重试一次强模型
+重度失败：章节进入 failed
+阶段 4：Attribution Stage
+由 Attribution Agent 负责。
+
+输入
+Annotated Narrative Units
+当前章节上下文
+已知角色候选表
+输出
+Attributed Narrative Units
+speaker/actor/thinker 结果
+uncertain 标记
+角色提及映射
+状态流转
+章节：
+
+narrative_parsed → attributed
+缓存点
+attributed_units
+speaker_map
+alias_map
+uncertain_items
+失败处理
+轻度失败：某些对话归因不确定，标记 uncertain，继续流程
+中度失败：归因错误率高，重试一次
+重度失败：章节进入 failed
+阶段 5：Scene Segmentation Stage
+由 Scene Segmentation Agent 负责。
+
+输入
+Attributed Narrative Units
+切分策略参数
+章节标题
+输出
+Scene List
+Scene-to-Unit Mapping
+Scene 边界原因
+Scene 摘要
+状态流转
+章节：
+
+attributed → segmented
+scene：
+
+新建 scene，状态设为 pending
+缓存点
+scene_list
+scene_boundaries
+scene_unit_map
+scene_summaries
+失败处理
+轻度失败：边界不够理想，允许继续
+中度失败：scene 切分过碎/过粗，重试一次并改变切分策略
+重度失败：章节进入 failed
+阶段 6：Scene-Level 双分支处理
+scene 确定后，进入两个可并行子流程：
+
+VN Mapping
+Visual Prompt
+但注意，VN Mapping 是主流程，Visual Prompt 是附属流程。
+
+阶段 6A：VN Mapping Stage
+由 VN Mapping Agent 负责。
+
+输入
+单个 scene
+scene 对应的 attributed units
+VN 映射策略参数
+忠实度参数
+输出
+VNScript
+原文到 step 的映射
+step 级标签
+可疑扩写标记
+状态流转
+scene：
+
+pending → mapped
+章节：
+
+segmented → scene_mapping
+缓存点
+scene_script
+unit_to_step_map
+mapping_confidence
+失败处理
+轻度失败：输出格式错误，schema 校验失败，自动重试一次
+中度失败：step 结构可用但质量差，降级到保守映射模式
+重度失败：scene 标记失败，章节进入 failed
+阶段 6B：Visual Prompt Stage
+由 Visual Prompt Agent 负责。
+
+输入
+单个 scene
+attributed units
+全局视觉风格模板
+输出
+角色 prompt
+背景 prompt
+可选 CG prompt
+视觉证据清单
+状态流转
+scene：
+
+mapped 或 pending → visual_prompt_ready
+v1 为了稳，建议在 mapped 后启动。
+
+缓存点
+character_prompt_pack
+background_prompt_pack
+visual_evidence
+失败处理
+轻度失败：证据不足，输出保守 prompt
+中度失败：prompt 不完整，重试一次
+重度失败：scene 仅保留文本播放，不阻塞主流程
+视觉 prompt 失败不应阻塞 VN 主链路。
+
+阶段 7：Fidelity Review Stage
+由 Fidelity Review Agent 负责。
+
+输入
+原文 scene
+attributed units
+VNScript
+unit_to_step_map
+输出
+Fidelity Report
+问题列表
+严重性等级
+patch 建议
+pass/fail
+状态流转
+scene：
+
+mapped → fidelity_passed 或 fidelity_failed
+章节：
+
+scene_mapping → fidelity_reviewing
+审查结果分级
+Pass：直接通过
+Minor Issues：允许自动 patch 或记录后通过
+Major Issues：要求重跑 VN Mapping
+Critical Issues：章节进入失败或人工确认
+回退机制
+Minor：应用小 patch，scene 进入 fidelity_passed
+Major：回退到 VN Mapping Stage，使用更保守映射参数重跑
+Critical：scene 标记 fidelity_failed，章节暂停
+阶段 8：Chapter Completion
+当一个章节下所有 scene 都完成主链路后，章节可进入 ready 状态。
+
+完成条件
+所有 scene 至少完成 VN Mapping
+所有 scene 通过 Fidelity Review 或被接受为保守降级版本
+视觉 prompt 可选，不作为硬阻塞条件
+状态流转
+章节：
+
+fidelity_reviewing → chapter_ready
+项目：
+
+若有至少 1 章 ready，则可进入 chapter_partial_ready
+结果
+该章已经可以用于：
+
+Web 预览
+播放器测试
+后续一致性检查
+阶段 9：Consistency Review Stage
+由 Consistency Review Agent 负责。
+
+触发时机
+方式 A：每处理完若干章触发一次
+方式 B：全项目完成后统一跑
+v1 可以先用方式 B
+输入
+全项目章节结果
+scene 列表
+scripts
+visual prompts
+alias map
+输出
+Consistency Report
+命名冲突
+背景标签冲突
+prompt 风格漂移
+归一建议
+状态流转
+项目：
+
+chapter_partial_ready / chapter_processing → consistency_reviewing
+审查通过后 → preview_ready
+回退机制
+命名问题：回退到 Attribution 输出修正或做规则归一
+scene 标签问题：回退到 Scene Segmentation 或做后处理归一
+prompt 风格问题：回退到 Visual Prompt Agent 重跑
+阶段 10：Preview Ready
+条件
+至少一部分章节 ready
+对应 scene 脚本可运行
+基础一致性可接受
+视觉 prompt 可选
+状态流转
+项目：
+
+preview_ready
+说明
+不必等整本书全完成。
+对本地工作台来说，非常重要的一点是：
+
+支持分章预览、渐进生成。
+
+六、缓存设计
+建议缓存分 6 层：
+
+1. 原始输入缓存
+raw_text
+cleaned_text
+2. 结构缓存
+chapter_boundaries
+structure_tree
+3. 章节解析缓存
+narrative_units
+attributed_units
+4. scene 缓存
+scene_list
+scene_unit_map
+5. 脚本缓存
+scene_script
+fidelity_report
+6. 视觉缓存
+prompt packs
+image generation request metadata
+缓存失效原则
+改结构规则：structure 及以下全部失效
+改 parsing 策略：parsing 及以下失效
+改 attribution 策略：attribution 及以下失效
+改 scene 切分策略：scene segmentation 及以下失效
+改 VN 映射策略：VN Mapping 及以下失效
+改视觉风格：只失效 Visual Prompt 及图像生成
+七、失败与回退总策略
+定义三种失败级别：
+
+Soft Fail
+问题不阻塞主流程。
+例如：
+
+某个视觉 prompt 不完整
+某个 speaker 不确定但可标记 uncertain
+处理：
+
+记录问题
+继续流程
+Recoverable Fail
+当前步骤失败，但可重试或降级。
+例如：
+
+VN Mapping schema 错误
+scene 切分不合理
+Fidelity Review major issue
+处理：
+
+自动重试
+或切换保守模式
+Hard Fail
+无法继续，需要人工确认或停止该章节。
+例如：
+
+结构完全错乱
+归因严重失真
+VN Mapping 持续偏离原文
+处理：
+
+章节 failed
+项目继续处理其他章节或暂停
+八、人工确认点设计
+人工确认点不应是“改台词”，而应是“确认结构与呈现”。
+
+推荐确认点 1：结构确认
+在 Structure Stage 后，如果结构置信度低：
+
+用户确认章节边界
+推荐确认点 2：scene 切分确认
+如果某章切分质量较低：
+
+用户确认 scene 数量和边界
+推荐确认点 3：保真冲突确认
+当 Fidelity Review 出现 critical issue：
+
+用户决定是否接受保守映射版本
+而不是改剧情
+推荐确认点 4：视觉 prompt 确认
+用户可确认：
+
+角色外观 prompt
+背景风格 prompt
+但不能改剧情事实。
+
+九、推荐执行模式
+1. 全自动模式
+适合快速预览：
+
+一键跑完整链路
+低人工干预
+2. 分章模式
+适合长篇：
+
+逐章处理
+每章完成即可预览
+3. 审核优先模式
+适合质量要求高：
+
+每章 scene 切分后暂停
+每章 fidelity review 后暂停
+用户确认再继续
+十、v1 实际推荐工作流
+text
+ 
+导入 txt
+  ↓
+Structure Agent
+  ↓
+逐章：
+  Narrative Parsing
+    ↓
+  Attribution
+    ↓
+  Scene Segmentation
+    ↓
+  对每个 scene：
+      VN Mapping
+      ↓
+      Fidelity Review
+      ↓
+      Visual Prompt
+  ↓
+章节 ready
+  ↓
+若干章后跑 Consistency Review
+  ↓
+Preview Ready

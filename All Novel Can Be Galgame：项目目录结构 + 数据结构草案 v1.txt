@@ -1,0 +1,1200 @@
+一、总体架构建议
+我建议项目整体分成 5 层：
+
+text
+ 
+apps/            # 可运行应用
+packages/        # 共享包
+services/        # 本地后端服务/任务执行
+data/            # 本地项目数据与缓存
+docs/            # 产品/技术文档
+更具体一点：
+
+apps/workbench：本地工作台前端
+apps/api：本地 API / orchestration 服务
+packages/core：领域模型、schema、类型定义
+packages/agents：各 Agent 实现
+packages/runtime：VN 播放运行时
+packages/providers：模型 API 适配层
+packages/storage：本地存储与缓存层
+packages/evaluation：评测与回归工具
+data/projects：用户项目数据
+data/cache：模型与中间结果缓存
+二、推荐目录结构
+下面是一版比较完整的 monorepo 结构。
+
+text
+ 
+all-novel-can-be-galgame/
+├─ apps/
+│  ├─ workbench/                     # 本地工作台前端
+│  │  ├─ src/
+│  │  │  ├─ app/
+│  │  │  ├─ pages/
+│  │  │  ├─ components/
+│  │  │  ├─ features/
+│  │  │  ├─ hooks/
+│  │  │  ├─ store/
+│  │  │  ├─ services/
+│  │  │  ├─ styles/
+│  │  │  └─ types/
+│  │  ├─ public/
+│  │  └─ package.json
+│  │
+│  └─ api/                           # 本地后端 API / orchestration
+│     ├─ src/
+│     │  ├─ server/
+│     │  ├─ routes/
+│     │  ├─ controllers/
+│     │  ├─ jobs/
+│     │  ├─ orchestrator/
+│     │  ├─ middleware/
+│     │  ├─ config/
+│     │  └─ index.ts
+│     └─ package.json
+│
+├─ packages/
+│  ├─ core/                          # 领域模型、schema、状态定义
+│  │  ├─ src/
+│  │  │  ├─ domain/
+│  │  │  ├─ schemas/
+│  │  │  ├─ state/
+│  │  │  ├─ constants/
+│  │  │  └─ index.ts
+│  │
+│  ├─ agents/                        # 所有 Agent
+│  │  ├─ src/
+│  │  │  ├─ structure/
+│  │  │  ├─ narrative-parsing/
+│  │  │  ├─ attribution/
+│  │  │  ├─ scene-segmentation/
+│  │  │  ├─ vn-mapping/
+│  │  │  ├─ fidelity-review/
+│  │  │  ├─ visual-prompt/
+│  │  │  ├─ consistency-review/
+│  │  │  ├─ shared/
+│  │  │  └─ index.ts
+│  │
+│  ├─ providers/                     # 模型/API provider 适配
+│  │  ├─ src/
+│  │  │  ├─ llm/
+│  │  │  │  ├─ openai/
+│  │  │  │  ├─ anthropic/
+│  │  │  │  ├─ local/
+│  │  │  │  └─ index.ts
+│  │  │  ├─ image/
+│  │  │  │  ├─ openai-image/
+│  │  │  │  └─ index.ts
+│  │  │  ├─ interfaces/
+│  │  │  └─ index.ts
+│  │
+│  ├─ storage/                       # 本地存储、缓存、仓储层
+│  │  ├─ src/
+│  │  │  ├─ db/
+│  │  │  ├─ repositories/
+│  │  │  ├─ cache/
+│  │  │  ├─ filesystem/
+│  │  │  └─ index.ts
+│  │
+│  ├─ runtime/                       # VN 播放运行时
+│  │  ├─ src/
+│  │  │  ├─ player/
+│  │  │  ├─ renderer/
+│  │  │  ├─ step-engine/
+│  │  │  └─ index.ts
+│  │
+│  ├─ evaluation/                    # 评测工具
+│  │  ├─ src/
+│  │  │  ├─ metrics/
+│  │  │  ├─ regression/
+│  │  │  ├─ datasets/
+│  │  │  └─ index.ts
+│  │
+│  ├─ prompts/                       # Prompt 模板
+│  │  ├─ structure/
+│  │  ├─ narrative-parsing/
+│  │  ├─ attribution/
+│  │  ├─ scene-segmentation/
+│  │  ├─ vn-mapping/
+│  │  ├─ fidelity-review/
+│  │  ├─ visual-prompt/
+│  │  └─ shared/
+│  │
+│  └─ utils/                         # 通用工具
+│     ├─ src/
+│     │  ├─ text/
+│     │  ├─ json/
+│     │  ├─ logging/
+│     │  ├─ time/
+│     │  └─ index.ts
+│
+├─ data/
+│  ├─ projects/                      # 用户项目数据
+│  │  └─ <project_id>/
+│  │     ├─ project.json
+│  │     ├─ raw/
+│  │     ├─ normalized/
+│  │     ├─ chapters/
+│  │     ├─ scenes/
+│  │     ├─ scripts/
+│  │     ├─ prompts/
+│  │     ├─ reports/
+│  │     ├─ preview/
+│  │     └─ logs/
+│  │
+│  ├─ cache/                         # 全局缓存
+│  │  ├─ llm/
+│  │  ├─ image/
+│  │  └─ temp/
+│  │
+│  ├─ datasets/                      # 研发数据集
+│  │  ├─ raw-books/
+│  │  ├─ dev-set/
+│  │  ├─ val-set/
+│  │  ├─ stress-set/
+│  │  └─ gold-set/
+│  │
+│  └─ config/
+│     ├─ app.json
+│     ├─ models.json
+│     └─ user-preferences.json
+│
+├─ docs/
+│  ├─ product/
+│  ├─ architecture/
+│  ├─ agents/
+│  ├─ evaluation/
+│  └─ datasets/
+│
+├─ scripts/
+│  ├─ dev/
+│  ├─ migrate/
+│  ├─ eval/
+│  └─ import/
+│
+├─ package.json
+├─ pnpm-workspace.yaml
+├─ turbo.json
+└─ README.md
+三、目录结构背后的设计原则
+1. apps 和 packages 分离
+这样可以把：
+
+前端工作台
+本地 API 服务
+Agent 引擎
+runtime
+provider 适配
+拆开，后面更容易维护。
+
+2. prompts 独立成包
+这点我很建议你一开始就这么做。
+因为你后面会频繁改：
+
+Narrative Parsing prompt
+Attribution prompt
+VN Mapping prompt
+Fidelity Review prompt
+如果 prompt 散落在代码里，后面很难管理版本。
+
+3. data 独立为本地数据根目录
+因为你是本地工作台，所以项目数据、缓存、日志、生成结果都应该落盘。
+
+4. packages/core 统一定义 schema 和状态
+这样前后端、Agent、Orchestrator 都共用同一套类型和 schema，避免混乱。
+
+四、项目内数据目录建议
+每个项目建议单独一个目录：
+
+text
+ 
+data/projects/<project_id>/
+├─ project.json
+├─ raw/
+├─ normalized/
+├─ chapters/
+├─ scenes/
+├─ scripts/
+├─ prompts/
+├─ reports/
+├─ preview/
+└─ logs/
+下面是每一层的作用。
+
+4.1 project.json
+保存项目元信息和全局状态。
+
+4.2 raw/
+保存原始输入文件。
+
+例如：
+
+text
+ 
+raw/
+└─ novel.txt
+4.3 normalized/
+保存清洗后的文本和结构结果。
+
+例如：
+
+text
+ 
+normalized/
+├─ cleaned.txt
+├─ structure.json
+└─ chapter_index.json
+4.4 chapters/
+按章节保存中间结果。
+
+例如：
+
+text
+ 
+chapters/
+├─ chapter-0001/
+│  ├─ source.txt
+│  ├─ narrative_units.json
+│  ├─ attributed_units.json
+│  ├─ segmentation.json
+│  └─ chapter_state.json
+├─ chapter-0002/
+│  └─ ...
+4.5 scenes/
+按 scene 保存结果。
+
+例如：
+
+text
+ 
+scenes/
+├─ scene-0001/
+│  ├─ scene.json
+│  ├─ mapping_input.json
+│  ├─ vn_script.json
+│  ├─ fidelity_report.json
+│  ├─ visual_prompt.json
+│  └─ scene_state.json
+4.6 scripts/
+保存按章节或全书聚合后的脚本。
+
+例如：
+
+text
+ 
+scripts/
+├─ chapter-0001-script.json
+├─ chapter-0002-script.json
+└─ full-preview-script.json
+4.7 prompts/
+保存视觉 prompt 和可能的图像生成请求。
+
+4.8 reports/
+保存：
+
+fidelity 汇总
+consistency 汇总
+项目处理报告
+4.9 preview/
+保存播放器直接消费的数据快照。
+
+4.10 logs/
+保存项目级日志和任务日志。
+
+五、核心数据结构草案
+下面开始定义最重要的数据结构。
+我会用接近 TypeScript interface 的形式写，便于你直接迁移到代码。
+
+六、Project 级数据结构
+6.1 ProjectConfig
+ts
+ 
+type FidelityMode = "conservative" | "standard";
+type SegmentationMode = "conservative" | "standard";
+type BudgetMode = "high_quality" | "balanced" | "budget";
+
+interface ProjectConfig {
+  fidelityMode: FidelityMode;
+  segmentationMode: SegmentationMode;
+  visualStyleTemplate: string;   // e.g. "school-romance-anime"
+  budgetMode: BudgetMode;
+
+  autoRunVisualPrompt: boolean;
+  autoRunConsistencyReview: boolean;
+
+  defaultTextModel: string;
+  defaultImageModel?: string;
+
+  language: "zh-CN";
+  genreHint?: string;            // e.g. "romance", "campus-romance"
+}
+6.2 ProjectState
+ts
+ 
+type ProjectStatus =
+  | "created"
+  | "text_cleaned"
+  | "structured"
+  | "chapter_processing"
+  | "chapter_partial_ready"
+  | "consistency_reviewing"
+  | "preview_ready"
+  | "completed"
+  | "failed";
+
+interface ProjectState {
+  projectId: string;
+  title: string;
+  sourceFileName: string;
+  sourceFilePath: string;
+
+  status: ProjectStatus;
+  config: ProjectConfig;
+
+  totalChapters: number;
+  readyChapters: number;
+  failedChapters: number;
+
+  createdAt: string;
+  updatedAt: string;
+
+  currentTaskId?: string;
+  lastError?: string;
+}
+6.3 ProjectManifest
+ts
+ 
+interface ProjectManifest {
+  project: ProjectState;
+  chapterIds: string[];
+  sceneIds: string[];
+  paths: {
+    rawDir: string;
+    normalizedDir: string;
+    chaptersDir: string;
+    scenesDir: string;
+    scriptsDir: string;
+    promptsDir: string;
+    reportsDir: string;
+    logsDir: string;
+    previewDir: string;
+  };
+}
+七、结构解析相关数据结构
+7.1 ChapterMeta
+ts
+ 
+interface ChapterMeta {
+  chapterId: string;
+  index: number;
+  title: string;
+  startOffset: number;
+  endOffset: number;
+  charCount: number;
+
+  isExtra?: boolean;       // 番外
+  isAfterword?: boolean;   // 后记
+  isAuthorNote?: boolean;  // 作者的话
+
+  confidence?: number;
+}
+7.2 StructureResult
+ts
+ 
+interface StructureResult {
+  bookTitle?: string;
+  chapters: ChapterMeta[];
+  cleanedTextPath: string;
+  structureConfidence: number;
+  warnings?: string[];
+}
+八、章节状态与章节内容结构
+8.1 ChapterState
+ts
+ 
+type ChapterStatus =
+  | "raw"
+  | "narrative_parsed"
+  | "attributed"
+  | "segmented"
+  | "scene_mapping"
+  | "fidelity_reviewing"
+  | "chapter_ready"
+  | "failed";
+
+interface ChapterState {
+  chapterId: string;
+  projectId: string;
+  index: number;
+  title: string;
+
+  status: ChapterStatus;
+  sceneIds: string[];
+
+  parsingDone: boolean;
+  attributionDone: boolean;
+  segmentationDone: boolean;
+  mappingDone: boolean;
+  reviewDone: boolean;
+
+  currentTaskId?: string;
+  lastError?: string;
+
+  createdAt: string;
+  updatedAt: string;
+}
+8.2 ChapterSource
+ts
+ 
+interface ChapterSource {
+  chapterId: string;
+  title: string;
+  text: string;
+}
+九、Narrative Parsing 数据结构
+9.1 NarrativeUnitType
+ts
+ 
+type NarrativeUnitType =
+  | "dialogue"
+  | "narration"
+  | "thought"
+  | "action"
+  | "scene_description";
+9.2 NarrativeUnit
+ts
+ 
+interface NarrativeUnit {
+  unitId: string;
+  chapterId: string;
+  order: number;
+
+  originalText: string;
+  normalizedText?: string;
+
+  type: NarrativeUnitType;
+  confidence?: number;
+
+  paragraphIndex?: number;
+  sentenceIndex?: number;
+
+  suspicious?: boolean;
+  notes?: string[];
+}
+9.3 NarrativeParsingResult
+ts
+ 
+interface NarrativeParsingResult {
+  chapterId: string;
+  units: NarrativeUnit[];
+  overallConfidence?: number;
+  warnings?: string[];
+}
+十、Attribution 数据结构
+10.1 CharacterRef
+ts
+ 
+interface CharacterRef {
+  characterId: string;
+  canonicalName: string;
+  aliases: string[];
+}
+10.2 AttributionInfo
+ts
+ 
+interface AttributionInfo {
+  speakerId?: string;
+  actorId?: string;
+  thinkerId?: string;
+
+  participantIds?: string[];
+
+  uncertain?: boolean;
+  evidence?: string[];
+}
+10.3 AttributedNarrativeUnit
+ts
+ 
+interface AttributedNarrativeUnit extends NarrativeUnit {
+  attribution?: AttributionInfo;
+}
+10.4 AttributionResult
+ts
+ 
+interface AttributionResult {
+  chapterId: string;
+  units: AttributedNarrativeUnit[];
+  characters: CharacterRef[];
+  aliasMap: Record<string, string>; // alias -> canonicalName
+  uncertainUnitIds: string[];
+}
+十一、Scene Segmentation 数据结构
+11.1 SceneBoundaryReason
+ts
+ 
+type SceneBoundaryReason =
+  | "location_change"
+  | "time_change"
+  | "event_shift"
+  | "focus_shift"
+  | "flashback_shift"
+  | "unknown";
+11.2 SceneSummary
+ts
+ 
+interface SceneSummary {
+  shortSummary: string;
+  locationHint?: string;
+  timeHint?: string;
+  moodHint?: string;
+}
+11.3 Scene
+ts
+ 
+interface Scene {
+  sceneId: string;
+  chapterId: string;
+  indexInChapter: number;
+
+  unitIds: string[];
+  startUnitId: string;
+  endUnitId: string;
+
+  boundaryReason?: SceneBoundaryReason;
+  summary?: SceneSummary;
+
+  confidence?: number;
+}
+11.4 SegmentationResult
+ts
+ 
+interface SegmentationResult {
+  chapterId: string;
+  scenes: Scene[];
+  sceneUnitMap: Record<string, string[]>; // sceneId -> unitIds
+  warnings?: string[];
+}
+十二、Scene 状态结构
+12.1 SceneState
+ts
+ 
+type SceneStatus =
+  | "pending"
+  | "mapped"
+  | "visual_prompt_ready"
+  | "fidelity_passed"
+  | "fidelity_failed"
+  | "finalized";
+
+interface SceneState {
+  sceneId: string;
+  chapterId: string;
+  projectId: string;
+
+  status: SceneStatus;
+
+  mappingStatus?: "pending" | "done" | "failed";
+  reviewStatus?: "pending" | "passed" | "failed";
+  visualStatus?: "pending" | "done" | "failed";
+
+  lastError?: string;
+  updatedAt: string;
+}
+十三、VN Script 数据结构
+这个是最关键之一。
+建议一开始就把 step schema 设计稳定。
+
+13.1 VNStepType
+ts
+ 
+type VNStepType =
+  | "bg"
+  | "show"
+  | "hide"
+  | "narration"
+  | "say"
+  | "thought"
+  | "pause"
+  | "transition";
+13.2 BaseVNStep
+ts
+ 
+interface BaseVNStep {
+  stepId: string;
+  type: VNStepType;
+  order: number;
+
+  sourceUnitIds?: string[];   // 原文映射
+  confidence?: number;
+}
+13.3 各类 Step
+ts
+ 
+interface BgStep extends BaseVNStep {
+  type: "bg";
+  backgroundId: string;
+  backgroundLabel?: string;
+}
+
+interface ShowStep extends BaseVNStep {
+  type: "show";
+  characterId: string;
+  expression?: string;
+  position?: "left" | "center" | "right";
+}
+
+interface HideStep extends BaseVNStep {
+  type: "hide";
+  characterId: string;
+}
+
+interface NarrationStep extends BaseVNStep {
+  type: "narration";
+  text: string;
+}
+
+interface SayStep extends BaseVNStep {
+  type: "say";
+  characterId?: string;
+  displayName?: string;
+  text: string;
+}
+
+interface ThoughtStep extends BaseVNStep {
+  type: "thought";
+  characterId?: string;
+  displayName?: string;
+  text: string;
+}
+
+interface PauseStep extends BaseVNStep {
+  type: "pause";
+  durationMs?: number;
+}
+
+interface TransitionStep extends BaseVNStep {
+  type: "transition";
+  name?: string; // fade, cut, dissolve
+}
+13.4 VNStep 联合类型
+ts
+ 
+type VNStep =
+  | BgStep
+  | ShowStep
+  | HideStep
+  | NarrationStep
+  | SayStep
+  | ThoughtStep
+  | PauseStep
+  | TransitionStep;
+13.5 VNScript
+ts
+ 
+interface VNScript {
+  sceneId: string;
+  chapterId: string;
+  steps: VNStep[];
+
+  mappingMode: "standard" | "conservative";
+  overallConfidence?: number;
+
+  suspiciousExpansions?: string[];
+}
+13.6 UnitToStepMap
+ts
+ 
+interface UnitToStepMap {
+  sceneId: string;
+  map: Array<{
+    unitId: string;
+    stepIds: string[];
+  }>;
+}
+十四、Fidelity Review 数据结构
+14.1 FidelityIssueSeverity
+ts
+ 
+type FidelityIssueSeverity =
+  | "minor"
+  | "major"
+  | "critical";
+14.2 FidelityIssueType
+ts
+ 
+type FidelityIssueType =
+  | "dialogue_rewrite"
+  | "content_omission"
+  | "wrong_attribution"
+  | "order_changed"
+  | "unsupported_addition"
+  | "semantic_drift";
+14.3 FidelityIssue
+ts
+ 
+interface FidelityIssue {
+  issueId: string;
+  type: FidelityIssueType;
+  severity: FidelityIssueSeverity;
+
+  message: string;
+  relatedUnitIds?: string[];
+  relatedStepIds?: string[];
+
+  suggestion?: string;
+}
+14.4 FidelityReport
+ts
+ 
+interface FidelityReport {
+  sceneId: string;
+  chapterId: string;
+
+  passed: boolean;
+  severity: "pass" | "minor" | "major" | "critical";
+
+  issues: FidelityIssue[];
+  patchSuggestions?: string[];
+
+  reviewedAt: string;
+}
+十五、Visual Prompt 数据结构
+15.1 VisualEvidence
+ts
+ 
+interface VisualEvidence {
+  sourceUnitId?: string;
+  quote: string;
+  category:
+    | "appearance"
+    | "clothing"
+    | "location"
+    | "time"
+    | "weather"
+    | "mood"
+    | "object";
+}
+15.2 CharacterPromptPack
+ts
+ 
+interface CharacterPromptPack {
+  characterId: string;
+  canonicalName: string;
+
+  evidence: VisualEvidence[];
+  conservativeCompletion?: string[];
+
+  finalPrompt: string;
+}
+15.3 BackgroundPromptPack
+ts
+ 
+interface BackgroundPromptPack {
+  sceneId: string;
+  evidence: VisualEvidence[];
+  conservativeCompletion?: string[];
+  finalPrompt: string;
+}
+15.4 VisualPromptResult
+ts
+ 
+interface VisualPromptResult {
+  sceneId: string;
+  chapterId: string;
+
+  characterPrompts: CharacterPromptPack[];
+  backgroundPrompt?: BackgroundPromptPack;
+
+  styleTemplate: string;
+}
+十六、Consistency Review 数据结构
+16.1 ConsistencyIssue
+ts
+ 
+type ConsistencyIssueType =
+  | "character_name_conflict"
+  | "alias_conflict"
+  | "background_label_conflict"
+  | "scene_label_conflict"
+  | "prompt_style_drift";
+
+interface ConsistencyIssue {
+  issueId: string;
+  type: ConsistencyIssueType;
+  message: string;
+  relatedIds?: string[];
+  suggestion?: string;
+}
+16.2 ConsistencyReport
+ts
+ 
+interface ConsistencyReport {
+  projectId: string;
+  issues: ConsistencyIssue[];
+  generatedAt: string;
+}
+十七、任务与调度数据结构
+17.1 TaskType
+ts
+ 
+type TaskType =
+  | "structure"
+  | "narrative_parsing"
+  | "attribution"
+  | "scene_segmentation"
+  | "vn_mapping"
+  | "fidelity_review"
+  | "visual_prompt"
+  | "consistency_review";
+17.2 TaskStatus
+ts
+ 
+type TaskStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+17.3 TaskRecord
+ts
+ 
+interface TaskRecord {
+  taskId: string;
+  projectId: string;
+  chapterId?: string;
+  sceneId?: string;
+
+  type: TaskType;
+  status: TaskStatus;
+
+  provider?: string;
+  model?: string;
+
+  startedAt?: string;
+  finishedAt?: string;
+
+  errorMessage?: string;
+
+  inputHash?: string;
+  outputPath?: string;
+}
+十八、缓存键设计建议
+缓存建议不要只按 taskId 存，而要按“输入内容 + 参数版本”生成 key。
+
+18.1 CacheKey
+ts
+ 
+interface CacheKey {
+  taskType: TaskType;
+  projectId: string;
+  chapterId?: string;
+  sceneId?: string;
+
+  inputHash: string;
+  configHash: string;
+  promptVersion: string;
+  model: string;
+}
+18.2 CacheEntry
+ts
+ 
+interface CacheEntry {
+  key: CacheKey;
+  hitCount: number;
+  createdAt: string;
+  outputPath: string;
+}
+十九、前端状态管理建议
+前端 store 不要直接存所有大文本全文，建议存：
+
+项目列表
+当前项目元信息
+当前章节列表
+当前 scene 列表
+当前任务状态
+当前预览数据引用
+大文本内容按需加载。
+
+19.1 Frontend Store 草案
+ts
+ 
+interface AppStore {
+  projects: ProjectState[];
+  currentProjectId?: string;
+
+  chaptersByProject: Record<string, ChapterState[]>;
+  scenesByChapter: Record<string, SceneState[]>;
+
+  tasksByProject: Record<string, TaskRecord[]>;
+}
+二十、API 路由草案
+如果本地后端做 REST 风格，P0 可以先这样设计。
+
+20.1 项目相关
+text
+ 
+POST   /projects
+GET    /projects
+GET    /projects/:projectId
+DELETE /projects/:projectId
+20.2 文件与结构
+text
+ 
+POST   /projects/:projectId/import
+POST   /projects/:projectId/structure/run
+GET    /projects/:projectId/structure
+20.3 章节处理
+text
+ 
+GET    /projects/:projectId/chapters
+GET    /projects/:projectId/chapters/:chapterId
+POST   /projects/:projectId/chapters/:chapterId/run
+POST   /projects/:projectId/chapters/:chapterId/rerun
+20.4 scene 处理
+text
+ 
+GET    /projects/:projectId/chapters/:chapterId/scenes
+GET    /projects/:projectId/scenes/:sceneId
+POST   /projects/:projectId/scenes/:sceneId/mapping/run
+POST   /projects/:projectId/scenes/:sceneId/review/run
+POST   /projects/:projectId/scenes/:sceneId/visual-prompt/run
+20.5 脚本与预览
+text
+ 
+GET    /projects/:projectId/scenes/:sceneId/script
+GET    /projects/:projectId/preview/chapter/:chapterId
+GET    /projects/:projectId/preview/scene/:sceneId
+20.6 日志与任务
+text
+ 
+GET    /projects/:projectId/tasks
+GET    /projects/:projectId/tasks/:taskId
+20.7 配置
+text
+ 
+GET    /config/models
+POST   /config/models
+POST   /config/test-connection
+二十一、Agent 包内部目录建议
+以 packages/agents 为例：
+
+text
+ 
+packages/agents/src/
+├─ structure/
+│  ├─ index.ts
+│  ├─ structure-agent.ts
+│  ├─ cleaner.ts
+│  ├─ chapter-detector.ts
+│  └─ schema.ts
+├─ narrative-parsing/
+│  ├─ index.ts
+│  ├─ narrative-parsing-agent.ts
+│  ├─ preprocess.ts
+│  ├─ prompt.ts
+│  └─ schema.ts
+├─ attribution/
+│  ├─ index.ts
+│  ├─ attribution-agent.ts
+│  ├─ candidate-generator.ts
+│  ├─ prompt.ts
+│  └─ schema.ts
+...
+这样每个 Agent 内部都统一包含：
+
+agent 主实现
+prompt
+schema
+preprocess / helper
+index 导出
+二十二、Orchestrator 目录建议
+text
+ 
+apps/api/src/orchestrator/
+├─ index.ts
+├─ project-orchestrator.ts
+├─ chapter-pipeline.ts
+├─ scene-pipeline.ts
+├─ task-runner.ts
+├─ retry-policy.ts
+├─ fallback-policy.ts
+└─ state-manager.ts
+各文件职责
+project-orchestrator.ts：全项目调度
+chapter-pipeline.ts：章节主链路
+scene-pipeline.ts：scene 级 mapping/review/prompt
+task-runner.ts：统一任务执行封装
+retry-policy.ts：失败重试规则
+fallback-policy.ts：保守模式降级策略
+state-manager.ts：状态读写
+二十三、播放器 runtime 目录建议
+text
+ 
+packages/runtime/src/
+├─ player/
+│  ├─ player-controller.ts
+│  ├─ player-state.ts
+│  └─ navigation.ts
+├─ step-engine/
+│  ├─ execute-step.ts
+│  ├─ step-types.ts
+│  └─ validators.ts
+├─ renderer/
+│  ├─ background-renderer.ts
+│  ├─ character-renderer.ts
+│  ├─ text-renderer.ts
+│  └─ transition-renderer.ts
+└─ index.ts
+二十四、数据库还是文件？
+你这个项目我建议 P0 采用“文件系统 + 轻量数据库索引”混合模式。
+
+为什么不是纯数据库
+因为你有很多：
+
+原始文本
+中间 JSON
+prompt
+script
+report
+预览快照
+这些天然适合落文件。
+
+为什么也不是纯文件
+因为你还需要方便地查：
+
+项目列表
+任务状态
+最近更新时间
+哪些章节 ready
+哪些 scene failed
+这些更适合用轻量 DB 做索引。
+
+推荐方案
+文件系统：存正文和中间结果 JSON
+SQLite：存项目、章节、scene、任务索引
+二十五、SQLite 表草案
+25.1 projects
+sql
+ 
+CREATE TABLE projects (
+  project_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  source_file_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  total_chapters INTEGER DEFAULT 0,
+  ready_chapters INTEGER DEFAULT 0,
+  failed_chapters INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+25.2 chapters
+sql
+ 
+CREATE TABLE chapters (
+  chapter_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  chapter_index INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL,
+  scene_count INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+25.3 scenes
+sql
+ 
+CREATE TABLE scenes (
+  scene_id TEXT PRIMARY KEY,
+  chapter_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  scene_index INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  mapping_status TEXT,
+  review_status TEXT,
+  visual_status TEXT,
+  updated_at TEXT NOT NULL
+);
+25.4 tasks
+sql
+ 
+CREATE TABLE tasks (
+  task_id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  chapter_id TEXT,
+  scene_id TEXT,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  provider TEXT,
+  model TEXT,
+  started_at TEXT,
+  finished_at TEXT,
+  error_message TEXT,
+  input_hash TEXT,
+  output_path TEXT
+);
+二十六、命名规范建议
+这个很重要，后面会省很多事。
+
+ID 命名
+project_<uuid>
+chapter_0001
+scene_0001_0003（第 1 章第 3 scene）
+task_<uuid>
+unit_<chapter>_<index>
+step_<scene>_<index>
+文件命名
+structure.json
+narrative_units.json
+attributed_units.json
+segmentation.json
+vn_script.json
+fidelity_report.json
+visual_prompt.json
+chapter_state.json
+scene_state.json
+二十七、P0 最小实现建议
+如果你要尽快开工，我建议第一版先实现这些最小对象：
+
+必须先定义的 schema
+ProjectState
+ChapterState
+SceneState
+NarrativeUnit
+AttributedNarrativeUnit
+Scene
+VNStep / VNScript
+FidelityReport
+TaskRecord
+必须先建的目录
+apps/workbench
+apps/api
+packages/core
+packages/agents
+packages/providers
+packages/storage
+packages/runtime
+data/projects
+二十八、给 Claude/Codex 的实施建议
+如果你接下来要让 Claude 或 Codex 开始协作开发，我建议先让它们做的不是“全项目代码”，而是按下面顺序：
+
+第一批
+packages/core 的所有 schema / type 定义
+packages/storage 的项目目录初始化与文件读写
+apps/api 的最小项目 CRUD + 导入接口
+第二批
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+第三批
+VN Mapping Agent
+Fidelity Review Agent
+runtime 播放器 step schema 与最小执行器
+第四批
+workbench 页面壳子
+项目列表 / 项目总览 / 章节页 / scene 页 / 预览页
+二十九、最终结论
+如果现在正式拍板，这份目录结构和数据结构的核心结论是：
+
+项目应采用 monorepo 结构，将本地工作台前端、本地 API 服务、Agent 引擎、provider 适配、runtime、storage 和评测工具分层组织；数据层采用“文件系统存正文与中间结果 + SQLite 存索引与任务状态”的混合方案；所有 Agent 输出都以统一 schema 落盘，保证可缓存、可重跑、可评测。

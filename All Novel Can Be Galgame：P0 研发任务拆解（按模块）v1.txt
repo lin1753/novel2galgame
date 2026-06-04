@@ -1,0 +1,560 @@
+一、P0 总目标
+P0 只做一件事：
+
+打通“txt 小说 → 章节 → scene → VN 脚本 → 预览播放器”的最小可运行闭环。
+
+所以 P0 的任务必须围绕这个闭环服务。
+凡是不能直接帮助闭环成立的，都不应该进入 P0。
+
+二、P0 模块总览
+建议 P0 拆成 8 个模块：
+
+项目与输入模块
+结构解析模块
+文本主链路 Agent 模块
+状态流转与调度模块
+缓存与重跑模块
+预览播放器模块
+工作台基础页面模块
+配置与运行环境模块
+三、模块 1：项目与输入模块
+目标
+支持创建项目并导入 txt 小说，形成后续处理的最小项目对象。
+
+任务清单
+1.1 项目数据骨架
+定义：
+
+Project 基础信息
+文件信息
+当前状态
+参数配置
+创建时间/更新时间
+1.2 txt 文件导入
+支持：
+
+选择本地 txt 文件
+读取文件
+保存原始文本或文件引用
+记录编码信息
+1.3 项目创建流程
+支持：
+
+输入项目名
+默认参数初始化
+创建 ProjectState
+1.4 项目列表最小版
+支持：
+
+展示项目列表
+显示项目状态
+进入项目
+1.5 项目总览最小版
+支持：
+
+展示项目基础信息
+展示总进度
+展示章节处理概览
+依赖关系
+几乎无上游依赖
+是所有后续模块入口
+验收标准
+能创建项目
+能导入 txt
+能在项目列表中看到项目
+能进入项目总览页
+四、模块 2：结构解析模块
+目标
+把原始 txt 解析成章节结构，供章节级处理使用。
+
+任务清单
+2.1 基础文本清洗
+包括：
+
+编码统一
+空白规范化
+基础噪声清洗
+引号规范化
+2.2 章节标题识别
+支持识别常见格式：
+
+第X章
+第一章
+数字章节
+番外
+后记
+2.3 章节正文切分
+将文本按章节边界切开
+生成章节列表
+2.4 特殊章节标记
+番外
+后记
+作者的话（如果能识别）
+2.5 Structure Agent 最小版封装
+输入原始文本
+输出结构化章节结果
+输出结构置信度
+2.6 结构结果存储
+保存 cleaned_text
+保存 chapter list
+保存 structure metadata
+依赖关系
+依赖模块 1 的项目与原始文本
+验收标准
+一本文本能稳定切出章节
+章节顺序正确
+章节内容不丢失
+后续章节 Agent 能消费这些结果
+五、模块 3：文本主链路 Agent 模块
+这是 P0 的核心。内部再拆成 5 个子模块。
+
+六、模块 3.1：Narrative Parsing Agent
+目标
+把章节正文解析成叙事单元。
+
+任务清单
+3.1.1 输入格式定义
+明确输入：
+
+chapter text
+chapter title
+optional context
+3.1.2 输出格式定义
+明确输出：
+
+narrative units
+type labels
+confidence
+suspicious flags
+3.1.3 规则预处理
+引号内文本初步标记
+段落切分
+句子切分（可粗粒度）
+3.1.4 强模型调用封装
+prompt 模板
+schema 约束
+错误重试
+3.1.5 输出合法性校验
+JSON/schema 校验
+必填字段检查
+类型值合法性检查
+3.1.6 结果存储
+保存 chapter_units
+保存 parsing_confidence
+验收标准
+能对章节输出结构化 narrative units
+输出合法率高
+Gold Set 上达到最低可用线
+七、模块 3.2：Attribution Agent
+目标
+对 narrative units 做 speaker / actor / thinker 归因。
+
+任务清单
+3.2.1 输入格式定义
+输入：
+
+annotated narrative units
+chapter context
+known character candidates
+3.2.2 输出格式定义
+输出：
+
+attributed units
+speaker/actor/thinker
+uncertain flag
+alias map
+3.2.3 角色候选生成基础逻辑
+从章节文本提取角色候选
+从近邻上下文生成候选列表
+3.2.4 强模型调用封装
+归因 prompt
+schema 约束
+重试逻辑
+3.2.5 uncertain 处理机制
+允许不确定
+不强行瞎猜
+3.2.6 结果存储
+保存 attributed_units
+保存 alias_map
+保存 uncertain_items
+验收标准
+speaker attribution 达最低线
+输出可供 scene segmentation 使用
+uncertain 机制可用
+八、模块 3.3：Scene Segmentation Agent
+目标
+把章节切成 scene。
+
+任务清单
+3.3.1 scene 输入定义
+输入：
+
+attributed units
+chapter metadata
+segmentation strategy
+3.3.2 scene 输出定义
+输出：
+
+scene list
+scene boundaries
+boundary reasons
+scene summaries
+3.3.3 候选边界规则
+地点变化提示
+时间变化提示
+段落跳跃提示
+回忆提示词
+3.3.4 强模型调用封装
+scene segmentation prompt
+schema 约束
+重试逻辑
+3.3.5 scene 映射关系建立
+unit → scene
+scene → units
+3.3.6 结果存储
+保存 scene_list
+保存 scene_unit_map
+保存 scene_summaries
+验收标准
+scene 边界可用
+scene 数量合理
+可供 VN Mapping 消费
+九、模块 3.4：VN Mapping Agent
+目标
+把 scene 转成 VN 脚本。
+
+任务清单
+3.4.1 VN script schema 定义
+必须先定义：
+
+narration
+say
+thought
+bg
+show
+hide
+pause
+transition
+3.4.2 scene 输入定义
+输入：
+
+scene
+attributed units
+mapping strategy
+fidelity mode
+3.4.3 强模型调用封装
+VN mapping prompt
+schema 约束
+重试逻辑
+3.4.4 输出合法性检查
+schema 校验
+step 顺序检查
+必填字段检查
+3.4.5 原文映射关系记录
+unit_to_step_map
+3.4.6 保守模式 fallback
+当标准模式失败时切到保守映射模式
+3.4.7 结果存储
+保存 scene_script
+保存 unit_to_step_map
+保存 mapping_confidence
+验收标准
+scene 可输出可运行脚本
+schema 合法率高
+原文台词保留率达标
+十、模块 3.5：Fidelity Review Agent
+目标
+审查 VN Mapping 是否偏离原文。
+
+任务清单
+3.5.1 输入定义
+输入：
+
+原文 scene
+attributed units
+VN script
+unit_to_step_map
+3.5.2 输出定义
+输出：
+
+fidelity report
+issue list
+severity
+pass/fail
+patch suggestion
+3.5.3 规则检查基础版
+台词保留率检查
+step schema 再检查
+顺序一致性基础检查
+新增文本初筛
+3.5.4 强模型审查封装
+review prompt
+问题分类
+严重性分级
+3.5.5 审查结果处理逻辑
+pass
+minor
+major
+critical
+3.5.6 回退触发逻辑
+major/critical 时触发 VN Mapping 重跑或章节失败
+3.5.7 结果存储
+保存 fidelity_report
+保存 review_status
+验收标准
+能拦住明显偏离原文的问题
+能输出可用的 pass/fail 结果
+能驱动回退逻辑
+十一、模块 4：状态流转与调度模块
+目标
+实现最小可用的 Orchestrator，让章节级工作流跑通。
+
+任务清单
+4.1 ProjectState 定义
+字段至少包括：
+
+project_id
+status
+config
+chapter_ids
+progress summary
+4.2 ChapterState 定义
+字段至少包括：
+
+chapter_id
+status
+current_stage
+error_info
+scene_ids
+4.3 SceneState 定义
+字段至少包括：
+
+scene_id
+status
+mapping_status
+review_status
+visual_status
+4.4 主流程编排
+顺序：
+
+structure
+parsing
+attribution
+segmentation
+mapping
+review
+4.5 章节级任务执行器
+按章启动
+按章更新状态
+记录阶段结果
+4.6 失败状态处理
+某步骤失败时更新状态
+支持停止该章
+不影响其他章
+4.7 最小任务日志
+任务开始
+任务结束
+成功/失败
+错误摘要
+验收标准
+能按章节顺序稳定执行
+状态流转正确
+失败不会拖垮全项目
+十二、模块 5：缓存与重跑模块
+目标
+避免重复调用模型，并支持局部重跑。
+
+任务清单
+5.1 结果缓存设计
+缓存至少包括：
+
+structure result
+parsing result
+attribution result
+segmentation result
+scene script
+fidelity report
+5.2 缓存读取逻辑
+若命中缓存则跳过重复执行
+显示缓存命中状态（内部即可）
+5.3 手动重跑单章
+重新执行某章全流程
+5.4 手动重跑某阶段
+例如：
+
+从 parsing 重跑
+从 segmentation 重跑
+从 mapping 重跑
+5.5 手动重跑单个 scene
+重跑 mapping
+重跑 review
+5.6 缓存失效规则最小版
+改 segmentation strategy → segmentation 以下失效
+改 mapping strategy → mapping 以下失效
+改 fidelity mode → review 失效
+验收标准
+同一章重复运行不会重复浪费调用
+用户可重跑失败章节
+scene 级重跑可用
+十三、模块 6：预览播放器模块
+目标
+让生成的 VN script 能被实际播放。
+
+任务清单
+6.1 VN runtime 数据结构定义
+播放器消费的 step 格式要固定。
+
+6.2 播放器最小 UI
+支持：
+
+文本框
+角色名显示
+narration / say / thought 区分
+背景切换
+基础角色显示/隐藏
+6.3 播放控制
+下一句
+上一句（可选简单版）
+自动播放可先不做
+章节切换
+6.4 章节预览入口
+从 chapter_ready 的章节进入预览
+6.5 scene 预览入口
+从 scene 页进入单 scene 预览
+6.6 占位资源机制
+没有图时也能播放
+背景/角色可用占位显示
+验收标准
+生成脚本能被播放器消费
+用户能看懂 VN 播放结果
+没图也能完成预览
+十四、模块 7：工作台基础页面模块
+目标
+提供 P0 必要页面，形成最小工作台闭环。
+
+任务清单
+7.1 项目列表页
+项目卡片
+状态展示
+进入项目
+7.2 新建项目页
+文件选择
+基础参数设置
+创建项目
+7.3 项目总览页
+项目信息
+进度概览
+快捷入口
+7.4 章节页
+章节列表
+章节状态
+运行/重跑操作
+7.5 Scene 页
+scene 列表
+原文/解析/归因对照
+mapping/review 状态
+scene 预览入口
+7.6 预览播放器页
+播放章节或 scene
+验收标准
+用户能从页面完成完整操作路径
+不需要命令行即可完成 P0 闭环
+十五、模块 8：配置与运行环境模块
+目标
+支持本地工作台配置外部模型 API。
+
+任务清单
+8.1 API Key 配置页
+输入 API Key
+保存配置
+8.2 默认模型配置
+文本模型
+图像模型占位
+8.3 预算模式配置
+高质量
+平衡
+省钱
+8.4 连接测试
+测试 API 是否可用
+8.5 基础错误提示
+API key 无效
+网络异常
+超时
+验收标准
+用户能自行完成模型配置
+项目流程能正常调用外部模型
+十六、模块依赖关系
+text
+ 
+模块1 项目与输入
+   ↓
+模块2 结构解析
+   ↓
+模块3 文本主链路 Agent
+   ↓
+模块4 状态流转与调度
+   ↓
+模块5 缓存与重跑
+   ↓
+模块6 预览播放器
+   ↓
+模块7 工作台基础页面
+   ↓
+模块8 配置与运行环境
+但从实际开发角度，模块 7 和 8 可以并行搭最小壳子。
+
+十七、推荐的实现优先级
+第一优先级
+模块 2 结构解析
+模块 3 文本主链路 Agent
+模块 6 预览播放器最小版
+第二优先级
+模块 4 状态流转与调度
+模块 5 缓存与重跑
+第三优先级
+模块 1 项目与输入
+模块 7 工作台页面
+模块 8 配置与运行环境
+十八、建议的最小开发闭环顺序
+Step 1
+先不管完整工作台，做：
+
+txt 输入
+structure
+parsing
+attribution
+segmentation
+mapping
+review
+最小播放器
+证明技术链路成立。
+
+Step 2
+再补：
+
+ProjectState / ChapterState / SceneState
+章节级执行
+缓存
+重跑
+Step 3
+再补：
+
+页面壳子
+项目列表
+章节页
+scene 页
+配置页
+十九、P0 模块级验收表
+模块	必须验收点
+项目与输入	能创建项目并导入 txt
+结构解析	能切出章节且顺序正确
+Narrative Parsing	能输出合法 narrative units
+Attribution	能输出 speaker/actor/thinker
+Scene Segmentation	能输出可用 scene 列表
+VN Mapping	能输出可播放 VN script
+Fidelity Review	能输出 pass/fail 和问题列表
+状态流转与调度	能按章节稳定执行
+缓存与重跑	能重跑单章/单 scene
+预览播放器	能播放前 1~3 章
+工作台页面	用户可通过 UI 跑通流程
+配置与运行环境	用户可配置 API 并成功调用

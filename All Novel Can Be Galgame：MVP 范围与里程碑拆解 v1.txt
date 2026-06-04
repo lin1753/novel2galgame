@@ -1,0 +1,317 @@
+一、MVP 一句话定义
+一个本地可部署的工作台，支持导入中文恋爱向 txt 小说，自动完成章节解析、叙事解析、角色归因、scene 切分、VN 脚本映射、保真审查，并生成可预览的视觉小说 Demo；视觉层先采用 prompt 提取 + gpt-image-2。
+
+二、MVP 的产品目标
+MVP 不是为了“一步到位做成完整商业 galgame 生产平台”，而是为了验证三件事：
+
+1. 技术可行性
+证明：
+
+中文恋爱向 txt 小说可以较稳定地转成 VN 结构
+核心 Agent 工作流可以跑通
+忠实转译是可实现的
+2. 产品价值
+证明：
+
+用户愿意把喜欢的小说转成可玩的视觉小说
+本地工作台 + 外部模型 API 的形态可接受
+分章预览是有吸引力的
+3. 工程闭环
+证明：
+
+Agent 可评测
+工作流可缓存
+结果可预览
+失败可回退
+后续可扩展
+三、MVP 的范围定义
+3.1 MVP 必做范围
+A. 输入能力
+导入 txt 小说
+支持中文文本
+支持带章节标题的长篇小说
+支持基础参数配置：
+忠实度模式
+scene 切分策略
+视觉风格模板
+预算模式
+B. 核心文本处理链路
+必须包含：
+
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+VN Mapping Agent
+Fidelity Review Agent
+C. 轻量视觉链路
+Visual Prompt Agent
+输出角色 prompt / 背景 prompt
+接 gpt-image-2
+图片生成失败不阻塞文本主链路
+D. 工作流能力
+章节驱动处理
+scene 级缓存
+失败重试
+保守模式 fallback
+局部重跑
+分章预览
+E. 预览能力
+Web 预览播放器
+支持：
+narration
+say
+thought
+background
+show/hide
+basic transition
+支持按章节预览
+F. 本地工作台能力
+本地项目管理
+API Key 配置
+模型提供商配置
+任务执行状态查看
+缓存与结果查看
+3.2 MVP 可选但非必须
+角色立绘图像实际生成
+背景图像实际生成
+CG prompt
+多模型 provider 切换
+复杂一致性审查
+批量项目管理
+导出 Ren'Py
+3.3 MVP 明确不做
+不做 1：剧情分支
+不做 2：用户修改原文内容
+不做 3：复杂美术系统
+不做 4：全本地 AI
+不做 5：多人协作和社区
+四、MVP 的核心用户路径
+text
+ 
+导入 txt 小说
+  ↓
+配置基础参数
+  ↓
+系统自动解析结构
+  ↓
+逐章处理
+  ↓
+生成 scene 与 VN 脚本
+  ↓
+保真审查
+  ↓
+生成视觉 prompt
+  ↓
+在播放器中预览
+五、MVP 的成功标准
+5.1 技术成功标准
+70% 以上的目标小说能够完成结构解析
+85% 以上的章节可跑到 chapter_ready
+90% 以上的 scene 可生成可播放脚本
+Fidelity Review 能有效拦截明显偏离
+5.2 产品成功标准
+用户可以：
+
+导入一本恋爱向 txt 小说
+在合理时间内看到前几章 playable demo
+感受到“这确实像 galgame”
+同时又觉得“没有乱改原文”
+5.3 工程成功标准
+全流程有缓存
+支持分章重跑
+失败不会导致全项目报废
+本地工作台可稳定使用
+API 成本可控
+六、MVP 的最小交付形态
+上传一本带章节的中文恋爱向 txt 小说，系统可自动生成前 1~3 章的可玩 VN 预览。
+
+不是整本书全部完成，而是：
+
+先把前若干章稳定跑通
+证明工作流和体验成立
+七、里程碑拆解总览
+建议拆成 5 个阶段：
+
+Phase 0：数据与评测准备
+Phase 1：文本主链路打通
+Phase 2：工作流与本地工作台
+Phase 3：预览播放器与视觉 prompt
+Phase 4：MVP 收敛与验收
+八、Phase 0：数据与评测准备
+目标
+建立 Agent 打磨所需的数据基础设施。
+
+交付物
+700+ txt 小说基础清洗方案
+元数据字段定义
+50 本研发样本库
+开发/验证/压测集划分
+Gold Set 初版
+核心标注规范
+完成标志
+至少有一套可用的 Gold Set
+至少有一套 Validation Set
+可以开始对 Agent 做定量评测
+风险
+数据清洗不统一
+标注规范太晚确定
+样本偏差过大
+九、Phase 1：文本主链路打通
+目标
+打通从章节到 VN 脚本的主链路。
+
+范围
+实现并串起：
+
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+VN Mapping Agent
+Fidelity Review Agent
+交付物
+单章可跑通的处理链路
+基本状态流转
+scene 级脚本输出
+保真审查闭环
+基础缓存
+完成标志
+任意一章恋爱向 txt 文本可跑出 scene 脚本
+通过 Fidelity Review 后可进入播放器格式
+至少在开发集上稳定运行
+验收重点
+Parsing
+Attribution
+Scene Segmentation
+VN Mapping
+Fidelity Review
+十、Phase 2：工作流与本地工作台
+目标
+把 Agent 链路变成可操作的本地工作台。
+
+范围
+Orchestrator 最小版
+项目状态管理
+章节状态管理
+scene 状态管理
+API Key 配置
+模型配置
+任务执行监控
+分章执行
+局部重跑
+缓存查看
+交付物
+本地工作台原型
+项目列表
+任务面板
+章节处理面板
+日志与错误显示
+完成标志
+用户可以在本地导入小说并启动流程
+可以看到每章进度
+某章失败不影响其他章
+可重跑某一章或某一 scene
+十一、Phase 3：预览播放器与视觉 prompt
+目标
+让用户真正看到“像 galgame 的东西”。
+
+范围
+Web 播放器
+narration/say/thought 展示
+背景切换
+角色显示/隐藏
+基础转场
+章节预览
+Visual Prompt Agent
+prompt 输出与图像接口接入
+交付物
+可用播放器
+scene 脚本渲染
+prompt 面板
+图像生成接口占位或初步接通
+完成标志
+用户可以浏览前几章 playable demo
+文本和基础视觉提示能联动
+即使没有图像，也能作为视觉小说阅读器使用
+十二、Phase 4：MVP 收敛与验收
+目标
+把系统从“能跑”收敛到“可试用”。
+
+范围
+回归测试
+指标达标
+压测若干本小说
+修复高频失败类型
+优化默认参数
+优化失败提示与 fallback
+交付物
+MVP 验收报告
+已知问题清单
+默认配置方案
+早期测试用户使用说明
+完成标志
+核心 Agent 达到 MVP 验收线
+至少 10~20 本样本书可稳定生成前若干章预览
+用户体验路径顺畅
+十三、建议的时间拆解
+Phase 0：2~3 周
+Phase 1：4~6 周
+Phase 2：2~4 周
+Phase 3：2~3 周
+Phase 4：2 周
+总计：
+
+小团队约 12~18 周
+1~2 人团队约 16~20 周
+十四、MVP 的优先级排序
+P0：绝对核心
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+VN Mapping Agent
+Fidelity Review Agent
+基础 Orchestrator
+基础播放器
+P1：重要但可后置一点
+Visual Prompt Agent
+图像生成接口
+缓存查看面板
+Consistency Review 基础版
+P2：MVP 后再做
+小模型替代
+多 provider 路由优化
+批量项目管理
+Ren'Py 导出
+更复杂视觉一致性系统
+十五、MVP 风险清单
+风险 1：Parsing 和 Attribution 不稳
+对策：
+
+先把 Gold Set 做好
+优先打磨这两个 Agent
+不要过早追求视觉效果
+风险 2：Scene 切分不好，导致 VN 感差
+对策：
+
+单独做 scene 评测
+保守切分优先
+不要过度戏剧化
+风险 3：VN Mapping 偷偷改写原文
+对策：
+
+Fidelity Review 必须强
+默认保守映射模式
+严控新增文本率
+风险 4：本地工作台流程太重
+对策：
+
+MVP 交互尽量简单
+先只支持 txt
+默认配置尽量少
+风险 5：图像生成拖慢整体体验
+对策：
+
+视觉链路不阻塞主链路
+先文本 playable，再补图

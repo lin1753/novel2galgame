@@ -1,0 +1,396 @@
+一、目标定义
+这批数据后续要服务 4 件事：
+
+数据治理
+研发样本
+评测基准
+策略发现
+这批数据当前不是先拿来训练大模型，而是：
+
+Agent 研发、评测、迭代的基础资产。
+
+二、数据治理总流程
+text
+ 
+原始 txt 数据
+  ↓
+基础清洗
+  ↓
+元数据整理
+  ↓
+结构识别
+  ↓
+内容分析与分层
+  ↓
+抽样建集（开发/验证/测试/标注）
+三、阶段 1：基础清洗
+目标
+让所有 txt 至少达到“可稳定解析”的程度。
+
+常见问题
+编码不统一（UTF-8 / GBK / ANSI）
+空行混乱
+全角半角混杂
+引号风格不统一
+重复标题
+广告/网站水印
+作者注、PS、碎碎念
+平台残留
+番外/正文混杂
+章节标题格式不统一
+清洗目标
+统一成：
+
+UTF-8 编码
+换行规范
+空白规范
+引号规范
+去除明显平台噪声
+保留原始正文内容顺序
+不改写正文文字
+清洗原则
+可以做的
+去广告
+去平台尾巴
+去明显重复空行
+统一标点形式
+统一换行
+不可以做的
+自动润色
+自动改错别字
+自动补句子
+改章节顺序
+删作者正文中的有效内容
+四、阶段 2：元数据整理
+目标
+给每本小说建立一个最基础的“档案卡”。
+
+建议字段
+基础字段
+book_id
+title
+author（如果有）
+source
+file_path
+规模字段
+char_count
+chapter_count
+avg_chapter_length
+结构字段
+has_toc
+has_volume
+has_extra_chapters
+chapter_title_style
+内容字段
+genre_primary
+genre_secondary
+narrative_person
+dialogue_density
+thought_density
+scene_shift_density
+质量字段
+text_quality_score
+noise_level
+encoding_confidence
+structure_confidence
+适配字段
+vn_adaptability_score
+core_setting_type（校园/都市/职场/同居/婚恋等）
+为什么元数据重要
+因为后面你会需要回答：
+
+哪些书适合做 Structure Agent 开发？
+哪些书适合做 Attribution Agent 压测？
+哪些书对话多，适合做 VN Mapping？
+哪些书心理描写多，适合做 thought 识别？
+哪些书场景描写丰富，适合做 Visual Prompt Extractor？
+五、阶段 3：结构识别
+目标
+把每本 txt 从“整块文本”变成“有章节边界的结构化文本”。
+
+要做什么
+章节标题识别
+
+第1章
+第一章
+Chapter 1
+001
+番外
+后记
+卷标题识别
+
+第一卷
+卷一
+Part 1
+特殊内容识别
+
+番外
+后日谈
+作者的话
+完结感言
+正文对齐
+
+把每个章节的标题和正文内容对应起来
+结构识别后的结果
+最少变成：
+
+text
+ 
+Book
+ ├─ Chapter 1
+ ├─ Chapter 2
+ ├─ Chapter 3
+ ...
+结构质量标签
+A：章节结构清晰
+B：章节结构基本清晰，有少量异常
+C：结构混乱，需要人工辅助
+D：不适合当前阶段使用
+六、阶段 4：内容分析与分层
+目标
+知道“它适合拿来打磨哪个 Agent”。
+
+需要分析的内容
+对话密度
+心理描写密度
+动作描写密度
+场景描写密度
+角色密度
+场景切换频率
+为什么要做这些分析
+因为不同 Agent 需要不同类型的样本。
+
+例如：
+
+Narrative Parsing Agent 需要对话、旁白、心理、动作混合丰富的文本
+Attribution Agent 需要连续对话多、说话人省略多、代词复杂的文本
+Scene Segmentation Agent 需要章节内部有明显场景变化的文本
+Visual Prompt Extractor 需要外貌、服装、环境描写较丰富的文本
+七、建立数据分层体系
+1. 按文本质量分层
+S 层
+A 层
+B 层
+C 层
+2. 按题材细分
+校园恋爱
+都市恋爱
+同居/婚恋
+青春成长
+轻悬疑恋爱
+职场恋爱
+古风恋爱（如果有）
+3. 按叙事视角分层
+第一人称
+第三人称
+混合
+4. 按 Agent 适配性分层
+适合 Parsing
+适合 Attribution
+适合 Scene Segmentation
+适合 Visual Prompt
+八、抽样建集方案
+1. 开发集（Development Set）
+20~40 本书
+每本抽若干章节
+用于 prompt 调整、规则调试、错误分析
+2. 验证集（Validation Set）
+10~20 本书
+不与开发集重叠
+用于比较版本优劣、防止过拟合
+3. 压力测试集（Stress Test Set）
+10 本左右
+覆盖：
+连续对话不写说话人
+大量心理描写
+章节超长
+场景切换频繁
+代词模糊
+别名复杂
+回忆插叙多
+4. 人工标注金标准集（Gold Set）
+30~60 个章节
+或 100~200 个 scene 级片段
+人工精标
+覆盖核心任务
+九、Gold Set 该标什么
+1. Structure 标注
+章节标题
+卷标题
+番外/后记识别
+章节边界
+2. Narrative Parsing 标注
+对段落/句子标：
+
+对话
+旁白
+心理
+动作
+场景描写
+3. Attribution 标注
+对每段对话/动作标：
+
+speaker
+actor
+participants
+uncertain（若原文不明确）
+4. Scene Segmentation 标注
+标：
+
+scene 边界
+边界原因
+scene 标题（可选）
+地点/时间标签
+5. VN Mapping 标注
+选部分片段标：
+
+narration
+say
+thought
+show/hide
+bg change
+expression tag
+6. Fidelity 标注
+标记：
+
+原文关键句
+不可改写句
+关键事件
+关键情绪节点
+十、推荐的标注优先级
+第一优先级
+对话/旁白/心理/动作 分类
+说话人归属
+scene 边界
+第二优先级
+场景地点/时间
+参与角色
+关键视觉线索
+第三优先级
+expression tag
+bgm mood tag
+CG 候选点
+十一、评测体系怎么建
+Structure Agent 指标
+章节识别准确率
+章节边界准确率
+特殊章节识别准确率
+Narrative Parsing Agent 指标
+对话识别准确率
+心理描写识别准确率
+动作描写识别准确率
+场景描写识别准确率
+Attribution Agent 指标
+speaker attribution accuracy
+actor attribution accuracy
+participant recall
+Scene Segmentation Agent 指标
+scene boundary precision/recall
+scene 合理性人工评分
+VN Mapping Agent 指标
+自动指标：
+
+原文台词保留率
+原文事件顺序一致率
+非原文新增文本率
+人工指标：
+
+可读性
+VN 感
+忠实度
+节奏自然度
+Visual Prompt Extractor 指标
+原文视觉线索覆盖率
+幻觉补全率（越低越好）
+prompt 可用性人工评分
+十二、建议的数据集规模规划
+阶段 1：快速起步
+从 700+ 本里先筛：
+
+50 本候选书
+每本抽 3~5 章
+阶段 2：建立开发/验证集
+开发集：30 本
+验证集：10 本
+压测集：10 本
+阶段 3：建立 Gold Set
+30~60 章做精标
+十三、抽样策略建议
+不要随机抽，建议分层抽样：
+
+维度 1：题材子类
+校园
+都市
+同居/婚恋
+青春成长
+维度 2：叙事视角
+第一人称
+第三人称
+维度 3：文本风格
+对话密集型
+心理密集型
+叙述平衡型
+维度 4：结构质量
+清晰结构书
+中等结构书
+少量难例
+十四、最重要的策略
+不要一开始就做“全量精标”，而是：
+
+高质量小金标 + 大规模弱分析
+
+小金标
+用于精确评测 Agent
+
+大规模弱分析
+用于发现模式、做分层、做抽样、找难例
+
+十五、组织方式建议
+层 1：全量书目库
+700+ 本全部入库，记录元数据和基础结构。
+
+层 2：研发样本库
+50 本左右，重点分析。
+
+层 3：金标准标注库
+30~60 章，人工精标。
+
+十六、风险提醒
+不要一开始就想把 700 本全精标
+不要只挑最干净最好看的文本
+不要让开发集和验证集重叠
+不要没有标注规范就开始标
+十七、落地顺序
+Step 1
+对 700+ 本做：
+
+编码统一
+基础清洗
+元数据整理
+章节结构识别
+Step 2
+做一轮统计分析：
+
+对话密度
+心理密度
+场景切换频率
+视角类型
+结构质量
+Step 3
+筛出 50 本候选研发书目
+
+Step 4
+拆出：
+
+开发集
+验证集
+压测集
+Step 5
+抽 30~60 章建立 Gold Set
+
+Step 6
+先标 3 个任务：
+
+Narrative Parsing
+Attribution
+Scene Segmentation

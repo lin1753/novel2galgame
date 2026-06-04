@@ -1,0 +1,1053 @@
+All Novel Can Be Galgame：AI 能力分层与模型路由方案 v1
+一、总原则
+系统采用：
+
+规则优先 + 强模型兜底 + 小模型后续替代
+
+更具体地说：
+
+原则 1：不是所有任务都交给大模型
+能用规则稳定解决的，不用大模型。
+能用规则 + 轻量模型完成候选生成的，不直接让大模型从零思考。
+
+原则 2：强模型 API 只用于高语义复杂度任务
+尤其是：
+
+归因
+scene 切分
+VN 映射
+保真审查
+原则 3：系统必须从一开始支持能力替换
+今天是 GPT / Claude，明天可能是本地模型或混合模型。
+所以设计上要面向“能力接口”，而不是绑定某个厂商。
+
+原则 4：本地工作台负责流程、缓存、调度与状态
+大模型负责复杂理解与生成。
+本地不等于全离线，而是本地掌控工作流与数据。
+
+原则 5：未来小模型只替代高频、低风险、模式稳定的任务
+不要一开始就想让小模型接管最难的任务。
+
+二、能力分层总览
+建议把 AI 能力分成 4 层：
+
+text
+ 
+L0: 规则层
+L1: 轻量模型层（未来可选）
+L2: 强模型 API 层
+L3: 审核与路由层
+L0：规则层
+特点：
+
+本地执行
+成本极低
+可解释
+稳定
+适合格式化、清洗、初筛、归一化
+L1：轻量模型层
+特点：
+
+本地或低成本部署
+适合分类、抽取、候选生成
+不承担最终复杂推理责任
+L2：强模型 API 层
+特点：
+
+负责复杂语义理解、推理、映射、审查
+成本高
+效果最好
+当前阶段是主力
+L3：审核与路由层
+特点：
+
+决定某个任务应该走哪层
+负责 fallback
+负责预算控制
+负责缓存命中
+负责失败重试
+三、系统核心任务清单
+任务 A：文本清洗
+包括：
+
+编码统一
+去广告
+去平台尾巴
+空白规范化
+引号规范化
+任务 B：结构识别
+包括：
+
+卷/章/节识别
+番外/后记识别
+目录树构建
+任务 C：叙事单元解析
+包括：
+
+对话
+旁白
+心理描写
+动作描写
+场景描写
+任务 D：归因
+包括：
+
+谁说话
+谁行动
+谁在场
+别名归一
+任务 E：scene 切分
+包括：
+
+场景边界识别
+地点/时间变化判断
+情绪段落边界判断
+任务 F：VN 映射
+包括：
+
+narration / say / thought / show / bg / transition 等 step 生成
+任务 G：保真审查
+包括：
+
+是否改写原文
+是否漏掉关键内容
+是否错误归因
+是否改变顺序
+任务 H：视觉 prompt 提取
+包括：
+
+角色外观 prompt
+背景 prompt
+氛围 prompt
+任务 I：一致性检查
+包括：
+
+命名统一
+场景标签统一
+背景复用标签统一
+四、每个任务的能力分层建议
+任务 A：文本清洗
+当前推荐层：L0 规则层
+
+原因：
+
+编码、空白、平台尾巴、固定噪声模式，都是规则问题
+是否需要强模型：
+
+通常不需要
+是否适合小模型：
+
+不优先，规则足够
+路由策略：
+
+默认规则执行
+仅在异常文本时人工标记或后续补专门清洗器
+任务 B：结构识别
+当前推荐层：L0 规则层为主，L2 强模型兜底
+
+规则可处理内容：
+
+第X章
+第一章
+Chapter X
+番外
+后记
+卷一/第一卷
+强模型介入场景：
+
+标题格式极不规范
+章节边界模糊
+目录和正文错位
+结构混乱文本
+未来是否适合小模型：
+
+适合，但优先级不高
+路由策略：
+
+先规则识别
+若结构置信度低，再走强模型修正
+结果进入一致性检查
+任务 C：叙事单元解析
+当前推荐层：L2 强模型 API 为主，L0 规则辅助
+
+原因：
+
+中文恋爱小说里心理描写和旁白混杂
+动作描写常嵌在叙事中
+对话外包裹叙述很多
+规则可做什么：
+
+引号中的内容初判为 dialogue
+某些心理词、动作词做弱提示
+段落切分
+强模型负责什么：
+
+最终判断每个单元类别
+处理混合句
+保持上下文理解
+未来小模型潜力：
+
+很高
+是最适合后续训练小模型的任务之一
+路由策略：
+
+规则先做初步切分和候选标签
+强模型做最终解析
+后续可替换成“小模型初判 + 强模型难例兜底”
+任务 D：归因
+当前推荐层：L2 强模型 API 为主，L0/L1 提供候选
+
+原因：
+
+中文小说里说话人归因非常难
+连续对话不写名字
+主语省略
+代词模糊
+心理与外在说话交错
+规则可做什么：
+
+最近出现角色候选
+引号前后的“某某说”
+代词和名字近邻匹配
+当前 scene 参与者候选
+强模型负责什么：
+
+在上下文中判断 speaker / actor
+处理模糊归因
+输出 uncertain 标记
+未来小模型潜力：
+
+中高
+适合做候选生成，不适合一开始做最终裁决
+路由策略：
+
+规则生成候选角色列表
+强模型做最终归因
+若置信度低，标记 uncertain 并交给 review
+任务 E：scene 切分
+当前推荐层：L2 强模型 API 为主，L0 规则辅助
+
+原因：
+
+scene 边界不是纯格式问题，而是叙事问题
+规则可做什么：
+
+地点词变化提示
+时间词变化提示
+段落大跳跃提示
+回忆/插叙提示词
+强模型负责什么：
+
+判断 scene 是否真的应切开
+给出边界原因
+保持 VN 节奏合理
+未来小模型潜力：
+
+高
+适合训练边界检测模型
+路由策略：
+
+规则先标出候选边界
+强模型确认和修正
+后续可用小模型做边界预测，强模型只审难例
+任务 F：VN 映射
+当前推荐层：L2 强模型 API
+
+原因：
+
+这是当前系统最复杂的语义转译任务
+它要做忠实映射、舞台化、节奏控制、step 类型选择
+规则可做什么：
+
+输出格式校验
+step schema 校验
+简单模板拼接（极少）
+未来小模型潜力：
+
+低到中
+前期不建议替代
+路由策略：
+
+直接走强模型
+前置输入由上游 Agent 结构化后再送入
+输出必须经过 schema 校验和 fidelity review
+任务 G：保真审查
+当前推荐层：L2 强模型 API + L0 规则校验
+
+原因：
+
+保真审查需要比较原文、归因结果、VN 脚本并判断是否偏离
+这是高阶审查任务
+规则可做什么：
+
+原文台词匹配率
+顺序一致性初检
+非原文新增文本检测
+step 合法性检测
+强模型负责什么：
+
+语义级保真判断
+是否有隐性改写
+是否有不当补充
+是否漏掉关键内容
+未来小模型潜力：
+
+低
+前期不建议
+路由策略：
+
+规则先做硬性检查
+强模型做语义保真审查
+不通过则回退 VN Mapping 重做或人工确认
+任务 H：视觉 prompt 提取
+当前推荐层：L0 + L2 混合
+
+原因：
+
+一部分很适合规则抽取：时间、天气、地点、外貌关键词、服装关键词
+但要整理成高质量 prompt，强模型更合适
+规则可做什么：
+
+关键词抽取
+角色外貌片段收集
+场景描述片段收集
+氛围词收集
+强模型负责什么：
+
+将证据整理成 prompt
+区分“原文明确”和“保守补全”
+控制风格模板
+未来小模型潜力：
+
+高
+很适合做信息抽取小模型
+路由策略：
+
+规则/小模型抽视觉证据
+强模型整理为最终 prompt
+gpt-image-2 生成图像
+任务 I：一致性检查
+当前推荐层：L0 规则层为主，L2 强模型补充
+
+原因：
+
+很多一致性问题是工程问题：
+命名不一致
+标签不一致
+背景 id 不一致
+角色别名未归一
+规则可做什么：
+
+字符串归一
+别名表
+标签表
+背景复用检测
+强模型介入场景：
+
+某些语义近似标签是否应合并
+场景语义是否重复
+未来小模型潜力：
+
+中等，但不急
+路由策略：
+
+默认规则检查
+复杂语义冲突再走强模型
+五、能力分层矩阵
+任务	当前主力	规则辅助	未来小模型潜力	备注
+文本清洗	L0	强	低	规则足够
+结构识别	L0+L2	强	中	规则优先
+叙事单元解析	L2	中	高	重点替代候选
+归因	L2	中	中高	候选生成适合小模型
+scene 切分	L2	中	高	未来重点优化点
+VN 映射	L2	低	低中	长期仍以强模型为主
+保真审查	L2+L0	中	低	护城河能力
+视觉 prompt 提取	L0+L2	强	高	适合后续抽取模型
+一致性检查	L0	强	中	工程规则优先
+六、模型路由策略
+建议采用三段式路由：
+
+text
+ 
+预判 → 执行 → 审核/回退
+预判阶段
+系统先判断：
+
+任务类型
+输入复杂度
+规则是否足够
+是否已有缓存
+当前预算是否允许走强模型
+是否属于高风险任务
+执行阶段
+路由优先级：
+
+先查缓存
+再走规则
+再走小模型（如果有）
+最后走强模型 API
+但不是所有任务都要经过所有层。
+例如 VN Mapping 可以直接走强模型。
+
+审核/回退阶段
+执行完后做：
+
+schema 校验
+一致性检查
+fidelity review
+失败重试或降级
+七、置信度与升级机制
+建议每个任务都输出一个简化置信度：
+
+high
+medium
+low
+示例：结构识别
+如果规则识别到：
+
+标题格式统一
+边界清晰
+章节数合理
+则 high，否则 low，升级强模型。
+
+示例：Attribution
+如果：
+
+明确有“林秋说”
+当前 scene 只有两人
+代词清晰
+则 medium/high
+
+如果连续三句对话都无名字、多人在场，则 low，需要强模型精判。
+
+示例：Visual Prompt
+如果原文明确出现：
+
+黑长发
+蓝色校服
+雨夜便利店
+则 high
+
+如果外貌描述极少，则 low，只能做保守 prompt。
+
+八、预算路由策略
+建议支持 3 种模式：
+
+1. 高质量模式
+高复杂度任务全部走强模型
+中复杂度任务也尽量走强模型
+适合最终导出
+2. 平衡模式
+规则优先
+中复杂度任务尽量混合
+高复杂度任务走强模型
+适合日常工作
+3. 省钱模式
+能规则就规则
+中复杂度任务尽量走小模型/简化策略
+强模型只用于关键章节或关键任务
+适合初筛和批处理
+九、缓存策略
+建议缓存分 4 层：
+
+1. 原始清洗缓存
+同一本书清洗一次即可。
+
+2. 章节解析缓存
+章节结构、叙事单元、归因结果都缓存。
+
+3. scene 缓存
+scene 切分和 scene 映射按章缓存。
+
+4. prompt 缓存
+角色 prompt、背景 prompt 缓存。
+
+缓存失效规则
+改视觉风格，不应让文本解析缓存失效
+改 scene 切分策略，只影响切分和后续映射
+改 VN 映射策略，不应影响结构识别
+十、失败与回退策略
+结构识别失败
+回退到人工确认章节边界
+或标记该书不进入核心流程
+叙事单元解析失败
+降级为更粗粒度段落解析
+或只保留 dialogue/narration 两类
+Attribution 失败
+标记 uncertain
+在播放层用“???”或旁白包裹
+后续 review 再修
+VN Mapping 失败
+重试一次
+再不行降级成“保守映射模式”
+少表情
+少舞台指令
+多保留原文旁白
+Fidelity Review 不通过
+回退 VN Mapping 重做
+或进入人工确认
+十一、未来小模型替代路线图
+第一批最值得训练/微调的小模型
+Narrative Unit Classifier
+Scene Boundary Detector
+Visual Evidence Extractor
+第二批
+Speaker Candidate Generator
+Structure Cleaner / Noise Detector
+暂缓
+VN Mapping 小模型
+Fidelity Review 小模型
+十二、结论
+All Novel Can Be Galgame 采用：
+
+规则优先、强模型主导、能力接口化、预算可控、逐步小模型替代的 AI 分层架构。
+
+当前阶段主力：
+
+核心复杂任务：强模型 API
+结构化与清洗：规则
+视觉生成：prompt 提取 + gpt-image-2
+03_Agent能力清单与任务边界定义.md
+All Novel Can Be Galgame：Agent 能力清单与任务边界定义 v1
+一、Agent 架构结论
+结合当前前提：
+
+产品定位：本地可部署工作台
+AI 主力：外部强模型 API
+未来可引入：小模型
+改编原则：忠实转译，不改剧情事实
+视觉层：先简化为 prompt 提取器 + gpt-image-2
+数据类型：中文恋爱向 txt 小说
+v1 的 Agent 体系正式定为：
+
+核心生产 Agent
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+VN Mapping Agent
+Visual Prompt Agent
+核心审查 Agent
+Fidelity Review Agent
+Consistency Review Agent
+核心调度 Agent
+Orchestrator Agent
+二、Agent 分层定位
+第一层：内容理解层
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+第二层：VN 转译层
+Scene Segmentation Agent
+VN Mapping Agent
+Visual Prompt Agent
+第三层：质量控制与流程层
+Fidelity Review Agent
+Consistency Review Agent
+Orchestrator Agent
+三、总设计原则
+原则 1：Agent 只负责一个清晰任务域
+不要让一个 Agent 同时做：
+
+解析
+改写
+审查
+视觉规划
+原则 2：Agent 输出必须结构化
+每个 Agent 的输出都应该是：
+
+可缓存
+可检查
+可重跑
+可供下游消费
+原则 3：Agent 默认不改原文事实
+除 VN Mapping 的舞台化映射外，其他 Agent 都不应主动改写原文内容。
+
+原则 4：审查 Agent 不负责创作
+Review Agent 负责：
+
+找问题
+给建议
+输出 patch 提示
+但不直接承担上游主任务。
+
+原则 5：Orchestrator 负责流程，不负责内容判断
+总控 Agent 不应自己顺手改内容，它只负责：
+
+调度
+状态流转
+重试
+路由
+回退
+原则 6：每个 Agent 都要有禁止行为
+边界清晰不仅要定义“做什么”，还要定义“不能做什么”。
+
+四、Structure Agent
+目标
+把原始 txt 小说整理成可处理的结构化文本。
+
+负责内容
+编码统一后的文本读取
+文本基础清洗
+章节标题识别
+卷/章/节层级识别（如果有）
+番外/后记/特殊章节识别
+章节正文切分
+目录树构建（如果可识别）
+不负责内容
+不负责角色识别
+不负责对话归因
+不负责 scene 切分
+不负责 VN 脚本生成
+不负责视觉 prompt
+不负责剧情理解
+AI 能力层
+主层：L0 规则层
+兜底：L2 强模型 API
+输入
+原始 txt 文本
+文件元数据（书名、来源等）
+可选：清洗规则模板
+输出
+标准化文本
+章节列表
+结构树
+特殊章节标签
+结构置信度
+成功标准
+章节边界正确
+正文顺序不变
+噪声基本去除
+结构可供下游稳定消费
+禁止行为
+不得改写正文内容
+不得重排章节顺序
+不得删除不确定正文
+不得凭空补章节标题
+五、Narrative Parsing Agent
+目标
+把章节正文解析成叙事单元。
+
+负责内容
+识别并标注每个段落/句子的叙事类型：
+
+dialogue
+narration
+thought
+action
+scene_description
+同时处理：
+
+混合句拆分
+段落级语义标签
+引号内外关系
+不负责内容
+不负责说话人归属
+不负责角色别名归一
+不负责 scene 边界最终判定
+不负责 VN step 生成
+不负责保真判断
+AI 能力层
+当前主力：L2 强模型 API
+辅助：L0 规则
+未来替代重点：L1 小模型
+输入
+单章正文
+章节标题
+上下文章节摘要（可选）
+基础规则提示（如引号信息）
+输出
+Annotated Narrative Units
+每个 unit 的类型标签
+解析置信度
+可疑混合段标记
+成功标准
+对话识别准确
+心理描写与旁白区分合理
+动作描写不被误判成单纯叙述
+场景描写能被识别出来
+禁止行为
+不得改写原句
+不得发明缺失台词
+不得提前推断 speaker
+不得为了“好看”重组段落
+六、Attribution Agent
+目标
+对 Narrative Units 做角色归属。
+
+负责内容
+对 dialogue 归属 speaker
+对 action 归属 actor
+对 thought 归属 thinker
+识别当前片段参与角色
+角色别名归一
+输出不确定归因标记
+不负责内容
+不负责角色完整人设生成
+不负责 VN 脚本映射
+不负责视觉设计
+不负责改写台词
+不负责 scene 切分最终决策
+AI 能力层
+当前主力：L2 强模型 API
+辅助：L0 规则候选
+未来方向：L1 候选生成模型
+输入
+Annotated Narrative Units
+当前章节上下文
+已知角色名/别名表
+scene 候选上下文（可选）
+输出
+Attributed Narrative Units
+Character Mention Map
+Speaker/Actor/Thinker 归因结果
+uncertain 标记
+别名归一结果
+成功标准
+对话说话人归属准确
+动作归属合理
+别名统一
+不确定情况能被正确标记而不是瞎猜
+禁止行为
+不得在证据不足时强行确定
+不得虚构新角色
+不得改写原文台词
+不得擅自补充角色关系设定
+七、Scene Segmentation Agent
+目标
+在不改变原文顺序和事实的前提下，把章节切成多个 scene。
+
+负责内容
+识别 scene 边界
+标记边界原因：
+地点变化
+时间变化
+叙事焦点变化
+事件段落变化
+回忆/插叙切换
+输出 scene 列表
+建立 scene 与 narrative units 的映射
+不负责内容
+不负责 VN step 生成
+不负责视觉 prompt
+不负责改写内容
+不负责角色归因主逻辑
+AI 能力层
+当前主力：L2 强模型 API
+辅助：L0 规则候选
+未来重点：L1 边界检测模型
+输入
+Attributed Narrative Units
+章节标题
+章节上下文
+切分策略参数（保守/标准/戏剧化）
+输出
+Scene List
+Scene Boundary Reasons
+Scene-to-Unit Mapping
+Scene 级摘要
+切分置信度
+成功标准
+scene 边界自然
+不打断关键对话流
+不把不同地点/时间强行混在一起
+适合 VN 播放节奏
+禁止行为
+不得改变原文事件顺序
+不得删减剧情事实
+不得为了“VN 感”强行切得过碎
+不得合并导致语义混乱
+八、VN Mapping Agent
+目标
+把一个 scene 的原文内容转成 VN 运行时脚本。
+
+负责内容
+将 scene 映射为结构化 VN steps，例如：
+
+bg
+show
+hide
+narration
+say
+thought
+expression
+pause
+transition
+同时负责：
+
+保守舞台化
+节奏组织
+原文句子到 step 的映射
+不负责内容
+不负责改写剧情
+不负责新增剧情台词
+不负责角色归因
+不负责最终保真裁决
+不负责图像生成
+AI 能力层
+当前主力：L2 强模型 API
+规则只做 schema 校验和格式检查
+输入
+单个 scene
+Attributed Narrative Units
+VN 映射策略参数
+忠实度参数
+表现强度参数
+输出
+VNScript
+原文到 step 的映射关系
+step 级置信度
+可疑扩写标记
+成功标准
+原文内容被忠实映射
+台词不被擅自改写
+旁白、心理、动作表达合理
+播放器可直接消费
+节奏自然
+禁止行为
+不得新增原文不存在的剧情
+不得改写关键台词语义
+不得改变事件顺序
+不得过度戏剧化
+不得把叙述强行改成新对话
+九、Visual Prompt Agent
+目标
+从原文和 scene 中提取视觉证据，并生成适合 gpt-image-2 的 prompt。
+
+负责内容
+提取角色外貌线索
+提取服装线索
+提取场景地点、时间、天气
+提取氛围词
+生成：
+角色立绘 prompt
+背景 prompt
+可选 CG prompt
+区分：
+原文明确证据
+保守补全
+风格模板
+不负责内容
+不负责自由设计人设
+不负责修改剧情
+不负责决定最终图像质量
+不负责复杂资产一致性系统
+不负责图像后处理
+AI 能力层
+当前：L0 + L2 混合
+未来：L1 视觉线索抽取模型可替代部分能力
+输入
+Scene
+Attributed Narrative Units
+角色名与别名
+视觉风格参数
+全局画风模板
+输出
+Character Prompt Pack
+Background Prompt Pack
+Optional CG Prompt Pack
+视觉证据清单
+补全置信度
+成功标准
+prompt 与原文一致
+不过度幻觉补全
+可直接喂给 gpt-image-2
+同类场景和角色风格可复用
+禁止行为
+不得凭空创造与原文明显冲突的外貌
+不得夸张化普通场景
+不得加入原文没有的暧昧/情节暗示
+不得把风格模板覆盖原文事实
+十、Fidelity Review Agent
+目标
+审查 VN Mapping 是否忠实原文。
+
+负责内容
+检查：
+
+是否改写原文台词
+是否漏掉关键内容
+是否错误归因
+是否改变事件顺序
+是否新增原文没有的剧情信息
+是否把心理、动作、叙述错误映射
+不负责内容
+不负责生成脚本主内容
+不负责视觉 prompt
+不负责结构识别
+不负责最终人工裁决
+AI 能力层
+当前主力：L2 强模型 API
+辅助：L0 规则校验
+输入
+原文 scene
+Attributed Narrative Units
+VNScript
+原文到 step 的映射关系
+输出
+Fidelity Report
+问题列表
+严重性等级
+patch 建议
+是否通过
+成功标准
+能发现偏离原文的问题
+能发现隐性扩写
+能发现错误归因
+能识别关键遗漏
+禁止行为
+不得为了“表现力更强”容忍明显偏离
+不得直接重写整段脚本替代主 Agent
+不得模糊化关键问题
+十一、Consistency Review Agent
+目标
+检查全书或全项目的一致性问题。
+
+负责内容
+角色命名一致性
+别名归一一致性
+scene 标签一致性
+背景标签一致性
+立绘 prompt 风格一致性
+同地点复用检查
+step schema 一致性
+不负责内容
+不负责剧情保真主审
+不负责 scene 切分主逻辑
+不负责 VN 映射主逻辑
+AI 能力层
+当前主力：L0 规则
+复杂冲突时：L2 辅助
+输入
+全项目结构数据
+scene 列表
+VNScript 列表
+prompt packs
+命名表/别名表
+输出
+Consistency Report
+冲突项列表
+归一建议
+风险等级
+成功标准
+能稳定发现命名和标签漂移
+能帮助背景复用和角色复用
+不与 Fidelity Review 重叠
+禁止行为
+不得越权改剧情
+不得擅自覆盖人工确认项
+不得把语义问题误当成单纯命名问题
+十二、Orchestrator Agent
+目标
+调度整个工作流，管理状态、路由、缓存、失败处理和重跑。
+
+负责内容
+任务编排
+上下游依赖管理
+模型能力路由
+缓存命中与失效控制
+失败重试
+review 不通过后的回退
+局部重跑
+执行状态记录
+不负责内容
+不负责直接解析文本
+不负责直接生成 VN 脚本
+不负责直接做保真判断
+不负责直接写 prompt
+AI 能力层
+L3 路由与调度层
+输入
+ProjectState
+用户配置
+当前任务状态
+缓存状态
+预算策略
+输出
+执行计划
+子任务调度结果
+重跑决策
+回退决策
+项目状态更新
+成功标准
+工作流稳定
+失败可恢复
+局部修改不触发全量重跑
+成本可控
+任务顺序正确
+禁止行为
+不得直接篡改内容结果
+不得绕过 review
+不得在无记录情况下覆盖缓存
+不得让不相关修改触发全链路重跑
+十三、Agent 之间的依赖关系
+text
+ 
+Structure Agent
+   ↓
+Narrative Parsing Agent
+   ↓
+Attribution Agent
+   ↓
+Scene Segmentation Agent
+   ↓
+VN Mapping Agent
+   ├─→ Fidelity Review Agent
+   └─→ Visual Prompt Agent
+
+全流程结果 ─→ Consistency Review Agent
+
+Orchestrator Agent 负责调度全部
+十四、可并行与必须串行
+必须串行
+Structure → Narrative Parsing
+Narrative Parsing → Attribution
+Attribution → Scene Segmentation
+Scene Segmentation → VN Mapping
+VN Mapping → Fidelity Review
+可并行
+同一层的多章节处理
+VN Mapping 与 Visual Prompt（scene 确定后）
+Consistency Review 可批量跑
+十五、Agent 与能力层映射表
+Agent	主能力层	辅助层	未来小模型潜力
+Structure Agent	L0	L2	中
+Narrative Parsing Agent	L2	L0	高
+Attribution Agent	L2	L0/L1	中高
+Scene Segmentation Agent	L2	L0/L1	高
+VN Mapping Agent	L2	L0	低中
+Visual Prompt Agent	L0+L2	L1	高
+Fidelity Review Agent	L2	L0	低
+Consistency Review Agent	L0	L2	中
+Orchestrator Agent	L3	-	-
+十六、最关键的边界冲突提醒
+1. Narrative Parsing Agent vs Attribution Agent
+Parsing 只标类型，不判归属。
+归属必须由 Attribution Agent 负责。
+
+2. Scene Segmentation Agent vs VN Mapping Agent
+scene 边界由 Scene Segmentation Agent 决定。
+VN Mapping 只能消费 scene，不应私自改 scene。
+
+3. Visual Prompt Agent vs VN Mapping Agent
+视觉层只能基于文本与 scene 结果提取，不得反向改剧情。
+
+4. Fidelity Review Agent vs VN Mapping Agent
+Review 只指出问题和 patch 建议，不负责主生成。
+
+5. Orchestrator vs 所有内容 Agent
+Orchestrator 只调度，不写内容。
+
+十七、v1 阶段研发优先级
+第一优先级
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+VN Mapping Agent
+Fidelity Review Agent
+第二优先级
+Structure Agent
+Visual Prompt Agent
+第三优先级
+Consistency Review Agent
+Orchestrator Agent（工程上必须有，但内容打磨优先级较低）

@@ -1,0 +1,410 @@
+一、评测总原则
+采用：
+
+自动指标 + 人工评审 + 回归对比 的三层评测体系。
+
+原因：
+
+有些任务可以自动算
+有些任务必须人看
+有些任务不能只看单次结果，要看版本前后变化
+原则 1：每个 Agent 至少有 3 类指标
+准确性指标
+稳定性指标
+工程可消费性指标
+原则 2：能自动评测的尽量自动
+因为后面会频繁迭代。
+
+原则 3：核心体验任务必须保留人工评审
+尤其是：
+
+scene 切分
+VN 映射
+保真审查
+原则 4：验收标准分层
+每个 Agent 设 3 条线：
+
+最低可用线
+MVP 目标线
+优秀线
+二、评测数据集分工
+1. Gold Set
+人工精标数据，用于：
+
+准确率评测
+回归评测
+版本对比
+2. Validation Set
+中等规模、非精标，用于：
+
+稳定性测试
+输出可用性测试
+人工抽样评分
+3. Stress Set
+难例集，用于：
+
+边界测试
+失败分析
+回退策略验证
+三、核心 Agent 范围
+v1 重点评测这 6 个核心 Agent：
+
+Structure Agent
+Narrative Parsing Agent
+Attribution Agent
+Scene Segmentation Agent
+VN Mapping Agent
+Fidelity Review Agent
+四、Structure Agent 评测标准
+任务目标
+把 txt 正确切成章节结构，并完成基础清洗。
+
+自动指标
+A. 章节识别准确率
+precision
+recall
+F1
+B. 章节边界准确率
+boundary precision/recall
+exact match rate
+C. 特殊章节识别准确率
+例如：
+
+番外
+后记
+作者的话
+D. 噪声清洗命中率
+平台尾巴、广告、水印去除比例
+E. 误删率
+被错误删除的正文比例
+误删比漏删更危险。
+人工评审项
+章节结构是否自然
+是否误把正文当标题
+是否误删有效内容
+是否保留原始顺序
+稳定性指标
+同一文本多次处理结果一致率
+结构树输出合法率
+章节数波动率
+验收标准建议
+最低可用线
+章节识别 F1 ≥ 0.90
+误删率 ≤ 1%
+结构输出合法率 ≥ 99%
+MVP 目标线
+章节识别 F1 ≥ 0.95
+边界准确率 ≥ 0.93
+误删率 ≤ 0.5%
+优秀线
+章节识别 F1 ≥ 0.98
+边界准确率 ≥ 0.96
+特殊章节识别 ≥ 0.95
+五、Narrative Parsing Agent 评测标准
+任务目标
+把文本解析成：
+
+dialogue
+narration
+thought
+action
+scene_description
+自动指标
+A. 单元分类准确率
+accuracy
+macro F1
+per-class F1
+B. 类别级 F1
+dialogue F1
+narration F1
+thought F1
+action F1
+scene_description F1
+C. 混合句拆分正确率
+原本混合了动作+对话、心理+叙述的句子，是否被合理拆分
+D. 漏检率
+例如：
+
+心理描写漏成 narration
+动作描写漏成 narration
+人工评审项
+解析是否符合阅读直觉
+心理描写与旁白区分是否自然
+动作描写是否被正确独立出来
+场景描写是否能被识别
+稳定性指标
+JSON/结构输出合法率
+同章重复运行类别一致率
+可疑混合段标记召回率
+验收标准建议
+最低可用线
+macro F1 ≥ 0.80
+dialogue F1 ≥ 0.95
+thought F1 ≥ 0.70
+action F1 ≥ 0.70
+MVP 目标线
+macro F1 ≥ 0.86
+dialogue F1 ≥ 0.97
+thought F1 ≥ 0.80
+action F1 ≥ 0.78
+scene_description F1 ≥ 0.75
+优秀线
+macro F1 ≥ 0.90
+thought F1 ≥ 0.85
+action F1 ≥ 0.83
+scene_description F1 ≥ 0.82
+六、Attribution Agent 评测标准
+任务目标
+判断：
+
+谁说话
+谁行动
+谁在思考
+谁在场
+别名如何归一
+自动指标
+A. Speaker Attribution Accuracy
+对 dialogue 的 speaker 归属准确率。
+
+B. Actor Attribution Accuracy
+对 action 的 actor 归属准确率。
+
+C. Thinker Attribution Accuracy
+对 thought 的 thinker 归属准确率。
+
+D. Participant Recall
+scene 中实际参与角色是否被召回。
+
+E. Alias Resolution Accuracy
+别名归一准确率。
+
+F. Uncertain 标记质量
+uncertain precision
+uncertain recall
+人工评审项
+连续对话归因是否自然
+多人 scene 中归因是否合理
+模糊段落是否谨慎处理
+是否存在“自信地错”
+稳定性指标
+同文本重复运行归因一致率
+uncertain 比例是否异常
+别名表稳定性
+验收标准建议
+最低可用线
+speaker attribution ≥ 0.80
+actor attribution ≥ 0.75
+alias resolution ≥ 0.90
+MVP 目标线
+speaker attribution ≥ 0.87
+actor attribution ≥ 0.82
+thinker attribution ≥ 0.80
+alias resolution ≥ 0.95
+优秀线
+speaker attribution ≥ 0.92
+actor attribution ≥ 0.88
+thinker attribution ≥ 0.85
+uncertain 处理人工评分 ≥ 4/5
+七、Scene Segmentation Agent 评测标准
+任务目标
+把章节切成自然、适合 VN 的 scene。
+
+自动指标
+A. Boundary Precision / Recall
+和 Gold Set 的 scene 边界比较。
+
+B. Exact Boundary Match Rate
+完全匹配人工 scene 边界的比例。
+
+C. Over-Segmentation Rate
+切得过碎的比例。
+
+D. Under-Segmentation Rate
+切得过粗的比例。
+
+E. Scene Length Distribution
+平均 scene 长度是否落在合理区间。
+
+人工评审项
+建议人工打分维度：
+
+边界自然度
+VN 节奏适配度
+事件完整性
+不打断关键互动
+每项 1~5 分。
+
+稳定性指标
+同章重复运行边界一致率
+scene 数量波动率
+scene 摘要可用率
+验收标准建议
+最低可用线
+boundary F1 ≥ 0.70
+人工边界自然度均分 ≥ 3.5/5
+MVP 目标线
+boundary F1 ≥ 0.78
+VN 节奏适配度均分 ≥ 4.0/5
+过碎/过粗比例均 ≤ 15%
+优秀线
+boundary F1 ≥ 0.85
+边界自然度 ≥ 4.3/5
+事件完整性 ≥ 4.3/5
+八、VN Mapping Agent 评测标准
+任务目标
+把 scene 忠实映射成可播放的 VN steps。
+
+自动指标
+A. 原文台词保留率
+原文中明确对话被保留到 say step 的比例。
+
+B. 关键事件覆盖率
+Gold Set 标记的关键事件是否都出现在脚本中。
+
+C. 事件顺序一致率
+VN script 中的事件顺序与原文是否一致。
+
+D. 非原文新增文本率
+新增且原文无依据的文本比例。越低越好。
+
+E. Step Schema 合法率
+输出脚本结构是否完全符合运行时 schema。
+
+F. Step 可运行率
+播放器能否无报错消费。
+
+人工评审项
+建议 5 个维度，每项 1~5 分：
+
+忠实度
+VN 感
+节奏自然度
+表达克制度
+可播放性
+稳定性指标
+同 scene 重复运行结构一致率
+schema 合法率
+平均重试次数
+保守模式 fallback 成功率
+验收标准建议
+最低可用线
+原文台词保留率 ≥ 0.90
+事件顺序一致率 ≥ 0.95
+schema 合法率 ≥ 0.98
+人工忠实度 ≥ 3.8/5
+MVP 目标线
+原文台词保留率 ≥ 0.95
+关键事件覆盖率 ≥ 0.92
+非原文新增文本率 ≤ 5%
+人工忠实度 ≥ 4.2/5
+VN 感 ≥ 4.0/5
+优秀线
+原文台词保留率 ≥ 0.98
+关键事件覆盖率 ≥ 0.96
+非原文新增文本率 ≤ 2%
+人工忠实度 ≥ 4.5/5
+节奏自然度 ≥ 4.3/5
+九、Fidelity Review Agent 评测标准
+任务目标
+发现 VN Mapping 中的偏离原文问题。
+
+自动指标
+A. 问题检出召回率
+Gold Set 中标注的偏差问题，有多少被发现。
+
+B. 问题检出精确率
+报出来的问题中，有多少是真的问题。
+
+C. 严重问题召回率
+特别关注：
+
+改写台词
+改变事件顺序
+错误归因
+新增剧情
+D. Patch 建议可用率
+提出的 patch 建议是否可执行、是否指向正确。
+
+人工评审项
+是否能抓住真正重要的问题
+是否会过度吹毛求疵
+是否能区分 minor / major / critical
+patch 建议是否具体可用
+稳定性指标
+同一输入重复运行问题列表一致率
+严重等级稳定性
+审查输出结构合法率
+验收标准建议
+最低可用线
+问题召回率 ≥ 0.75
+严重问题召回率 ≥ 0.85
+精确率 ≥ 0.70
+MVP 目标线
+问题召回率 ≥ 0.82
+严重问题召回率 ≥ 0.92
+精确率 ≥ 0.78
+patch 可用率 ≥ 0.75
+优秀线
+问题召回率 ≥ 0.88
+严重问题召回率 ≥ 0.95
+精确率 ≥ 0.85
+patch 可用率 ≥ 0.85
+十、跨 Agent 的系统级指标
+章节可完成率
+scene 可完成率
+平均重试次数
+人工介入率
+预览可用率
+每万字平均 API 调用成本
+每章平均调用次数
+每个 scene 平均 token 消耗
+十一、版本回归测试建议
+回归原则
+每次改动后至少检查：
+
+当前 Agent 指标是否提升
+下游 Agent 是否被拖累
+系统级指标是否恶化
+成本是否异常上升
+建议回归集
+小型 Gold Set：快速回归
+Validation Set：稳定性回归
+Stress Set：边界回归
+回归判定规则
+可接受改动
+当前 Agent 指标提升明显
+下游无显著下降
+成本上涨可接受
+不可接受改动
+当前 Agent 略升，但下游明显变差
+人工介入率显著上升
+VN Mapping 忠实度下降
+scene 完成率下降
+十二、建议的验收节奏
+阶段 1：最低可用
+目标：
+
+全链路能跑通
+大部分章节可完成
+播放器可预览
+阶段 2：MVP 可发布
+目标：
+
+恋爱向 txt 小说能稳定生成可玩的 VN 预览
+fidelity 问题可控
+人工介入不频繁
+阶段 3：质量优化
+目标：
+
+更自然
+更稳定
+更省钱
+更少幻觉
+十三、拍板版 MVP 验收线
+Structure Agent：章节识别 F1 ≥ 0.95
+Narrative Parsing Agent：macro F1 ≥ 0.86，dialogue F1 ≥ 0.97
+Attribution Agent：speaker attribution ≥ 0.87
+Scene Segmentation Agent：boundary F1 ≥ 0.78，自然度 ≥ 4.0/5
+VN Mapping Agent：原文台词保留率 ≥ 0.95，非原文新增文本率 ≤ 5%，忠实度 ≥ 4.2/5
+Fidelity Review Agent：严重问题召回率 ≥ 0.92，精确率 ≥ 0.78
+系统级：章节可完成率 ≥ 85%，预览可用率 ≥ 90%，人工介入率 ≤ 20%

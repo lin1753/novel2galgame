@@ -1,0 +1,31 @@
+{
+  "name": "@novel2gal/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@novel2gal/core": "workspace:*",
+    "@novel2gal/storage": "workspace:*",
+    "@novel2gal/agents": "workspace:*",
+    "@novel2gal/providers": "workspace:*",
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/multer": "^1.4.12",
+    "@types/uuid": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
