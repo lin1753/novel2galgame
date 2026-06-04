@@ -16,4 +16,13 @@ export {
   writeVNScript,
   writeFidelityReport,
   writeVisualPromptResult,
+  writeProjectJson,
+  readProjectJson,
+  writeConsistencyReport,
+  readConsistencyReport,
+  readAttributionResult,
+  readSegmentationResult,
+  readVisualPromptResult,
+  readVNScript,
+  readFidelityReport,
 } from "./project-fs.js";

@@ -10,6 +10,7 @@ import type {
   VNScript,
   FidelityReport,
   VisualPromptResult,
+  ConsistencyReport,
 } from "@novel2gal/core";
 import { DIR_NAMES, FILE_NAMES } from "@novel2gal/core";
 
@@ -208,4 +209,84 @@ export function writeVisualPromptResult(
   result: VisualPromptResult
 ): void {
   writeSceneJson(dataDir, projectId, sceneId, FILE_NAMES.visualPrompt, result);
+}
+
+// --- Project-level file I/O ---
+
+export function writeProjectJson<T>(
+  dataDir: string,
+  projectId: string,
+  fileName: string,
+  data: T
+): void {
+  const dir = path.join(dataDir, "projects", projectId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, fileName), JSON.stringify(data, null, 2), "utf-8");
+}
+
+export function readProjectJson<T>(
+  dataDir: string,
+  projectId: string,
+  fileName: string
+): T | null {
+  const filePath = path.join(dataDir, "projects", projectId, fileName);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
+}
+
+export function writeConsistencyReport(
+  dataDir: string,
+  projectId: string,
+  report: ConsistencyReport
+): void {
+  writeProjectJson(dataDir, projectId, FILE_NAMES.consistencyReport, report);
+}
+
+export function readConsistencyReport(
+  dataDir: string,
+  projectId: string
+): ConsistencyReport | null {
+  return readProjectJson<ConsistencyReport>(dataDir, projectId, FILE_NAMES.consistencyReport);
+}
+
+// --- Typed convenience readers ---
+
+export function readAttributionResult(
+  dataDir: string,
+  projectId: string,
+  chapterId: string
+): AttributionResult | null {
+  return readChapterJson<AttributionResult>(dataDir, projectId, chapterId, FILE_NAMES.attributedUnits);
+}
+
+export function readSegmentationResult(
+  dataDir: string,
+  projectId: string,
+  chapterId: string
+): SegmentationResult | null {
+  return readChapterJson<SegmentationResult>(dataDir, projectId, chapterId, FILE_NAMES.segmentation);
+}
+
+export function readVisualPromptResult(
+  dataDir: string,
+  projectId: string,
+  sceneId: string
+): VisualPromptResult | null {
+  return readSceneJson<VisualPromptResult>(dataDir, projectId, sceneId, FILE_NAMES.visualPrompt);
+}
+
+export function readVNScript(
+  dataDir: string,
+  projectId: string,
+  sceneId: string
+): VNScript | null {
+  return readSceneJson<VNScript>(dataDir, projectId, sceneId, FILE_NAMES.vnScript);
+}
+
+export function readFidelityReport(
+  dataDir: string,
+  projectId: string,
+  sceneId: string
+): FidelityReport | null {
+  return readSceneJson<FidelityReport>(dataDir, projectId, sceneId, FILE_NAMES.fidelityReport);
 }

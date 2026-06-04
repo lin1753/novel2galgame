@@ -25,6 +25,26 @@ import fs from "node:fs";
 
 const now = () => new Date().toISOString();
 
+/** Run tasks with concurrency limit */
+async function parallelLimit<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIdx = 0;
+
+  async function runNext(): Promise<void> {
+    while (nextIdx < tasks.length) {
+      const idx = nextIdx++;
+      results[idx] = await tasks[idx]();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => runNext());
+  await Promise.all(workers);
+  return results;
+}
+
 export function createDefaultConfig(): ProjectConfig {
   return {
     fidelityMode: "standard",
@@ -93,10 +113,12 @@ export async function runChapterPipeline(
   }
   writeSegmentationResult(dataDir, project.projectId, chapterId, segResult.data);
 
-  // Stage 4+5: VN Mapping + Fidelity Review per scene
-  const sceneResults: Array<{ sceneId: string; passed: boolean }> = [];
-  for (const scene of segResult.data.scenes) {
-    const sceneUnits = attributionResult.data.units.filter((u) =>
+  // Stage 4+5: VN Mapping + Fidelity Review per scene (parallel with concurrency limit)
+  const sceneConcurrency = 3;
+  const attrUnits = attributionResult.data.units;
+  const attrCharacters = attributionResult.data.characters;
+  const sceneTasks = segResult.data.scenes.map((scene) => async () => {
+    const sceneUnits = attrUnits.filter((u) =>
       scene.unitIds.includes(u.unitId)
     );
 
@@ -121,7 +143,6 @@ export async function runChapterPipeline(
       throw new Error(`Fidelity review failed for ${scene.sceneId}: ${fidelityResult.errorMessage}`);
     }
     writeFidelityReport(dataDir, project.projectId, scene.sceneId, fidelityResult.data);
-    sceneResults.push({ sceneId: scene.sceneId, passed: fidelityResult.data.passed });
 
     // Stage 6: Visual Prompt (optional, if autoRunVisualPrompt enabled)
     if (project.config.autoRunVisualPrompt) {
@@ -133,7 +154,7 @@ export async function runChapterPipeline(
             chapterId,
             scene,
             units: sceneUnits,
-            characters: attributionResult.data.characters,
+            characters: attrCharacters,
             styleTemplate: project.config.visualStyleTemplate,
           },
           provider,
@@ -143,11 +164,14 @@ export async function runChapterPipeline(
           writeVisualPromptResult(dataDir, project.projectId, scene.sceneId, vpResult.data);
         }
       } catch {
-        // Visual prompt is non-critical, log but continue
         onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);
       }
     }
-  }
+
+    return { sceneId: scene.sceneId, passed: fidelityResult.data.passed };
+  });
+
+  const sceneResults = await parallelLimit(sceneTasks, sceneConcurrency);
 
   return {
     chapterId,

@@ -206,25 +206,130 @@ Book title: 《AI恋人》作者：妄初
 
 ---
 
-### Phase 2: 工作流与本地工作台 (待开发)
+### Phase 2: 工作流与本地工作台 ✅
 
-- [ ] apps/workbench 前端框架搭建
-- [ ] 项目列表 / 项目总览页面
-- [ ] 章节页面 / Scene 工作区
-- [ ] 任务与日志页面
+**整体状态:** 已完成
+**日期:** 2026-06-04
+**分支:** `phase2-workbench`
 
-### Phase 3: 预览播放器与视觉层 (待开发)
+#### 2.1 API 增强 ✅
 
-- [ ] packages/runtime VN 播放器
-- [ ] Visual Prompt Agent
-- [ ] Consistency Review Agent
-- [ ] 图片生成集成 (gpt-image-2)
+| 路由 | 功能 |
+|------|------|
+| GET/POST `/config/models` | 模型配置读写 |
+| POST `/config/test-connection` | 连接测试 |
+| GET `/projects/:id/scenes/:sceneId/script` | VN 脚本获取 |
+| GET `/projects/:id/scenes/:sceneId/fidelity` | 忠实性报告 |
+| GET `/projects/:id/chapters/:chapterId/narrative` | 解析结果 |
+| GET `/projects/:id/chapters/:chapterId/attribution` | 归因结果 |
+| GET `/projects/:id/chapters/:chapterId/segmentation` | 切分结果 |
+| GET `/projects/:id/scenes/:sceneId/visual-prompt` | 视觉提示词 |
+| POST `/projects/:id/scenes/:sceneId/visual-prompt/run` | 运行 Visual Prompt Agent |
+| POST `/images/generate` | 图像生成 |
+| GET `/images/providers` | 列出图像 provider |
+| SSE `/progress` | 进度推送 |
 
-### Phase 4: MVP 收敛与验收 (待开发)
+#### 2.2 apps/workbench - React SPA 工作台 ✅
 
-- [ ] 评测框架集成
-- [ ] 性能优化
-- [ ] MVP 验收指标达标
+| 页面 | 路由 | 状态 |
+|------|------|------|
+| 项目列表 | `/` | P0 完成 |
+| 新建项目 (3步向导) | `/projects/new` | P0 完成 |
+| 项目总览 | `/projects/:id/overview` | P0 完成 |
+| 章节管理 (三栏) | `/projects/:id/chapters` | P0 完成 |
+| 场景工作区 (三栏) | `/projects/:id/scenes/:chapterId` | P0 完成 |
+| 模型配置 | `/config` | P0 完成 |
+| 任务日志 | `/projects/:id/tasks` | P1 完成 |
+| VN 脚本 | `/projects/:id/script/:sceneId` | P1 占位 |
+| 视觉提示 | `/projects/:id/prompts` | P1 完成 |
+| 预览播放 | `/projects/:id/preview` | P1 完成 |
+| 项目设置 | `/projects/:id/settings` | P1 占位 |
+
+**技术栈:** React 19 + Vite 6 + Tailwind CSS 4 + Zustand + TanStack Query + lucide-react
+
+---
+
+### Phase 3: 预览播放器与视觉层 ✅
+
+**整体状态:** 已完成
+**日期:** 2026-06-04
+**分支:** `phase2-workbench`
+
+#### 3.1 packages/runtime - VN 播放引擎 ✅
+
+| 模块 | 内容 |
+|------|------|
+| 步骤执行器 | 8 种 VNStep → RenderAction 映射 |
+| 播放控制器 | PlayerController (play/pause/next/back/goto/loadScript) |
+| 播放状态机 | PlayerState (idle/playing/paused/waiting/ended) |
+| 场景导航 | getSceneList/findScriptByScene/findScriptByChapter |
+| 背景/角色/文本/转场渲染 | 纯数据函数, 无 DOM |
+
+#### 3.2 Visual Prompt Agent ✅
+
+从叙事单元提取视觉证据, 生成 CharacterPromptPack + BackgroundPromptPack, 支持风格模板 (school-romance-anime, urban-romance, fresh-japanese)
+
+#### 3.3 图像生成 Provider ✅
+
+| Provider | 模型 | API 格式 |
+|----------|------|----------|
+| OpenAIImageProvider | gpt-image-1 | OpenAI Images API |
+| ZhipuImageProvider | cogview-4-250304 | OpenAI 兼容 |
+| SiliconFlowImageProvider | FLUX.1-schnell / SD3.5 | OpenAI 兼容 |
+
+#### 3.4 Preview Player + Visual Prompt 页面 ✅
+
+---
+
+### Phase 4: MVP 收敛与验收 ✅
+
+**整体状态:** 已完成
+**日期:** 2026-06-04
+**分支:** `phase2-workbench`
+
+#### 4.1 Consistency Review Agent ✅
+
+| 文件 | 内容 |
+|------|------|
+| `packages/agents/src/consistency-review/` | L2 跨章节一致性审查 Agent |
+| 检查项 | character_name_conflict, alias_conflict, background_label_conflict, scene_label_conflict, prompt_style_drift |
+| API 路由 | POST `/projects/:id/consistency/run`, GET `/projects/:id/consistency` |
+| 存储 | `consistency_report.json` 写入项目根目录 |
+
+#### 4.2 评测框架 (packages/evaluation) ✅
+
+| 模块 | 文件 | 内容 |
+|------|------|------|
+| 通用指标 | `src/metrics/common.ts` | precision, recall, F1, macro F1, boundary F1 |
+| Structure | `src/metrics/structure-metrics.ts` | 章节识别 F1, 特殊章节, 置信度 |
+| Narrative Parsing | `src/metrics/narrative-metrics.ts` | macro F1, per-class F1 (5 类) |
+| Attribution | `src/metrics/attribution-metrics.ts` | speaker/actor/thinker 准确率, alias 解析 |
+| Scene Segmentation | `src/metrics/scene-metrics.ts` | boundary F1, 过切/欠切率 |
+| VN Mapping | `src/metrics/vn-mapping-metrics.ts` | 对话保留率, 非原文添加率, schema 合法性 |
+| Fidelity Review | `src/metrics/fidelity-metrics.ts` | 问题召回率, 严重问题召回率, 精确率 |
+| System | `src/metrics/system-metrics.ts` | 章节完成率, 预览可用率, 失败率 |
+| Gold Set | `src/gold-set.ts` | Gold/Validation/Stress 数据集加载 |
+| Eval Runner | `src/eval-runner.ts` | 全流程评测, 结果保存, 回归对比 |
+
+**评测数据目录:** `data/evaluation/{gold,validation,stress,results}/`
+
+#### 4.3 性能优化 ✅
+
+- 章节内 scene 并行处理 (concurrency limit = 3)
+- `parallelLimit` 工具函数, 避免 LLM 并发过高
+
+#### 4.4 全量构建验证 ✅
+
+```
+packages/core        ✅ tsc
+packages/providers   ✅ tsc
+packages/storage     ✅ tsc
+packages/agents      ✅ tsc (含 consistency-review)
+packages/runtime     ✅ tsc
+packages/evaluation  ✅ tsc
+apps/api             ✅ tsc
+apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
+```
 
 ---
 

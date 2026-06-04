@@ -18,8 +18,15 @@ import {
   writeProjectState,
   readProjectState,
   initProjectDirs,
+  getProjectPaths,
+  readAttributionResult,
+  readSegmentationResult,
+  readVisualPromptResult,
+  writeConsistencyReport,
+  readConsistencyReport,
 } from "@novel2gal/storage";
-import { runStructureAgent } from "@novel2gal/agents";
+import { runStructureAgent, runConsistencyReviewAgent } from "@novel2gal/agents";
+import type { ChapterConsistencyData } from "@novel2gal/agents";
 import { runChapterPipeline, createDefaultConfig } from "../orchestrator/index.js";
 import { config } from "../config/index.js";
 import type { LLMProvider } from "@novel2gal/providers";
@@ -211,6 +218,77 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
   // GET /projects/:id/tasks - List tasks
   router.get("/:id/tasks", (req: Request, res: Response) => {
     res.json(taskRepo.listByProject(param(req, "id")));
+  });
+
+  // POST /projects/:id/consistency/run - Run Consistency Review
+  router.post("/:id/consistency/run", async (req: Request, res: Response) => {
+    if (!provider) return res.status(503).json({ error: "No LLM provider configured" });
+
+    const project = projectRepo.getById(param(req, "id"));
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const chapters = chapterRepo.listByProject(param(req, "id"));
+    if (chapters.length === 0) return res.status(400).json({ error: "No chapters found" });
+
+    const model = req.body.model ?? project.config.defaultTextModel;
+    const paths = getProjectPaths(config.dataDir, param(req, "id"));
+
+    // Gather data from all completed chapters
+    const chapterData: import("@novel2gal/agents").ChapterConsistencyData[] = [];
+    for (const ch of chapters) {
+      const attrResult = readAttributionResult(config.dataDir, param(req, "id"), ch.chapterId);
+      if (!attrResult) continue; // Skip chapters without attribution
+
+      const segResult = readSegmentationResult(config.dataDir, param(req, "id"), ch.chapterId);
+
+      // Read visual prompt results for scenes in this chapter
+      const vpResults: import("@novel2gal/core").VisualPromptResult[] = [];
+      if (segResult) {
+        for (const scene of segResult.scenes) {
+          const vp = readVisualPromptResult(config.dataDir, param(req, "id"), scene.sceneId);
+          if (vp) vpResults.push(vp);
+        }
+      }
+
+      chapterData.push({
+        chapterId: ch.chapterId,
+        characters: attrResult.characters,
+        aliasMap: attrResult.aliasMap,
+        attributionResult: attrResult,
+        segmentationResult: segResult ?? undefined,
+        visualPromptResults: vpResults.length > 0 ? vpResults : undefined,
+      });
+    }
+
+    if (chapterData.length === 0) {
+      return res.status(400).json({ error: "No completed chapters with attribution data" });
+    }
+
+    try {
+      const result = await runConsistencyReviewAgent(
+        { projectId: param(req, "id"), chapters: chapterData },
+        provider,
+        model
+      );
+      if (!result.success || !result.data) {
+        return res.status(500).json({ error: result.errorMessage });
+      }
+
+      writeConsistencyReport(config.dataDir, param(req, "id"), result.data);
+      projectRepo.updateStatus(param(req, "id"), "preview_ready");
+      writeProjectState(config.dataDir, { ...project, status: "preview_ready", updatedAt: new Date().toISOString() });
+
+      res.json(result.data);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // GET /projects/:id/consistency - Get consistency report
+  router.get("/:id/consistency", (req: Request, res: Response) => {
+    const report = readConsistencyReport(config.dataDir, param(req, "id"));
+    if (!report) return res.status(404).json({ error: "Consistency report not found" });
+    res.json(report);
   });
 
   return router;

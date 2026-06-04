@@ -1,0 +1,40 @@
+{
+  "novelId": "sample-novel-001",
+  "novelTitle": "示例小说（样例格式）",
+  "structure": {
+    "chapterIds": ["chapter_0001", "chapter_0002", "chapter_0003"],
+    "chapterTitles": ["第一章 初遇", "第二章 相知", "第三章 表白"],
+    "boundaries": [0, 3500, 7200],
+    "specialChapters": []
+  },
+  "chapters": [
+    {
+      "chapterId": "chapter_0001",
+      "narrative": {
+        "chapterId": "chapter_0001",
+        "units": [
+          { "order": 1, "type": "narration", "text": "春天的校园里樱花盛开。" },
+          { "order": 2, "type": "action", "text": "林晓走进教室，放下书包。" },
+          { "order": 3, "type": "dialogue", "text": "早安！" },
+          { "order": 4, "type": "thought", "text": "她今天好像不太一样。" }
+        ]
+      },
+      "attribution": {
+        "chapterId": "chapter_0001",
+        "units": [
+          { "unitId": "u_001" },
+          { "unitId": "u_002", "actorId": "char_lin_xiao" },
+          { "unitId": "u_003", "speakerId": "char_lin_xiao" },
+          { "unitId": "u_004", "thinkerId": "char_narrator" }
+        ],
+        "aliasMap": { "林晓": "char_lin_xiao" }
+      },
+      "scenes": {
+        "chapterId": "chapter_0001",
+        "scenes": [
+          { "sceneIndex": 0, "startUnitIndex": 0, "endUnitIndex": 3 }
+        ]
+      }
+    }
+  ]
+}

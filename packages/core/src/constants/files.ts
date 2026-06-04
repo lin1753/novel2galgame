@@ -14,6 +14,7 @@ export const FILE_NAMES = {
   vnScript: "vn_script.json",
   fidelityReport: "fidelity_report.json",
   visualPrompt: "visual_prompt.json",
+  consistencyReport: "consistency_report.json",
   chapterScript: (chapterIndex: number) =>
     `chapter-${String(chapterIndex).padStart(4, "0")}-script.json`,
   fullPreviewScript: "full-preview-script.json",
