@@ -1,0 +1,53 @@
+import { request } from './api'
+import type { ProjectState, ProjectConfig } from '@novel2gal/core'
+
+export interface CreateProjectBody {
+  title?: string
+  config?: Partial<ProjectConfig>
+}
+
+export interface StructureRunResult {
+  bookTitle?: string
+  chapterCount: number
+  confidence: number
+  warnings?: string[]
+  chapters: Array<{
+    chapterId: string
+    index: number
+    title: string
+    charCount: number
+    isExtra?: boolean
+    isAfterword?: boolean
+  }>
+}
+
+export const projectService = {
+  list: () => request<ProjectState[]>('/projects'),
+
+  get: (id: string) => request<ProjectState>(`/projects/${id}`),
+
+  create: (body: CreateProjectBody) =>
+    request<ProjectState>('/projects', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  delete: (id: string) =>
+    request<void>(`/projects/${id}`, { method: 'DELETE' }),
+
+  import: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<{ message: string; path: string }>(`/projects/${id}/import`, {
+      method: 'POST',
+      headers: {},
+      body: form,
+    })
+  },
+
+  runStructure: (id: string) =>
+    request<StructureRunResult>(`/projects/${id}/structure/run`, { method: 'POST' }),
+
+  getStructure: (id: string) =>
+    request<Record<string, unknown>>(`/projects/${id}/structure`),
+}

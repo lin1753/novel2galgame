@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createDatabase } from "@novel2gal/storage";
 import { OpenAIProvider } from "@novel2gal/providers";
 import { createServer } from "./server/server.js";
@@ -10,7 +11,7 @@ const apiKey = process.env.OPENAI_API_KEY;
 if (apiKey) {
   provider = new OpenAIProvider({
     apiKey,
-    baseUrl: process.env.OPENAI_BASE_URL,
+    baseUrl: process.env.OPENAI_BASE_URL || undefined,
     defaultModel: process.env.DEFAULT_MODEL ?? "gpt-4o",
   });
   console.log(`LLM provider: OpenAI (${process.env.DEFAULT_MODEL ?? "gpt-4o"})`);
