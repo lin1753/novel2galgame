@@ -1,0 +1,6 @@
+FROM ./model/qwen3-8b-novel-base-sft
+
+PARAMETER temperature 0.3
+PARAMETER num_ctx 4096
+
+SYSTEM "你是一个中文小说文本分析助手，擅长叙事单元分类、角色归属和场景切分任务。请严格按照要求的 JSON 格式输出。"
