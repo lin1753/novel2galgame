@@ -35,7 +35,7 @@ const DEFAULT_PROFILES: ModelProfilesConfig = {
     {
       name: "qwen3-8b-local",
       type: "local",
-      baseUrl: "http://localhost:8000/v1",
+      baseUrl: "http://localhost:11434/v1",
       apiKey: "not-needed",
       defaultModel: "qwen3-8b-sft",
       enabled: false,
