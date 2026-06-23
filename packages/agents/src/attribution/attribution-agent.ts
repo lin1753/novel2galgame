@@ -1,6 +1,7 @@
 import type { AttributedNarrativeUnit, AttributionResult, CharacterRef } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
+import { normalizeAttributionUnits } from "../shared/normalize.js";
 
 export interface AttributionInput {
   chapterId: string;
@@ -24,11 +25,28 @@ const SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的
 3. 不确定的归属标记 uncertain=true
 4. 保持原文不变, 只添加归属信息
 
-输出 JSON 格式:
+输出 JSON 格式 (必须严格遵守字段名):
 {
-  "units": [带归属信息的原始单元数组],
+  "units": [
+    {
+      "unitId": "保持原始unitId不变",
+      "type": "保持原始type不变",
+      "originalText": "保持原始文本不变",
+      "order": 0,
+      "chapterId": "<chapterId>",
+      "confidence": 0.9,
+      "attribution": {
+        "speakerId": "char_001 或 null",
+        "actorId": "char_001 或 null",
+        "thinkerId": "char_001 或 null",
+        "participantIds": ["char_001"],
+        "uncertain": false,
+        "evidence": ["判定依据"]
+      }
+    }
+  ],
   "characters": [{"characterId": "char_001", "canonicalName": "名字", "aliases": ["别名"]}],
-  "aliasMap": {"别名": "正式名"},
+  "aliasMap": {"别名": "char_001"},
   "uncertainUnitIds": ["unitId"]
 }`;
 
@@ -69,8 +87,11 @@ ${unitsText}
       jsonMode: true,
     });
 
+    // Normalize field names from LLM output
+    const normalizedUnits = normalizeAttributionUnits(result.units ?? []);
+
     // 确保 chapterId 正确
-    for (const unit of result.units ?? []) {
+    for (const unit of normalizedUnits) {
       unit.chapterId = chapterId;
     }
 
@@ -78,7 +99,7 @@ ${unitsText}
       success: true,
       data: {
         chapterId,
-        units: result.units ?? [],
+        units: normalizedUnits,
         characters: result.characters ?? [],
         aliasMap: result.aliasMap ?? {},
         uncertainUnitIds: result.uncertainUnitIds ?? [],

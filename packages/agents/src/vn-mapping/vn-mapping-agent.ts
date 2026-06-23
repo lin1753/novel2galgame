@@ -1,6 +1,7 @@
 import type { VNScript, VNStep, Scene, AttributedNarrativeUnit } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
+import { normalizeVNSteps } from "../shared/normalize.js";
 
 export interface VNMappingInput {
   sceneId: string;
@@ -29,11 +30,15 @@ VN 步骤类型:
 4. 场景开始时应设置 bg, 有角色说话时 show
 5. conservative 模式下更保守, standard 模式下更丰富
 
-输出 JSON 格式:
+输出 JSON 格式 (必须严格遵守字段名):
 {
   "steps": [
-    {"stepId": "step_0001_0001", "type": "bg", "order": 0, "backgroundId": "bg_desc", "sourceUnitIds": ["unitId"]},
-    {"stepId": "step_0001_0002", "type": "say", "order": 1, "characterId": "char_001", "displayName": "名字", "text": "原文对话", "sourceUnitIds": ["unitId"]}
+    {"stepId": "step_0001_0001", "type": "bg", "order": 0, "backgroundId": "school_classroom", "backgroundLabel": "教室", "sourceUnitIds": ["unit_0001_0001"]},
+    {"stepId": "step_0001_0002", "type": "show", "order": 1, "characterId": "char_001", "expression": "happy", "position": "center", "sourceUnitIds": ["unit_0001_0002"]},
+    {"stepId": "step_0001_0003", "type": "say", "order": 2, "characterId": "char_001", "displayName": "名字", "text": "原文对话内容", "sourceUnitIds": ["unit_0001_0003"]},
+    {"stepId": "step_0001_0004", "type": "narration", "order": 3, "text": "旁白内容", "sourceUnitIds": ["unit_0001_0004"]},
+    {"stepId": "step_0001_0005", "type": "thought", "order": 4, "characterId": "char_001", "displayName": "名字", "text": "内心独白", "sourceUnitIds": ["unit_0001_0005"]},
+    {"stepId": "step_0001_0006", "type": "transition", "order": 5, "name": "fade", "sourceUnitIds": []}
   ]
 }`;
 
@@ -82,8 +87,11 @@ ${unitsText}
       jsonMode: true,
     });
 
+    // Normalize field names from LLM output
+    const normalizedSteps = normalizeVNSteps(result.steps ?? []);
+
     // 统计非原文添加量
-    const dialogueSteps = (result.steps ?? []).filter(
+    const dialogueSteps = normalizedSteps.filter(
       (s: VNStep) => s.type === "say" || s.type === "thought"
     );
     const sourceTextLength = units.map((u) => u.originalText ?? "").join("").length;
@@ -99,7 +107,7 @@ ${unitsText}
       data: {
         sceneId,
         chapterId,
-        steps: result.steps ?? [],
+        steps: normalizedSteps,
         mappingMode,
         suspiciousExpansions,
       },

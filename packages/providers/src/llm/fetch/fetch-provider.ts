@@ -79,6 +79,9 @@ export class FetchLLMProvider implements LLMProvider {
 
     return {
       content: choice.message.content ?? "",
+      reasoning: typeof choice.message.reasoning_content === "string"
+        ? choice.message.reasoning_content
+        : undefined,
       model: data.model ?? this.defaultModel,
       usage: {
         promptTokens: data.usage?.prompt_tokens ?? 0,

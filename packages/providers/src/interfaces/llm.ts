@@ -13,6 +13,7 @@ export interface LLMRequestOptions {
 
 export interface LLMResponse {
   content: string;
+  reasoning?: string;
   model: string;
   usage: {
     promptTokens: number;
