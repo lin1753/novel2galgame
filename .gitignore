@@ -9,7 +9,10 @@ data/datasets/
 .env.local
 
 # Test novel dataset
-2/
+data/novel/
+
+# Local model weights (downloaded via scripts/download-models.py)
+model/
 
 # IDE / editor
 .vscode/

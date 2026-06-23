@@ -5,7 +5,7 @@ REM
 REM Usage: scripts\start-vllm.bat
 REM API will be available at http://localhost:8000/v1
 
-set MODEL_DIR=D:\Project\model
+set MODEL_DIR=%~dp0..\model
 set MODEL_PATH=%MODEL_DIR%\qwen3-8b-novel-base-sft
 
 if not exist "%MODEL_PATH%" (
