@@ -14,7 +14,7 @@ function param(req: Request, key: string): string {
   return Array.isArray(val) ? val[0] : val;
 }
 
-export function createSceneRoutes(db: ReturnType<typeof createDatabase>, provider: LLMProvider | null) {
+export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProvider: () => LLMProvider | null) {
   const router = Router();
   const sceneRepo = new SceneRepository(db);
 
@@ -107,6 +107,7 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, provide
 
   // POST /projects/:id/scenes/:sceneId/visual-prompt/run - Run Visual Prompt Agent
   router.post("/projects/:id/scenes/:sceneId/visual-prompt/run", async (req: Request, res: Response) => {
+    const provider = getProvider();
     if (!provider) {
       return res.status(503).json({ error: "LLM provider not configured" });
     }

@@ -34,7 +34,7 @@ import type { LLMProvider } from "@novel2gal/providers";
 
 const upload = multer({ dest: path.join(config.dataDir, "temp") });
 
-export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase>>, provider: LLMProvider | null) {
+export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase>>, getProvider: () => LLMProvider | null) {
   const router = Router();
   const projectRepo = new ProjectRepository(db);
   const chapterRepo = new ChapterRepository(db);
@@ -196,6 +196,7 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
 
   // POST /projects/:id/chapters/:chapterId/run - Run chapter pipeline
   router.post("/:id/chapters/:chapterId/run", async (req: Request, res: Response) => {
+    const provider = getProvider();
     if (!provider) return res.status(503).json({ error: "No LLM provider configured" });
 
     const project = projectRepo.getById(param(req, "id"));
@@ -231,6 +232,7 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
 
   // POST /projects/:id/consistency/run - Run Consistency Review
   router.post("/:id/consistency/run", async (req: Request, res: Response) => {
+    const provider = getProvider();
     if (!provider) return res.status(503).json({ error: "No LLM provider configured" });
 
     const project = projectRepo.getById(param(req, "id"));
