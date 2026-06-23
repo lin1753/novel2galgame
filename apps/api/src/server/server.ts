@@ -8,8 +8,18 @@ import { createProgressRoutes } from "../routes/progress.js";
 import { createImageRoutes } from "../routes/images.js";
 import type { LLMProvider } from "@novel2gal/providers";
 
-export function createServer(db: ReturnType<typeof createDatabase>, provider: LLMProvider | null) {
+export function createServer(
+  db: ReturnType<typeof createDatabase>,
+  provider: LLMProvider | null,
+  setProvider?: (p: LLMProvider) => void
+) {
   const app = express();
+
+  // Use a getter so routes always see the current provider after switching
+  const getProvider = (): LLMProvider | null => provider;
+  const wrappedSetProvider = setProvider
+    ? (p: LLMProvider) => { provider = p; setProvider(p); }
+    : undefined;
 
   app.use(cors({
     origin: ["http://localhost:5173", "http://localhost:5174"],
@@ -18,13 +28,13 @@ export function createServer(db: ReturnType<typeof createDatabase>, provider: LL
   app.use(express.json());
 
   // Project CRUD + pipeline routes
-  app.use("/projects", createProjectRoutes(db, provider));
+  app.use("/projects", createProjectRoutes(db, getProvider));
 
   // Scene, chapter result routes
-  app.use("/", createSceneRoutes(db, provider));
+  app.use("/", createSceneRoutes(db, getProvider));
 
   // Config routes
-  app.use("/config", createConfigRoutes(provider));
+  app.use("/config", createConfigRoutes(getProvider, wrappedSetProvider));
 
   // Image generation routes
   app.use("/images", createImageRoutes());
