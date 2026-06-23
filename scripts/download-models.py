@@ -11,7 +11,7 @@ Models are saved to D:\Project\model\ (configurable via MODEL_DIR env var).
 import os
 from huggingface_hub import snapshot_download
 
-MODEL_DIR = os.environ.get("MODEL_DIR", r"D:\Project\model")
+MODEL_DIR = os.environ.get("MODEL_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "model"))
 
 MODELS = [
     {
