@@ -1,4 +1,5 @@
 import https from "node:https";
+import http from "node:http";
 import type {
   LLMProvider,
   LLMRequestOptions,
@@ -22,17 +23,19 @@ export class FetchLLMProvider implements LLMProvider {
     this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     this.apiKey = config.apiKey;
     this.defaultModel = config.defaultModel ?? "gpt-4o";
-    this.agent = new https.Agent({ family: 4 }); // Force IPv4
+    this.agent = new https.Agent({ family: 4 }); // Force IPv4 (HTTPS only)
   }
 
   private request(path: string, body: object): Promise<any> {
     return new Promise((resolve, reject) => {
       const url = new URL(`${this.baseUrl}${path}`);
       const data = JSON.stringify(body);
+      const transport = url.protocol === "https:" ? https : http;
+      console.log(`[FetchLLM] ${transport === http ? "HTTP" : "HTTPS"} ${url.hostname}:${url.port || (url.protocol === "https:" ? 443 : 80)}${url.pathname} (${data.length} bytes)`);
 
-      const req = https.request({
+      const req = transport.request({
         hostname: url.hostname,
-        port: url.port || 443,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
         path: url.pathname,
         method: "POST",
         headers: {
@@ -40,7 +43,7 @@ export class FetchLLMProvider implements LLMProvider {
           "Authorization": `Bearer ${this.apiKey}`,
           "Content-Length": Buffer.byteLength(data),
         },
-        agent: this.agent,
+        agent: url.protocol === "https:" ? this.agent : undefined,
       }, (res) => {
         let responseBody = "";
         res.on("data", (chunk) => { responseBody += chunk; });
@@ -94,11 +97,14 @@ export class FetchLLMProvider implements LLMProvider {
 
   async chatJson<T>(options: LLMRequestOptions): Promise<T> {
     const response = await this.chat({ ...options, jsonMode: true });
+    let content = response.content.trim();
+    // Strip markdown code block wrappers
+    content = content.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "");
     try {
-      return JSON.parse(response.content) as T;
+      return JSON.parse(content) as T;
     } catch {
       // Try to repair truncated JSON (common with free-tier APIs)
-      return JSON.parse(repairJson(response.content)) as T;
+      return JSON.parse(repairJson(content)) as T;
     }
   }
 }
