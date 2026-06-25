@@ -29,7 +29,9 @@ import {
 import { runStructureAgent, runConsistencyReviewAgent } from "@novel2gal/agents";
 import type { ChapterConsistencyData } from "@novel2gal/agents";
 import { runChapterPipeline, createDefaultConfig } from "../orchestrator/index.js";
+import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
 import { config } from "../config/index.js";
+import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 
 const upload = multer({ dest: path.join(config.dataDir, "temp") });
@@ -213,9 +215,30 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     const chapterText = fs.readFileSync(sourcePath, "utf-8");
     const model = req.body.model ?? project.config.defaultTextModel;
 
+    // Build per-agent model config
+    let agentModels: AgentModelConfig | undefined;
+    const localBaseUrl = req.body.localBaseUrl;
+    const localModel = req.body.localModel ?? "qwen3-8b-sft";
+    if (localBaseUrl) {
+      const localProvider = new FetchLLMProvider({
+        apiKey: "not-needed",
+        baseUrl: localBaseUrl,
+        defaultModel: localModel,
+        name: "local-sft",
+      });
+      const trainedAgent = { provider: localProvider as LLMProvider, model: localModel };
+      agentModels = {
+        narrative: trainedAgent,
+        attribution: trainedAgent,
+        segmentation: trainedAgent,
+        // vnMapping, fidelityReview, visualPrompt use default cloud provider
+      };
+      console.log(`Per-agent routing: narrative/attribution/segmentation → ${localBaseUrl} (${localModel}), others → cloud (${model})`);
+    }
+
     try {
       const result = await runChapterPipeline(
-        config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model
+        config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model, undefined, agentModels
       );
       chapterRepo.updateStatus(param(req, "chapterId"), "chapter_ready");
       res.json(result);

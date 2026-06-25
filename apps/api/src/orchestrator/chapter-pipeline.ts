@@ -58,6 +58,24 @@ export function createDefaultConfig(): ProjectConfig {
   };
 }
 
+export interface AgentModelConfig {
+  narrative?: { provider: LLMProvider; model: string };
+  attribution?: { provider: LLMProvider; model: string };
+  segmentation?: { provider: LLMProvider; model: string };
+  vnMapping?: { provider: LLMProvider; model: string };
+  fidelityReview?: { provider: LLMProvider; model: string };
+  visualPrompt?: { provider: LLMProvider; model: string };
+}
+
+function resolveAgent(
+  agentModels: AgentModelConfig | undefined,
+  key: keyof AgentModelConfig,
+  fallbackProvider: LLMProvider,
+  fallbackModel: string
+): { provider: LLMProvider; model: string } {
+  return agentModels?.[key] ?? { provider: fallbackProvider, model: fallbackModel };
+}
+
 export async function runChapterPipeline(
   dataDir: string,
   project: ProjectState,
@@ -66,7 +84,8 @@ export async function runChapterPipeline(
   chapterText: string,
   provider: LLMProvider,
   model: string,
-  onProgress?: (stage: string, message: string) => void
+  onProgress?: (stage: string, message: string) => void,
+  agentModels?: AgentModelConfig
 ) {
   const chapterId = `chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
 
@@ -79,10 +98,11 @@ export async function runChapterPipeline(
 
   // Stage 1: Narrative Parsing
   onProgress?.("narrative_parsing", `Parsing chapter ${chapterTitle}`);
+  const narr = resolveAgent(agentModels, "narrative", provider, model);
   const narrativeResult = await runNarrativeParsingAgent(
     { chapterId, chapterTitle, chapterText },
-    provider,
-    model
+    narr.provider,
+    narr.model
   );
   if (!narrativeResult.success || !narrativeResult.data) {
     throw new Error(`Narrative parsing failed: ${narrativeResult.errorMessage}`);
@@ -91,10 +111,11 @@ export async function runChapterPipeline(
 
   // Stage 2: Attribution
   onProgress?.("attribution", `Attributing chapter ${chapterTitle}`);
+  const attr = resolveAgent(agentModels, "attribution", provider, model);
   const attributionResult = await runAttributionAgent(
     { chapterId, units: narrativeResult.data.units },
-    provider,
-    model
+    attr.provider,
+    attr.model
   );
   if (!attributionResult.success || !attributionResult.data) {
     throw new Error(`Attribution failed: ${attributionResult.errorMessage}`);
@@ -103,10 +124,11 @@ export async function runChapterPipeline(
 
   // Stage 3: Scene Segmentation
   onProgress?.("scene_segmentation", `Segmenting chapter ${chapterTitle}`);
+  const seg = resolveAgent(agentModels, "segmentation", provider, model);
   const segResult = await runSceneSegmentationAgent(
     { chapterId, units: attributionResult.data.units },
-    provider,
-    model
+    seg.provider,
+    seg.model
   );
   if (!segResult.success || !segResult.data) {
     throw new Error(`Scene segmentation failed: ${segResult.errorMessage}`);
@@ -149,10 +171,11 @@ export async function runChapterPipeline(
     );
 
     onProgress?.("vn_mapping", `Mapping scene ${scene.sceneId}`);
+    const vn = resolveAgent(agentModels, "vnMapping", provider, model);
     const vnResult = await runVNMappingAgent(
       { sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" },
-      provider,
-      model
+      vn.provider,
+      vn.model
     );
     if (!vnResult.success || !vnResult.data) {
       throw new Error(`VN mapping failed for ${scene.sceneId}: ${vnResult.errorMessage}`);
@@ -160,10 +183,11 @@ export async function runChapterPipeline(
     writeVNScript(dataDir, project.projectId, scene.sceneId, vnResult.data);
 
     onProgress?.("fidelity_review", `Reviewing scene ${scene.sceneId}`);
+    const fr = resolveAgent(agentModels, "fidelityReview", provider, model);
     const fidelityResult = await runFidelityReviewAgent(
       { sceneId: scene.sceneId, chapterId, vnScript: vnResult.data, originalUnits: sceneUnits },
-      provider,
-      model
+      fr.provider,
+      fr.model
     );
     if (!fidelityResult.success || !fidelityResult.data) {
       throw new Error(`Fidelity review failed for ${scene.sceneId}: ${fidelityResult.errorMessage}`);
@@ -174,6 +198,7 @@ export async function runChapterPipeline(
     if (project.config.autoRunVisualPrompt) {
       onProgress?.("visual_prompt", `Generating visual prompts for scene ${scene.sceneId}`);
       try {
+        const vp = resolveAgent(agentModels, "visualPrompt", provider, model);
         const vpResult = await runVisualPromptAgent(
           {
             sceneId: scene.sceneId,
@@ -183,8 +208,8 @@ export async function runChapterPipeline(
             characters: attrCharacters,
             styleTemplate: project.config.visualStyleTemplate,
           },
-          provider,
-          model
+          vp.provider,
+          vp.model
         );
         if (vpResult.success && vpResult.data) {
           writeVisualPromptResult(dataDir, project.projectId, scene.sceneId, vpResult.data);

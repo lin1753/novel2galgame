@@ -31,11 +31,12 @@ export class FetchLLMProvider implements LLMProvider {
       const url = new URL(`${this.baseUrl}${path}`);
       const data = JSON.stringify(body);
       const transport = url.protocol === "https:" ? https : http;
-      console.log(`[FetchLLM] ${transport === http ? "HTTP" : "HTTPS"} ${url.hostname}:${url.port || (url.protocol === "https:" ? 443 : 80)}${url.pathname} (${data.length} bytes)`);
+      const port = url.port || (url.protocol === "https:" ? 443 : 80);
+      console.log(`[FetchLLM] ${transport === http ? "HTTP" : "HTTPS"} ${url.hostname}:${port}${url.pathname} (${data.length} bytes)`);
 
       const req = transport.request({
         hostname: url.hostname,
-        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        port,
         path: url.pathname,
         method: "POST",
         headers: {
@@ -48,6 +49,7 @@ export class FetchLLMProvider implements LLMProvider {
         let responseBody = "";
         res.on("data", (chunk) => { responseBody += chunk; });
         res.on("end", () => {
+          console.log(`[FetchLLM] Response: ${res.statusCode} (${responseBody.length} bytes)`);
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             try {
               resolve(JSON.parse(responseBody));
