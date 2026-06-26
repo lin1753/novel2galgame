@@ -1,12 +1,12 @@
 """
-OpenAI-compatible API server with LoRA hot-swapping.
+OpenAI-compatible API server with LoRA hot-swap (one at a time).
 Uses transformers + bitsandbytes 4-bit for WSL2 compatibility.
 
 Supports model names:
   - qwen3-8b-sft: base SFT model (no LoRA)
-  - narrative: base + narrative-type LoRA (叙事单元分类)
-  - attribution: base + attribution-best LoRA (角色归因)
-  - scene: base + scene-boundary LoRA (场景边界)
+  - narrative: swap to narrative-type LoRA (叙事单元分类)
+  - attribution: swap to attribution-best LoRA (角色归因)
+  - scene: swap to scene-boundary LoRA (场景边界)
 
 Usage:
     pip install transformers flask bitsandbytes accelerate torch peft
@@ -21,7 +21,6 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "/mnt/d/Project/novel2glagame/model")
 BASE_MODEL_PATH = os.path.join(MODEL_DIR, "qwen3-8b-novel-base-sft")
 PORT = int(os.environ.get("PORT", "8000"))
 
-# LoRA adapter paths
 LORA_ADAPTERS = {
     "narrative": os.path.join(MODEL_DIR, "narrative-type-lora"),
     "attribution": os.path.join(MODEL_DIR, "attribution-best-lora"),
@@ -30,7 +29,6 @@ LORA_ADAPTERS = {
 
 print(f"Base model: {BASE_MODEL_PATH}")
 print(f"LoRA adapters: {list(LORA_ADAPTERS.keys())}")
-print(f"Using 4-bit NF4 quantization")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
@@ -38,7 +36,6 @@ from peft import PeftModel
 print(f"GPU: {torch.cuda.get_device_name(0)}")
 print(f"Free memory: {torch.cuda.mem_get_info(0)[0] / 1024**3:.1f} GB")
 
-# Load base model with 4-bit quantization
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_compute_dtype=torch.float16,
@@ -55,28 +52,33 @@ base_model = AutoModelForCausalLM.from_pretrained(
 )
 print(f"Base model loaded. GPU memory: {torch.cuda.memory_allocated(0) / 1024**3:.1f} GB")
 
-# Load all LoRA adapters into a single PeftModel
-adapter_names = list(LORA_ADAPTERS.keys())
-model = PeftModel.from_pretrained(base_model, list(LORA_ADAPTERS.values())[0], adapter_name=adapter_names[0])
-for name, path in list(LORA_ADAPTERS.items())[1:]:
-    model.load_adapter(path, adapter_name=name)
-    print(f"  LoRA '{name}' loaded")
-
-# Start with first adapter active
-model.set_adapter(adapter_names[0])
-current_adapter = adapter_names[0]
-print(f"Active adapter: {current_adapter}")
-
-print(f"All LoRAs loaded. GPU memory: {torch.cuda.memory_allocated(0) / 1024**3:.1f} GB")
-
+# Current state
+current_model = base_model
+current_adapter = "base"
 model_lock = threading.Lock()
 
 
-def get_model_for_request(model_name: str):
-    """Switch to the appropriate LoRA adapter based on model name."""
-    global current_adapter
+def switch_adapter(name: str):
+    """Load a LoRA adapter (replaces previous)."""
+    global current_model, current_adapter
+    if name == current_adapter:
+        return current_model
 
-    # Map model name to adapter
+    with model_lock:
+        path = LORA_ADAPTERS.get(name)
+        if not path:
+            current_model = base_model
+            current_adapter = "base"
+        else:
+            current_model = PeftModel.from_pretrained(base_model, path)
+            current_adapter = name
+        torch.cuda.empty_cache()
+        print(f"  Switched to adapter '{name}'. GPU: {torch.cuda.memory_allocated(0) / 1024**3:.1f} GB")
+
+    return current_model
+
+
+def get_model_for_request(model_name: str):
     adapter = None
     if model_name in LORA_ADAPTERS:
         adapter = model_name
@@ -87,15 +89,8 @@ def get_model_for_request(model_name: str):
     elif "scene" in model_name:
         adapter = "scene"
     else:
-        # Default: use narrative adapter for base model requests
-        adapter = adapter_names[0]
-
-    with model_lock:
-        if current_adapter != adapter:
-            model.set_adapter(adapter)
-            current_adapter = adapter
-
-    return model
+        adapter = "base"
+    return switch_adapter(adapter)
 
 
 app = Flask(__name__)
@@ -108,13 +103,15 @@ def chat_completions():
     model_name = data.get("model", "qwen3-8b-sft")
     max_tokens = data.get("max_tokens", 512)
     temperature = data.get("temperature", 0.3)
+    print(f"[REQ] model={model_name} max_tokens={max_tokens} msgs={len(messages)}", flush=True)
 
     active_model = get_model_for_request(model_name)
 
-    # Apply chat template
     text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
+    # Strip thinking tags that the template may inject
+    text = text.replace("<think>\n</think>\n\n", "").replace("<think></think>", "")
     inputs = tokenizer(text, return_tensors="pt").to(active_model.device)
 
     try:
@@ -169,5 +166,6 @@ def health():
 
 
 print(f"\nStarting server on port {PORT}...")
-print(f"Available models: qwen3-8b-sft, {', '.join(LORA_ADAPTERS.keys())}")
+print(f"Models: qwen3-8b-sft, {', '.join(LORA_ADAPTERS.keys())}")
+print("Note: LoRA adapters swap one at a time (~3s each)")
 app.run(host="0.0.0.0", port=PORT, threaded=True)
