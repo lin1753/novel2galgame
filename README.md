@@ -30,8 +30,9 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 
 | 模型 | 用途 | 价格 |
 |------|------|------|
-| [Agnes AI agnes-2.0-flash](https://agnes-ai.com) | LLM 推理 (VN Mapping, Fidelity, Consistency) | 免费 |
+| [Agnes AI agnes-2.0-flash](https://agnes-ai.com) | LLM 推理 (Narrative, Attribution, Scene, VN Mapping, Fidelity, Consistency) | 免费 |
 | [Agnes AI agnes-image-2.1-flash](https://agnes-ai.com) | 文生图/图生图 | $0.003/张 |
+| [Agnes AI agnes-video-v2.0](https://agnes-ai.com) | 文生视频/图生视频/关键帧动画 | 免费 |
 
 ## 技术栈
 
@@ -52,7 +53,7 @@ packages/
   core/         领域模型与 TypeScript 接口
   agents/       9 个 AI Agent 实现
   runtime/      VN 播放引擎
-  providers/    LLM + 图像生成 Provider
+  providers/    LLM + 图像生成 + 视频生成 Provider
   storage/      SQLite 索引 + 文件系统存储
   evaluation/   评测框架
 scripts/
@@ -124,6 +125,19 @@ curl -X POST http://localhost:3002/projects/{id}/chapters/{chapterId}/run \
 curl -X POST http://localhost:3002/projects/{id}/consistency/run \
   -H "Content-Type: application/json" \
   -d '{"model": "agnes-2.0-flash"}'
+
+# 生成图像
+curl -X POST http://localhost:3002/images/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "anime style schoolgirl in cherry blossom garden", "width": 768, "height": 1024}'
+
+# 生成视频
+curl -X POST http://localhost:3002/videos/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "camera slowly pans across a sunset beach scene", "num_frames": 121, "frame_rate": 24}'
+
+# 查询视频任务状态
+curl http://localhost:3002/videos/task/{taskId}
 ```
 
 ## VN 脚本格式
