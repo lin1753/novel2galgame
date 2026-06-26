@@ -23,6 +23,9 @@ importers:
       '@novel2gal/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@novel2gal/export':
+        specifier: workspace:*
+        version: link:../../packages/export
       '@novel2gal/providers':
         specifier: workspace:*
         version: link:../../packages/providers
@@ -165,6 +168,19 @@ importers:
         version: 22.19.19
       typescript:
         specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/export:
+    dependencies:
+      '@novel2gal/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.9.3
         version: 5.9.3
 
   packages/providers:

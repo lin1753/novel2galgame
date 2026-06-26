@@ -7,6 +7,7 @@ import { createConfigRoutes } from "../routes/config.js";
 import { createProgressRoutes } from "../routes/progress.js";
 import { createImageRoutes } from "../routes/images.js";
 import { createVideoRoutes } from "../routes/videos.js";
+import { createExportRoutes } from "../routes/export.js";
 import type { LLMProvider } from "@novel2gal/providers";
 
 export function createServer(
@@ -42,6 +43,9 @@ export function createServer(
 
   // Video generation routes
   app.use("/videos", createVideoRoutes());
+
+  // Export routes
+  app.use("/", createExportRoutes(db));
 
   // SSE progress routes
   app.use("/", createProgressRoutes());
