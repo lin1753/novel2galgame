@@ -16,14 +16,12 @@ export class FetchLLMProvider implements LLMProvider {
   private baseUrl: string;
   private apiKey: string;
   private defaultModel: string;
-  private agent: https.Agent;
 
   constructor(config: LLMProviderConfig & { name?: string }) {
     this.name = config.name ?? "fetch-llm";
     this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     this.apiKey = config.apiKey;
     this.defaultModel = config.defaultModel ?? "gpt-4o";
-    this.agent = new https.Agent();
   }
 
   private request(path: string, body: object): Promise<any> {
@@ -44,7 +42,6 @@ export class FetchLLMProvider implements LLMProvider {
           "Authorization": `Bearer ${this.apiKey}`,
           "Content-Length": Buffer.byteLength(data),
         },
-        agent: url.protocol === "https:" ? this.agent : undefined,
       }, (res) => {
         let responseBody = "";
         res.on("data", (chunk) => { responseBody += chunk; });
