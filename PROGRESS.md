@@ -378,7 +378,7 @@ apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
 ### Phase 5: 管线测试与模型集成 (进行中)
 
 **整体状态:** 进行中
-**日期:** 2026-06-05 ~ 2026-06-25
+**日期:** 2026-06-05 ~ 2026-06-26
 **分支:** `phase2-workbench` + `main`
 
 #### 5.1 管线鲁棒性修复 ✅
@@ -392,7 +392,7 @@ apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
 | 3 | 截断 JSON | `repairJson()` 函数处理免费 API 的 token 截断 |
 | 4 | 章节源文本保存 | structure 路由中自动切分并保存各章 source.txt |
 | 5 | FetchLLMProvider | 基于 node:https 的 provider, 不依赖 openai npm 包 |
-| 6 | IPv6 问题 | Windows 上 node fetch/socket 连接失败, 强制 IPv4 |
+| 6 | IPv4 问题 | 初始用 `family:4` 修复 IPv6, 后发现反而导致 TLS 失败, 最终去掉 IPv4 强制 |
 | 7 | INSERT OR IGNORE | chapterRepo 防止重复章节主键冲突 |
 
 #### 5.2 LLM 输出字段名 Normalization ✅
@@ -532,6 +532,89 @@ apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
 **已知问题:**
 - 第 2 章因 Agnes AI 偶发超时未完成
 - `characters: []` 空数组问题待排查
+
+#### 5.10 AgnesImageProvider ✅
+
+**日期:** 2026-06-26
+
+| 功能 | 说明 |
+|------|------|
+| AgnesImageProvider | `agnes-image-2.1-flash`, OpenAI SDK 兼容 |
+| 默认尺寸 | 768x1024 (竖版 VN 立绘) |
+| 价格 | $0.003/张 (免费推广期) |
+| API 路由 | `POST /images/generate`, `GET /images/providers` |
+
+**代码改动:**
+- `packages/providers/src/image/agnes-image/agnes-image-provider.ts` — 新建
+- `packages/providers/src/image/index.ts` — 导出
+- `apps/api/src/routes/images.ts` — 注册 `case "agnes"`
+
+#### 5.11 AgnesVideoProvider ✅
+
+**日期:** 2026-06-26
+
+| 功能 | 说明 |
+|------|------|
+| AgnesVideoProvider | `agnes-video-v2.0`, 异步任务 API |
+| 支持模式 | 文生视频、图生视频、多图视频、关键帧动画 |
+| 视频尺寸 | 720p 16:9 (1152×768), 支持 480p/720p/1080p |
+| 帧数控制 | `num_frames` ≤ 441, 遵循 8n+1 规则 |
+| 价格 | $0/秒 (免费推广期) |
+| API 路由 | `POST /videos/generate`, `GET /videos/task/:taskId`, `GET /videos/providers` |
+
+**API 流程:**
+1. `POST /videos/generate` → 返回 `task_id` + `video_id`
+2. `GET /videos/task/:taskId` → 轮询状态 (`queued`→`in_progress`→`completed`/`failed`)
+3. 完成后 `video_url` 在响应的 `remixed_from_video_id` 字段
+
+**代码改动:**
+- `packages/providers/src/video/` — 新建目录
+  - `interfaces.ts` — VideoProvider, VideoGenerationRequest/Task 接口
+  - `agnes-video/agnes-video-provider.ts` — 实现, 含 `waitForCompletion()` 轮询
+  - `index.ts` — barrel export
+- `packages/providers/src/index.ts` — 导出 video 模块
+- `apps/api/src/routes/videos.ts` — 新建路由
+- `apps/api/src/server/server.ts` — 挂载 `/videos`
+
+#### 5.12 IPv4 强制修复 ✅
+
+**日期:** 2026-06-26
+
+**问题:** `family: 4` (强制 IPv4) + `dns.setDefaultResultOrder("ipv4first")` 导致 Agnes API HTTPS TLS 握手失败, 错误信息: `Client network socket disconnected before secure TLS connection was established`
+
+**修复:** 去掉 FetchLLMProvider 中 `new https.Agent({ family: 4 })` 和 `index.ts` 中 `dns.setDefaultResultOrder("ipv4first")`, 使用默认双栈连接
+
+**影响文件:**
+- `packages/providers/src/llm/fetch/fetch-provider.ts`
+- `packages/providers/src/video/agnes-video/agnes-video-provider.ts`
+- `apps/api/src/index.ts`
+
+#### 5.13 全 Agnes 管线测试 ✅
+
+**日期:** 2026-06-26
+
+**测试环境:** Agnes AI 全栈 (`agnes-2.0-flash` + `agnes-image-2.1-flash`), 《AI恋人》(90章)
+
+**Chapter 3 管线结果:**
+
+| 阶段 | 状态 | 产出 |
+|------|------|------|
+| Structure (L0) | ✅ | 90 章, confidence 0.94 |
+| Narrative Parsing (L2) | ✅ | 叙事单元分类完成 |
+| Attribution (L2) | ✅ | 角色归因完成 |
+| Scene Segmentation (L2) | ✅ | 2 场景 (event_shift, location_change) |
+| VN Mapping (L2) | ✅ | Scene 1: 28 steps, Scene 2: 30 steps |
+| Fidelity Review (L2) | ⚠️ | Scene 2: 8 issues (wrong_attribution); Scene 1: Agnes 临时 500 |
+
+**VN 脚本质量:**
+- 中文对话正确保留, `say` 步骤含角色台词
+- 旁白使用 `narration` 步骤
+- 场景切换、角色显示/隐藏正常
+- Fidelity review 检测到 attribution 错误 (符合预期)
+
+**已知问题:**
+- Agnes AI 免费 tier 偶发 500 错误, 影响单个 scene 的 fidelity review
+- 需要添加重试机制处理临时 API 故障
 
 ---
 
