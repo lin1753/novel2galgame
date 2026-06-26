@@ -1,4 +1,4 @@
-import type { ProjectConfig, ProjectState } from "@novel2gal/core";
+import type { ProjectConfig, ProjectState, SceneState } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,
@@ -107,7 +107,8 @@ export async function runChapterPipeline(
   provider: LLMProvider,
   model: string,
   onProgress?: (stage: string, message: string) => void,
-  agentModels?: AgentModelConfig
+  agentModels?: AgentModelConfig,
+  onSceneCreated?: (scene: SceneState, sceneIndex: number) => void
 ) {
   const chapterId = `chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
 
@@ -181,6 +182,18 @@ export async function runChapterPipeline(
   }
 
   writeSegmentationResult(dataDir, project.projectId, chapterId, segResult.data);
+
+  // Register scenes in database
+  for (let i = 0; i < segResult.data.scenes.length; i++) {
+    const scene = segResult.data.scenes[i];
+    onSceneCreated?.({
+      sceneId: scene.sceneId,
+      chapterId,
+      projectId: project.projectId,
+      status: "pending",
+      updatedAt: new Date().toISOString(),
+    }, i);
+  }
 
   // Stage 4+5: VN Mapping + Fidelity Review per scene (parallel with concurrency limit)
   const sceneConcurrency = 3;

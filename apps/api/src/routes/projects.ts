@@ -14,6 +14,7 @@ import {
   createDatabase,
   ProjectRepository,
   ChapterRepository,
+  SceneRepository,
   TaskRepository,
   writeProjectState,
   readProjectState,
@@ -40,6 +41,7 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
   const router = Router();
   const projectRepo = new ProjectRepository(db);
   const chapterRepo = new ChapterRepository(db);
+  const sceneRepo = new SceneRepository(db);
   const taskRepo = new TaskRepository(db);
 
   // POST /projects - Create project
@@ -238,7 +240,9 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
 
     try {
       const result = await runChapterPipeline(
-        config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model, undefined, agentModels
+        config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model,
+        undefined, agentModels,
+        (scene, sceneIndex) => { try { sceneRepo.create(scene, sceneIndex); } catch {} }
       );
       chapterRepo.updateStatus(param(req, "chapterId"), "chapter_ready");
       res.json(result);
