@@ -37,7 +37,7 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
     if (!scene) return res.status(404).json({ error: "Scene not found" });
     try {
       const script = readSceneJson<VNScript>(
-        config.dataDir, param(req, "id"), param(req, "sceneId"), "vn-script.json"
+        config.dataDir, param(req, "id"), param(req, "sceneId"), "vn_script.json"
       );
       res.json(script);
     } catch {
@@ -49,7 +49,7 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
   router.get("/projects/:id/scenes/:sceneId/fidelity", (req: Request, res: Response) => {
     try {
       const report = readSceneJson<FidelityReport>(
-        config.dataDir, param(req, "id"), param(req, "sceneId"), "fidelity-report.json"
+        config.dataDir, param(req, "id"), param(req, "sceneId"), "fidelity_report.json"
       );
       res.json(report);
     } catch {
