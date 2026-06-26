@@ -593,7 +593,62 @@ apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
 
 **日期:** 2026-06-26
 
-**测试环境:** Agnes AI 全栈 (`agnes-2.0-flash` + `agnes-image-2.1-flash`), 《AI恋人》(90章)
+**测试环境:** Agnes AI 全栈 (`agnes-2.0-flash` + `agnes-image-2.1-flash` + `agnes-video-v2.0`), 《AI恋人》(90章)
+
+**章节管线结果:**
+
+| 章节 | 场景 | VN Steps | Fidelity | 说明 |
+|------|------|----------|----------|------|
+| Ch 3 | 2 | 28+30 | ⚠️ | Scene 1 Agnes 500, Scene 2 ✅ |
+| Ch 5 | 4 | 12+31+18+10 | ⚠️ | 10 issues (attribution) |
+| Ch 6 | 2 | 27+20 | ⚠️ | 对话未标说话人 |
+| Ch 7 | 4 | - | ⚠️ | 重试后完成 |
+| New E2E | 3 | 20 | ✅ | Scene 3 fidelity passed |
+
+**累计:** 9+ 场景, 195+ VN 步骤, LLM 调用全部 200 (无 TLS 错误)
+
+#### 5.14 HTTPS Agent 间歇断连修复 ✅
+
+**日期:** 2026-06-26
+
+**问题:** 共享 `https.Agent` 导致连接复用, 偶发 `Client network socket disconnected before secure TLS connection was established`
+
+**修复:** 移除共享 agent, 每次请求使用 Node.js 默认连接管理
+
+**代码改动:**
+- `packages/providers/src/llm/fetch/fetch-provider.ts` — 移除 `private agent` 和 `agent` 选项
+
+#### 5.15 Chapter ID 全局冲突修复 ✅
+
+**日期:** 2026-06-26
+
+**问题:** `chapter_id` 作为 PRIMARY KEY 是全局唯一, 不同项目使用相同 ID (`chapter_0001`) 导致 INSERT OR IGNORE 静默跳过
+
+**修复:** chapter_id 格式改为 `{projectId}_chapter_{index}`, 使用下划线分隔 (Windows 路径安全)
+
+**影响文件:**
+- `apps/api/src/orchestrator/chapter-pipeline.ts` — existingChapterId 参数
+- `apps/api/src/routes/projects.ts` — structure 路由中 project 前缀
+
+#### 5.16 Scene 注册到 SQLite ✅
+
+**日期:** 2026-06-26
+
+**问题:** Pipeline 只将 scene 写入磁盘文件, 未插入 SQLite 数据库, 导致 Preview 播放器无法加载场景
+
+**修复:** pipeline 增加 `onSceneCreated` 回调参数, 通过 `sceneRepo.create()` 注册到数据库
+
+**影响文件:**
+- `apps/api/src/orchestrator/chapter-pipeline.ts` — onSceneCreated 回调
+- `apps/api/src/routes/projects.ts` — 传递 sceneRepo.create
+
+#### 5.17 Scene 文件名修复 ✅
+
+**日期:** 2026-06-26
+
+**问题:** API 路由读取 `vn-script.json` / `fidelity-report.json` (连字符), 但 pipeline 写入 `vn_script.json` / `fidelity_report.json` (下划线)
+
+**修复:** scenes.ts 路由中文件名改为下划线格式
 
 **Chapter 3 管线结果:**
 
