@@ -673,6 +673,140 @@ apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
 
 ---
 
+### Phase 6: 产品闭环 — Ren'Py 导出 (规划中)
+
+**整体状态:** 规划中
+**日期:** 2026-06-27 ~
+**分支:** `v3-export`
+
+**目标:** Novel (.txt) → AI Pipeline → VN Script IR → Ren'Py Export → 可运行 Galgame
+
+**核心架构原则:**
+
+```
+Novel (.txt)
+    │
+    ▼
+AI Pipeline (7 Agents) ← 暂时冻结，不再增加新 Agent
+    │
+    ▼
+VN Script IR (JSON DSL) ← Single Source of Truth
+    │
+    ├────────────┐
+    ▼            ▼
+Ren'Py Export  Web Preview ← 两个 Runtime 共享同一个 IR
+    │
+    ▼
+Ren'Py Project → Windows EXE / Android APK
+```
+
+**架构约束:**
+1. **VN Script 是唯一中间表示** — 所有 Agent 只输出 VN Script，不直接生成 Ren'Py/HTML/其他格式
+2. **Runtime 与 Export 分离** — Web Preview 和 Ren'Py Export 是两个独立 Runtime，共享 VN Script
+3. **Exporter 独立模块** — 所有导出逻辑在 `packages/export/`，不写进 pipeline
+4. **AI Pipeline 暂时冻结** — 优先产品闭环，除非发现明显准确率问题不增加新 Agent
+
+#### 6.1 packages/export — Ren'Py Builder ✅ 规划
+
+**新建包 `@novel2gal/export`**
+
+```
+packages/export/
+  src/
+    index.ts
+    renpy/
+      renpy-builder.ts      # RenPyBuilder.build(project) 主入口
+      script-generator.ts   # VN Script → script.rpy 转换
+      character-generator.ts # 角色定义 → characters.rpy
+      asset-manager.ts      # 资源复制/占位图生成
+      template/             # Ren'Py 工程模板
+        gui.rpy
+        options.rpy
+        screens.rpy
+        audio.rpy
+    common/
+      export-types.ts       # ExportResult, ExportOptions
+      utils.ts
+```
+
+**Builder Pattern 接口:**
+```typescript
+interface GameBuilder {
+  build(input: ExportInput): Promise<ExportResult>;
+}
+
+interface ExportInput {
+  projectId: string;
+  scripts: VNScript[];      // 所有章节的 VN Script
+  characters: CharacterRef[];
+  outputDir: string;        // 导出目标目录
+}
+
+interface ExportResult {
+  success: boolean;
+  outputPath: string;       // Ren'Py 工程路径
+  stats: {
+    totalScenes: number;
+    totalSteps: number;
+    totalCharacters: number;
+    generatedFiles: string[];
+  };
+}
+```
+
+**VN Script → Ren'Py 映射:**
+
+| VN Step | Ren'Py 语法 |
+|---------|------------|
+| `bg` | `scene bg {backgroundId} with fade` |
+| `show` | `show {characterId} {expression} at {position} with dissolve` |
+| `hide` | `hide {characterId} with dissolve` |
+| `narration` | `"{text}"` |
+| `say` | `{characterId} "{text}"` |
+| `thought` | `{characterId} "{text}" (what_prefix="«" what_suffix="»")` |
+| `pause` | `pause {durationMs/1000}` |
+| `transition` | (附加到前一个语句的 `with` 子句) |
+
+**Ren'Py 工程输出结构:**
+```
+{project_name}/
+  game/
+    script.rpy              # 主剧情脚本
+    characters.rpy          # 角色定义 (image, color, name)
+    gui.rpy                 # UI 配置
+    options.rpy             # 游戏选项
+    screens.rpy             # 屏幕定义
+    images/                 # 背景 + 立绘
+      bg/                   # 背景图
+      {characterId}/        # 角色立绘
+    audio/                  # BGM + SE (placeholder)
+  README.md
+```
+
+#### 6.2 占位资源生成
+
+在 Image Agent 就绪前，用程序生成占位图:
+- 背景: 纯色 + 文字标签 (如 "无人巷口")
+- 立绘: 色块 + 角色名 + 表情标签
+- 使用 Node.js canvas 或 SVG 生成 PNG
+
+#### 6.3 CLI 导出命令
+
+```bash
+# 从 API 导出
+curl -X POST http://localhost:3002/projects/{id}/export/renpy
+
+# 输出: data/projects/{id}/export/{project_name}/
+# 可用 Ren'Py Launcher 直接打开
+```
+
+#### 6.4 章节 ID 统一
+
+当前章节 ID 格式 `{projectId}_chapter_{index}` 用于避免全局冲突。
+导出时需要映射为用户友好的章节名 (如 `chapter_01`)。
+
+---
+
 ## MVP 验收指标
 
 | Agent | 指标 | 目标 |

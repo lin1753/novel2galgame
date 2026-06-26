@@ -4,43 +4,77 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**All Novel Can Be Galgame** -- a locally-deployable AI workbench that converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences. It is a narrative-to-VN converter, not a creative rewriting tool: the output must faithfully preserve plot, dialogue, character relationships, and emotional tone from the source text.
+**AI Novel Can Be Galgame** -- IR-driven AI Visual Novel generation platform. Converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences via a pipeline that produces a structured Intermediate Representation (VN Script IR), which can then be exported to multiple runtimes (Ren'Py, Web, etc.).
 
-**Status:** Phase 1-4 complete. Full pipeline tested end-to-end with Agnes AI. SFT model trained (Qwen3-8B + 3 LoRA agents). Design docs moved to `docs/`.
+**Status:** Phase 1-5 complete. Full pipeline tested end-to-end with Agnes AI. SFT model trained (Qwen3-8B + 3 LoRA agents). Phase 6 (Ren'Py export) in planning.
 
-## Planned Architecture
+## Architecture Principles
+
+### 1. VN Script is the Single Source of Truth (IR)
+
+All agents output VN Script JSON. No agent generates Ren'Py, HTML, or any engine-specific format.
+
+```
+Novel (.txt)
+    │
+    ▼
+AI Pipeline (7 Agents) ← frozen, no new agents unless accuracy demands it
+    │
+    ▼
+VN Script IR (JSON DSL) ← the ONLY intermediate representation
+    │
+    ├────────────┐
+    ▼            ▼
+Ren'Py Export  Web Preview ← two runtimes, same IR
+```
+
+### 2. Runtime vs Export Separation
+
+- **Web Preview** (`packages/runtime/`) -- in-browser debugging/preview
+- **Ren'Py Export** (`packages/export/`) -- generates complete Ren'Py project
+- Both read from the same VN Script IR. Adding new runtimes (HTML, Godot) only requires a new Exporter, never pipeline changes.
+
+### 3. Exporter uses Builder Pattern
+
+All exporters implement `GameBuilder.build(input: ExportInput): Promise<ExportResult>`. The first implementation is `RenPyBuilder`.
+
+### 4. AI Pipeline is Frozen
+
+Phase 5 validated all 7 agents. Unless accuracy metrics drop below thresholds, no new agents. Focus shifts to product loop: Novel → Playable Game.
+
+## Monorepo Structure
 
 TypeScript monorepo (pnpm workspaces + Turborepo):
 
 - `apps/workbench/` -- React SPA workbench frontend
 - `apps/api/` -- Node.js REST API / orchestration backend
 - `packages/core/` -- Shared domain models, schemas, TypeScript interfaces
-- `packages/agents/` -- 9 AI agent implementations (the pipeline core)
-- `packages/runtime/` -- Web-based VN playback engine
-- `packages/providers/` -- Model API adapter (OpenAI gpt-image-2, Anthropic, local models)
-- `packages/storage/` -- SQLite indexes + filesystem for text/JSON/intermediate results
+- `packages/agents/` -- 7 AI agent implementations (pipeline core, frozen)
+- `packages/runtime/` -- Web-based VN playback engine (preview runtime)
+- `packages/export/` -- Game export builders (Ren'Py, HTML, etc.) ← Phase 6
+- `packages/providers/` -- Model API adapters (LLM + Image + Video)
+- `packages/storage/` -- SQLite indexes + filesystem for content
 - `packages/evaluation/` -- Agent evaluation and regression testing
-- `packages/prompts/` -- Prompt templates separated from code
-- `packages/utils/` -- Shared utilities
 - `data/` -- Project data, caches, evaluation datasets
 
 ## Core Pipeline
 
-The backbone is a 9-agent sequential pipeline per chapter:
+7-agent sequential pipeline per chapter (frozen):
 
-**Structure** (txt->chapters) -> **Narrative Parsing** (classify text units) -> **Attribution** (assign speakers) -> **Scene Segmentation** (split for VN) -> **VN Mapping** + **Visual Prompt** (parallel) -> **Fidelity Review** (audit faithfulness) -> **Consistency Review** (cross-chapter) -> **Preview Ready**
+**Structure** (txt→chapters) → **Narrative Parsing** (classify units) → **Attribution** (assign speakers) → **Scene Segmentation** (split for VN) → **VN Mapping** + **Visual Prompt** (parallel) → **Fidelity Review** (audit faithfulness) → **Consistency Review** (cross-chapter)
 
-Each agent has AI capability tier assignments:
-- **L0 (rules/heuristics):** text cleaning, structure recognition, consistency checks
-- **L2 (strong model APIs):** all semantic tasks (attribution, scene segmentation, VN mapping, fidelity review)
-- **L3 (orchestrator):** routing, budget, caching, retries, fallback
+AI capability tiers:
+- **L0 (rules/heuristics):** structure recognition
+- **L2 (LLM APIs):** narrative, attribution, segmentation, VN mapping, fidelity, consistency
+- **L3 (orchestrator):** routing, retries, fallback
 
 ## Key Design Constraints
 
-- VN scripts use a fixed step vocabulary: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`
-- Dialogue retention must be >= 95%; non-original text added must be <= 5%
-- Three-level state machines: Project (9 states), Chapter (8 states), Scene (6 states)
-- Hybrid storage: SQLite for indexes/status queries, filesystem for content
+- VN scripts use 8 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`
+- Dialogue retention >= 95%; non-original text <= 5%
+- Three-level state machines: Project / Chapter / Scene
+- Hybrid storage: SQLite indexes + filesystem content
+- Chapter IDs are project-scoped: `{projectId}_chapter_{index}` (avoids global UNIQUE conflicts)
 
 ## Design Documents
 
