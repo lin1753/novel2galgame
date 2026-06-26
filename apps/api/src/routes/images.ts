@@ -6,6 +6,7 @@ import {
   OpenAIImageProvider,
   ZhipuImageProvider,
   SiliconFlowImageProvider,
+  AgnesImageProvider,
 } from "@novel2gal/providers";
 import type { ImageProvider, ImageGenerationRequest } from "@novel2gal/providers";
 import { config } from "../config/index.js";
@@ -29,6 +30,8 @@ function createImageProvider(): ImageProvider | null {
       return new ZhipuImageProvider({ apiKey });
     case "siliconflow":
       return new SiliconFlowImageProvider({ apiKey, defaultModel: cfg.imageModel });
+    case "agnes":
+      return new AgnesImageProvider({ apiKey, baseUrl: cfg.baseUrl });
     case "openai":
     default:
       return new OpenAIImageProvider({
@@ -91,6 +94,7 @@ export function createImageRoutes() {
   router.get("/providers", (_req: Request, res: Response) => {
     res.json({
       providers: [
+        { name: "agnes-image", models: ["agnes-image-2.1-flash"], defaultSize: { width: 768, height: 1024 } },
         { name: "openai", models: ["gpt-image-1"], defaultSize: { width: 1024, height: 1536 } },
         { name: "zhipu", models: ["cogview-4-250304", "cogview-4", "cogview-3-flash"], defaultSize: { width: 1024, height: 1024 } },
         { name: "siliconflow", models: ["black-forest-labs/FLUX.1-schnell", "stabilityai/stable-diffusion-3-5-large"], defaultSize: { width: 1024, height: 1024 } },
