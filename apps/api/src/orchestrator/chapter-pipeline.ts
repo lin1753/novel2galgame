@@ -111,7 +111,7 @@ export async function runChapterPipeline(
   onSceneCreated?: (scene: SceneState, sceneIndex: number) => void,
   existingChapterId?: string
 ) {
-  const chapterId = existingChapterId ?? `${project.projectId}:chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
+  const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
 
   // Save chapter source
   writeChapterSource(dataDir, project.projectId, chapterId, {

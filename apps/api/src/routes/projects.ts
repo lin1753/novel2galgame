@@ -144,7 +144,7 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     for (const ch of result.data.chapters) {
       const now = new Date().toISOString();
       const projectId = param(req, "id");
-      const chapterId = `${projectId}:${ch.chapterId}`;
+      const chapterId = `${projectId}_${ch.chapterId}`;
       chapterRepo.create({
         chapterId,
         projectId,
