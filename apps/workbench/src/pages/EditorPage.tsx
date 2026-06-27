@@ -1,16 +1,25 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useNavigate } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { sceneService } from '@/services/scenes'
+import { chapterService } from '@/services/chapters'
 import { ScenePreview } from '@/components/editor/ScenePreview'
 import { StepTimeline } from '@/components/editor/StepTimeline'
 import { PropertiesPanel } from '@/components/editor/PropertiesPanel'
-import { Save, Undo2, Redo2, Download, Sparkles } from 'lucide-react'
+import { Save, Undo2, Redo2, Sparkles, ChevronRight } from 'lucide-react'
 import type { VNScript, VNStep } from '@novel2gal/core'
 
 export function EditorPage() {
-  const { projectId, sceneId } = useParams<{ projectId: string; sceneId: string }>()
+  const { projectId, sceneId } = useParams<{ projectId: string; sceneId?: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  // Scene list for picker
+  const { data: chapters } = useQuery({
+    queryKey: ['chapters', projectId],
+    queryFn: () => chapterService.list(projectId!),
+    enabled: !!projectId && !sceneId,
+  })
 
   const { data: script, isLoading } = useQuery({
     queryKey: ['script', projectId, sceneId],
@@ -109,6 +118,23 @@ export function EditorPage() {
     },
   })
 
+  // Scene picker when no sceneId
+  if (!sceneId) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto">
+        <h1 className="text-xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent flex items-center gap-2 mb-4">
+          <Sparkles className="w-5 h-5 text-sakura" />
+          场景编辑器
+        </h1>
+        <p className="text-sm text-muted-foreground mb-6">选择一个场景开始编辑</p>
+        {chapters?.map((ch) => (
+          <ScenePickerChapter key={ch.chapterId} chapter={ch} projectId={projectId!}
+            onSelect={(sid) => navigate(`/projects/${projectId}/editor/${sid}`)} />
+        ))}
+      </div>
+    )
+  }
+
   if (isLoading) return <div className="p-8 text-center text-muted-foreground">加载中...</div>
   if (!script) return <div className="p-8 text-center text-muted-foreground">未找到脚本</div>
 
@@ -170,6 +196,34 @@ export function EditorPage() {
             onUpdate={(updates) => updateStep(selectedIndex, updates)}
           />
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ScenePickerChapter({ chapter, projectId, onSelect }: { chapter: any; projectId: string; onSelect: (sceneId: string) => void }) {
+  const { data: scenes } = useQuery({
+    queryKey: ['scenes', projectId, chapter.chapterId],
+    queryFn: () => sceneService.listByChapter(projectId, chapter.chapterId),
+    enabled: !!projectId && !!chapter.chapterId,
+  })
+
+  if (!scenes || scenes.length === 0) return null
+
+  return (
+    <div className="mb-4">
+      <h3 className="text-sm font-semibold text-deep-purple mb-2">{chapter.title}</h3>
+      <div className="grid grid-cols-2 gap-2">
+        {scenes.map((scene) => (
+          <button
+            key={scene.sceneId}
+            onClick={() => onSelect(scene.sceneId)}
+            className="text-left px-3 py-2 rounded-xl border border-border bg-card hover:border-lavender/40 hover:shadow-card transition-all text-sm"
+          >
+            <span className="text-foreground">{scene.sceneId.split('_').pop()}</span>
+            <span className="text-muted-foreground ml-2 text-xs">{scene.status}</span>
+          </button>
+        ))}
       </div>
     </div>
   )

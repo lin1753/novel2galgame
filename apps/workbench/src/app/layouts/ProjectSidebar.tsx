@@ -9,6 +9,7 @@ import {
   ListTodo,
   Settings,
   Sparkles,
+  Pencil,
 } from 'lucide-react'
 
 const projectLinks = [
@@ -18,6 +19,7 @@ const projectLinks = [
   { to: 'script', label: 'VN 脚本', icon: ScrollText },
   { to: 'prompts', label: '视觉提示', icon: Images },
   { to: 'preview', label: '预览播放', icon: Play },
+  { to: 'editor', label: '场景编辑', icon: Pencil },
   { to: 'tasks', label: '任务日志', icon: ListTodo },
   { to: 'settings', label: '项目设置', icon: Settings },
 ]

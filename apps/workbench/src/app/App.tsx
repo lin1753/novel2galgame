@@ -40,6 +40,7 @@ export function App() {
               <Route path="tasks" element={<TasksPage />} />
               <Route path="settings" element={<ProjectSettingsPage />} />
               <Route path="preview" element={<PreviewPage />} />
+              <Route path="editor" element={<EditorPage />} />
               <Route path="editor/:sceneId" element={<EditorPage />} />
               <Route index element={<ProjectOverviewPage />} />
             </Route>
