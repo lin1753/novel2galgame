@@ -673,11 +673,12 @@ apps/workbench       ✅ vite build (355KB JS, 23.5KB CSS)
 
 ---
 
-### Phase 6: 产品闭环 — Ren'Py 导出 (规划中)
+### Phase 6: 产品闭环 — Ren'Py 导出 ✅
 
-**整体状态:** 规划中
-**日期:** 2026-06-27 ~
+**整体状态:** MVP 完成
+**日期:** 2026-06-27
 **分支:** `v3-export`
+**提交:** `9134199`
 
 **目标:** Novel (.txt) → AI Pipeline → VN Script IR → Ren'Py Export → 可运行 Galgame
 
@@ -706,7 +707,7 @@ Ren'Py Project → Windows EXE / Android APK
 3. **Exporter 独立模块** — 所有导出逻辑在 `packages/export/`，不写进 pipeline
 4. **AI Pipeline 暂时冻结** — 优先产品闭环，除非发现明显准确率问题不增加新 Agent
 
-#### 6.1 packages/export — Ren'Py Builder ✅ 规划
+#### 6.1 packages/export — Ren'Py Builder ✅
 
 **新建包 `@novel2gal/export`**
 
@@ -805,7 +806,164 @@ curl -X POST http://localhost:3002/projects/{id}/export/renpy
 当前章节 ID 格式 `{projectId}_chapter_{index}` 用于避免全局冲突。
 导出时需要映射为用户友好的章节名 (如 `chapter_01`)。
 
+#### 6.5 E2E 验证 ✅
+
+**日期:** 2026-06-27
+
+**测试:** 《AI恋人》第1章 → Ren'Py Galgame
+
+| 阶段 | 结果 |
+|------|------|
+| Pipeline | 3 scenes, 54 steps, 6 characters |
+| Export | 14 files (script.rpy, characters.rpy, fonts, placeholders) |
+| Ren'Py Launcher | ✅ 可直接打开运行 |
+| 中文显示 | ✅ simhei.ttf 字体集成 |
+| 完整演示 | ✅ 可跑完整流程 |
+
+**修复项 (调试过程):**
+
+| 问题 | 修复 |
+|------|------|
+| 缺少 `label start:` | script-generator 添加入口标签 |
+| 缺少 gui 变量 | gui.rpy 补全 text_xpos/width/ypos/namebox |
+| HSL 颜色不支持 | 改为 hex 格式 |
+| 中文字体不显示 | 复制 simhei.ttf + Character what_font |
+
 ---
+
+### Phase 7: IR 冻结 + Asset Pipeline (规划中)
+
+**整体状态:** 规划中
+**日期:** 2026-06-28 ~
+**分支:** `v4-ir-freeze`
+
+**目标:** 冻结 VN Script IR v1.0，建立完整资源管理系统
+
+**核心原则:**
+
+```
+AI Agent → VN Script IR v1.0 (冻结，不可变)
+                │
+                ├→ Asset Manifest (资源清单)
+                │     ├── background/
+                │     ├── character/
+                │     ├── cg/
+                │     ├── music/
+                │     └── voice/
+                ├→ Exporter (读 IR + Manifest)
+                │     ├── Ren'Py
+                │     ├── Web
+                │     └── Godot (未来)
+                └→ Visual Editor (AI 80% + 人工 20%)
+```
+
+**IR v1.0 冻结规范:**
+
+```
+VNStep (8 types, 不可增删):
+  bg        → backgroundId, backgroundLabel
+  show      → characterId, expression, position
+  hide      → characterId
+  narration → text
+  say       → characterId, displayName, text
+  thought   → characterId, displayName, text
+  pause     → durationMs
+  transition → name (fade/cut/dissolve)
+
+VNScript:
+  sceneId, chapterId, steps[], mappingMode
+```
+
+**冻结规则:**
+1. Agent 只能输出 IR v1.0 定义的字段
+2. 新增字段需要版本号升级 (v1.1, v2.0)
+3. Exporter/Editor 只依赖 IR schema，不依赖 Agent 实现
+4. IR 的 Zod schema 即为权威规范
+
+#### 7.1 packages/ir — IR Schema 定义 ✅ 规划
+
+**新建包 `@novel2gal/ir`** (从 core 抽离 IR 相关类型)
+
+```
+packages/ir/
+  src/
+    schema.ts        # Zod schema (v1.0 权威定义)
+    types.ts         # TypeScript 类型 (from schema inference)
+    validator.ts     # IR 校验工具
+    migration.ts     # 版本迁移 (v1.0 → v1.1 未来)
+```
+
+**Zod Schema 作为 Single Source of Truth:**
+```typescript
+const VNStepV1 = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("bg"), stepId: z.string(), order: z.number(),
+             backgroundId: z.string(), backgroundLabel: z.string().optional() }),
+  z.object({ type: z.literal("show"), stepId: z.string(), order: z.number(),
+             characterId: z.string(), expression: z.string().optional(),
+             position: z.enum(["left","center","right"]).optional() }),
+  // ... 其他 6 种
+]);
+```
+
+#### 7.2 Asset Manifest 系统 ✅ 规划
+
+**资源清单 (manifest.json):**
+```json
+{
+  "version": "1.0",
+  "assets": {
+    "bg": {
+      "blue_star_alley": {
+        "type": "background",
+        "label": "蓝星区无人的巷口",
+        "file": "background/blue_star_alley.png",
+        "status": "placeholder|generated|manual",
+        "provider": null,
+        "prompt": null
+      }
+    },
+    "character": {
+      "char_001": {
+        "type": "character",
+        "expressions": {
+          "arrogant": { "file": "character/char_001/arrogant.png", "status": "placeholder" }
+        }
+      }
+    }
+  }
+}
+```
+
+**Asset Pipeline 流程:**
+```
+VN Script IR
+    ↓
+Extract Assets (遍历 steps 收集 bg/character)
+    ↓
+Asset Manifest (去重, 标记缺失资源)
+    ↓
+Asset Producer (Agnes Image / Flux / 手动)
+    ↓
+Asset Cache (避免重复生成)
+    ↓
+Exporter (读 manifest, 复制/链接资源)
+```
+
+#### 7.3 Visual Editor (长期)
+
+**AI + 可视化编辑器:**
+- 场景可视化: 背景 + 角色 + 对白 一屏展示
+- 拖拽调整: 角色位置、表情、背景切换
+- 实时预览: 修改后即时看到效果
+- 重新导出: 编辑后覆盖 IR，重新生成
+
+#### 7.4 版本路线更新
+
+| 版本 | 目标 | 状态 |
+|------|------|------|
+| v0.8 (Phase 6) | Ren'Py Export + 占位资源 | ✅ |
+| v0.9 (Phase 7) | IR v1.0 冻结 + Asset Pipeline | 📋 |
+| v1.0 (Phase 8) | 一键: Novel → Playable Game | 📋 |
 
 ## MVP 验收指标
 

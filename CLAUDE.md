@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **All Novel Can Be Galgame** -- IR-driven AI Visual Novel generation platform. Converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences via a pipeline that produces a structured Intermediate Representation (VN Script IR), which can then be exported to multiple runtimes (Ren'Py, Web, etc.).
 
-**Status:** Phase 1-5 complete. Full pipeline tested end-to-end with Agnes AI. SFT model trained (Qwen3-8B + 3 LoRA agents). Phase 6 (Ren'Py export) in planning.
+**Status:** Phase 1-6 complete. Pipeline + Ren'Py export E2E verified. Phase 7 (IR v1.0 freeze + Asset Pipeline) in planning.
 
 ## Architecture Principles
 
@@ -26,19 +26,40 @@ VN Script IR (JSON DSL) ← the ONLY intermediate representation
     ├────────────┐
     ▼            ▼
 Ren'Py Export  Web Preview ← two runtimes, same IR
+    │
+    ▼
+Asset Manifest → Asset Producer (Agnes/Flux/GPT Image) → Export
 ```
 
-### 2. Runtime vs Export Separation
+### 2. IR v1.0 Freeze
+
+VN Script IR is the frozen contract between Pipeline and everything else.
+- 8 step types (bg/show/hide/narration/say/thought/pause/transition) — immutable in v1.0
+- Zod schema in `packages/ir/` is the authoritative definition
+- Agents only output IR v1.0 fields; new fields require version bump
+- Exporters/Editors depend only on IR schema, never on Agent internals
+
+### 3. Asset Pipeline
+
+```
+VN Script IR → Extract Assets → Asset Manifest → Producer → Cache → Exporter
+```
+
+- **Asset Manifest** (`manifest.json`): declares all required assets with status (placeholder/generated/manual)
+- **Asset Producer**: any image model (Agnes, Flux, GPT Image) — just produces files listed in manifest
+- **Exporter** reads manifest, never directly queries agents or IR for asset info
+
+### 5. Runtime vs Export Separation
 
 - **Web Preview** (`packages/runtime/`) -- in-browser debugging/preview
 - **Ren'Py Export** (`packages/export/`) -- generates complete Ren'Py project
 - Both read from the same VN Script IR. Adding new runtimes (HTML, Godot) only requires a new Exporter, never pipeline changes.
 
-### 3. Exporter uses Builder Pattern
+### 6. Exporter uses Builder Pattern
 
 All exporters implement `GameBuilder.build(input: ExportInput): Promise<ExportResult>`. The first implementation is `RenPyBuilder`.
 
-### 4. AI Pipeline is Frozen
+### 7. AI Pipeline is Frozen
 
 Phase 5 validated all 7 agents. Unless accuracy metrics drop below thresholds, no new agents. Focus shifts to product loop: Novel → Playable Game.
 
