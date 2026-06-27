@@ -8,6 +8,7 @@ import { createProgressRoutes } from "../routes/progress.js";
 import { createImageRoutes } from "../routes/images.js";
 import { createVideoRoutes } from "../routes/videos.js";
 import { createExportRoutes } from "../routes/export.js";
+import { createAutoExportRoutes } from "../routes/auto-export.js";
 import type { LLMProvider } from "@novel2gal/providers";
 
 export function createServer(
@@ -46,6 +47,9 @@ export function createServer(
 
   // Export routes
   app.use("/", createExportRoutes(db));
+
+  // Auto-export routes (one-click full pipeline)
+  app.use("/", createAutoExportRoutes(db, getProvider));
 
   // SSE progress routes
   app.use("/", createProgressRoutes());
