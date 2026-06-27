@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router'
-import { FolderOpen, Plus, Settings, BookOpen } from 'lucide-react'
+import { Sparkles, FolderOpen, Plus, Settings } from 'lucide-react'
 
 const links = [
   { to: '/', label: '项目列表', icon: FolderOpen },
@@ -9,22 +9,26 @@ const links = [
 
 export function TopBar() {
   return (
-    <header className="h-12 border-b border-border flex items-center px-4 gap-6 bg-sidebar">
-      <div className="flex items-center gap-2 text-primary font-bold text-sm">
-        <BookOpen className="w-5 h-5" />
-        <span>All Novel Can Be Galgame</span>
+    <header className="h-14 border-b border-border flex items-center px-5 gap-6 bg-gradient-to-r from-[#FAF5FF] to-[#FFF1F2]">
+      <div className="flex items-center gap-2">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-sakura to-lavender flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-white" />
+        </div>
+        <span className="font-bold text-base bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent">
+          All Novel Can Be Galgame
+        </span>
       </div>
-      <nav className="flex items-center gap-1">
+      <nav className="flex items-center gap-1 ml-auto">
         {links.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
             className={({ isActive }) =>
-              `flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors ${
+              `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-all duration-200 ${
                 isActive
-                  ? 'bg-sidebar-accent text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/50'
+                  ? 'bg-lavender/30 text-deep-purple font-medium shadow-sm'
+                  : 'text-muted-foreground hover:text-deep-purple hover:bg-lavender/10'
               }`
             }
           >
