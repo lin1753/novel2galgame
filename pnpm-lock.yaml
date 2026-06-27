@@ -147,6 +147,19 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/asset:
+    dependencies:
+      '@novel2gal/ir':
+        specifier: workspace:*
+        version: link:../ir
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.19
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/core:
     dependencies:
       zod:
@@ -179,6 +192,16 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.19
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/ir:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
