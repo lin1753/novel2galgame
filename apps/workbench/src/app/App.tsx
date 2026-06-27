@@ -34,7 +34,9 @@ export function App() {
             <Route path="/projects/:projectId" element={<ProjectLayout />}>
               <Route path="overview" element={<ProjectOverviewPage />} />
               <Route path="chapters" element={<ChaptersPage />} />
+              <Route path="scenes" element={<ScenesPage />} />
               <Route path="scenes/:chapterId" element={<ScenesPage />} />
+              <Route path="script" element={<VNScriptPage />} />
               <Route path="script/:sceneId" element={<VNScriptPage />} />
               <Route path="prompts" element={<VisualPromptPage />} />
               <Route path="tasks" element={<TasksPage />} />

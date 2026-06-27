@@ -100,6 +100,9 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     project.sourceFilePath = destPath;
     writeProjectState(config.dataDir, project);
     projectRepo.updateStatus(param(req, "id"), "created");
+    // Also update sourceFileName in SQLite so overview page shows it
+    db.prepare("UPDATE projects SET source_file_name = ?, updated_at = ? WHERE project_id = ?")
+      .run(req.file.originalname, new Date().toISOString(), param(req, "id"));
 
     res.json({ message: "File imported", path: destPath });
   });
