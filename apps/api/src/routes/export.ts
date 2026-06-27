@@ -48,14 +48,16 @@ export function createExportRoutes(db: ReturnType<typeof createDatabase>) {
             const script = JSON.parse(fs.readFileSync(scriptPath, "utf-8"));
             scripts.push(script);
 
-            // Extract characters from steps
+            // Extract characters from say/thought steps (where displayName exists)
             for (const step of script.steps || []) {
-              if (step.characterId && !characterMap.has(step.characterId)) {
-                characterMap.set(step.characterId, {
-                  characterId: step.characterId,
-                  canonicalName: step.displayName || step.characterId,
-                  aliases: [],
-                });
+              if ((step.type === "say" || step.type === "thought") && step.characterId && step.displayName) {
+                if (!characterMap.has(step.characterId)) {
+                  characterMap.set(step.characterId, {
+                    characterId: step.characterId,
+                    canonicalName: step.displayName,
+                    aliases: [],
+                  });
+                }
               }
             }
           } catch {}
