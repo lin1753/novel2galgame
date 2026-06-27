@@ -831,11 +831,12 @@ curl -X POST http://localhost:3002/projects/{id}/export/renpy
 
 ---
 
-### Phase 7: IR 冻结 + Asset Pipeline (规划中)
+### Phase 7: IR 冻结 + Asset Pipeline (进行中)
 
-**整体状态:** 规划中
-**日期:** 2026-06-28 ~
-**分支:** `v4-ir-freeze`
+**整体状态:** 进行中
+**日期:** 2026-06-27
+**分支:** `v3-export`
+**提交:** `9e2d198`
 
 **目标:** 冻结 VN Script IR v1.0，建立完整资源管理系统
 
@@ -880,9 +881,9 @@ VNScript:
 3. Exporter/Editor 只依赖 IR schema，不依赖 Agent 实现
 4. IR 的 Zod schema 即为权威规范
 
-#### 7.1 packages/ir — IR Schema 定义 ✅ 规划
+#### 7.1 packages/ir — IR Schema ✅
 
-**新建包 `@novel2gal/ir`** (从 core 抽离 IR 相关类型)
+**新建包 `@novel2gal/ir`**
 
 ```
 packages/ir/
@@ -905,9 +906,9 @@ const VNStepV1 = z.discriminatedUnion("type", [
 ]);
 ```
 
-#### 7.2 Asset Manifest 系统 ✅ 规划
+#### 7.2 packages/asset — Asset Pipeline ✅
 
-**资源清单 (manifest.json):**
+**新建包 `@novel2gal/asset`**
 ```json
 {
   "version": "1.0",
