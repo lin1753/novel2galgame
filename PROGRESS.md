@@ -963,8 +963,64 @@ Exporter (读 manifest, 复制/链接资源)
 | 版本 | 目标 | 状态 |
 |------|------|------|
 | v0.8 (Phase 6) | Ren'Py Export + 占位资源 | ✅ |
-| v0.9 (Phase 7) | IR v1.0 冻结 + Asset Pipeline | 📋 |
-| v1.0 (Phase 8) | 一键: Novel → Playable Game | 📋 |
+| v0.9 (Phase 7) | IR 冻结 + Asset Pipeline + AgnesImage + 一键导出 | ✅ |
+| v1.0 (Phase 8) | Visual Editor + 更多 Exporter | 📋 |
+
+#### 7.5 AgnesImageProducer ✅
+
+**日期:** 2026-06-27
+
+| 功能 | 说明 |
+|------|------|
+| AssetProducer 接口 | 任何图片模型实现此接口 |
+| AgnesImageProducer | 基于 Agnes Image API (agnes-image-2.1-flash) |
+| 背景生成 | landscape, anime style, no characters |
+| 角色立绘 | portrait with expression description |
+| API 路由 | `POST /projects/{id}/export/generate-assets` |
+
+**E2E 测试:** 2 背景 + 8 角色表情 → 10 张真实 PNG 图片
+
+#### 7.6 一键导出 ✅
+
+**日期:** 2026-06-27
+
+**API:** `POST /projects/{id}/auto-export`
+
+```json
+{
+  "model": "agnes-2.0-flash",
+  "maxChapters": 3,
+  "generateAssets": false
+}
+```
+
+**流程:**
+1. Structure Agent（如未执行）
+2. Pipeline 逐章处理（受 maxChapters 限制）
+3. Ren'Py Export（生成完整工程）
+4. Generate Assets（可选，Agnes Image 生成真实图片）
+
+**SSE 进度事件:**
+- `structure` → started/completed/failed
+- `pipeline` → started/completed/failed（含 current/total）
+- `export` → started/completed/failed
+- `assets` → started/completed/failed
+- `complete` → 最终结果
+
+#### 7.7 Ren'Py 游玩验证 ✅
+
+**日期:** 2026-06-27
+
+| 功能 | 状态 |
+|------|------|
+| `label start:` 入口 | ✅ |
+| 中文显示 (simhei.ttf) | ✅ |
+| 背景图 (Agnes Image) | ✅ |
+| 角色立绘 (Agnes Image) | ✅ |
+| 角色表情切换 | ✅ |
+| 对话/旁白/内心独白 | ✅ |
+| 真实角色名 (张三、李四) | ✅ |
+| `character_display` 缩放 | ✅ |
 
 ## MVP 验收指标
 

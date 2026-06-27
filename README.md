@@ -40,20 +40,25 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 - **后端:** Node.js + Express + SQLite (better-sqlite3)
 - **前端:** React 19 + Vite 6 + Tailwind CSS 4 + Zustand + TanStack Query
 - **VN 引擎:** 自研步骤执行器，8 种步骤类型
+- **IR:** Zod schema v1.0（冻结的中间表示）
+- **资源系统:** Asset Pipeline（Manifest + Resolver + Producer）
+- **导出器:** Ren'Py Builder（Builder Pattern）
 - **本地推理:** transformers + bitsandbytes 4-bit (WSL2) + Flask API
-- **Per-Agent 路由:** 前 3 个 Agent 可切换本地/云端模型
 
 ## 项目结构
 
 ```
 apps/
-  api/          Node.js REST API (per-agent 路由)
+  api/          Node.js REST API (per-agent 路由 + 一键导出)
   workbench/    React SPA 工作台
 packages/
   core/         领域模型与 TypeScript 接口
-  agents/       9 个 AI Agent 实现
+  ir/           VN Script IR v1.0 (Zod Schema + Validator + Migration)
+  agents/       9 个 AI Agent 实现 (Pipeline, 已冻结)
   runtime/      VN 播放引擎
-  providers/    LLM + 图像生成 + 视频生成 Provider
+  asset/        Asset Pipeline (Manifest + Resolver + Producer)
+  providers/    LLM + 图像 + 视频 Provider
+  export/       Ren'Py 导出器 (Builder Pattern)
   storage/      SQLite 索引 + 文件系统存储
   evaluation/   评测框架
 scripts/
@@ -138,6 +143,17 @@ curl -X POST http://localhost:3002/videos/generate \
 
 # 查询视频任务状态
 curl http://localhost:3002/videos/task/{taskId}
+
+# 一键导出 (Import → Pipeline → Export → Ren'Py)
+curl -X POST http://localhost:3002/projects/{id}/auto-export \
+  -H "Content-Type: application/json" \
+  -d '{"model": "agnes-2.0-flash", "maxChapters": 3}'
+
+# 单独导出 Ren'Py 项目
+curl -X POST http://localhost:3002/projects/{id}/export/renpy
+
+# 生成真实背景/立绘 (Agnes Image)
+curl -X POST http://localhost:3002/projects/{id}/export/generate-assets
 ```
 
 ## VN 脚本格式
@@ -155,7 +171,65 @@ curl http://localhost:3002/videos/task/{taskId}
 | `pause` | 暂停 | durationMs |
 | `transition` | 转场 | name (fade/cut/dissolve) |
 
-## 设计约束
+## Ren'Py 导出与游玩
+
+### 一键导出
+
+```bash
+# 1. 导入小说
+curl -X POST http://localhost:3002/projects/{id}/import -F "file=@novel.txt"
+
+# 2. 一键导出 (3 章快速测试)
+curl -X POST http://localhost:3002/projects/{id}/auto-export \
+  -H "Content-Type: application/json" \
+  -d '{"model": "agnes-2.0-flash", "maxChapters": 3}'
+
+# 3. 生成真实图片 (可选)
+curl -X POST http://localhost:3002/projects/{id}/export/generate-assets
+```
+
+### 游玩方式
+
+1. 下载 [Ren'Py SDK](https://www.renpy.org/latest.html)
+2. 打开 Ren'Py Launcher
+3. 点击 **"Add Project"**，选择导出目录：`data/projects/{id}/export/{项目名}/`
+4. 点击 **"Launch Project"** 运行
+
+导出目录结构：
+```
+export/{项目名}/
+  game/
+    script.rpy          # 主剧情脚本
+    characters.rpy      # 角色定义
+    gui.rpy             # UI 配置
+    fonts/simhei.ttf    # 中文字体
+    images/bg/          # 背景图
+    images/char/        # 角色立绘
+  assets/
+    manifest.json       # 资源清单 (IR v1.0)
+  README.md
+```
+
+## 架构
+
+```
+Novel (.txt)
+    │
+    ▼
+AI Pipeline (7 Agents) ← 已冻结
+    │
+    ▼
+VN Script IR v1.0 (JSON DSL) ← 唯一中间表示
+    │
+    ├────────────┐
+    ▼            ▼
+Ren'Py Export  Web Preview ← 两个 Runtime 共享 IR
+    │
+    ▼
+Asset Manifest → Producer (Agnes Image) → Cache → Export
+```
+
+### 设计约束
 
 - 对话保留率 >= 95%
 - 非原文添加量 <= 5%
