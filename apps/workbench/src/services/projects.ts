@@ -50,4 +50,14 @@ export const projectService = {
 
   getStructure: (id: string) =>
     request<Record<string, unknown>>(`/projects/${id}/structure`),
+
+  exportRenpy: (id: string) =>
+    request<{ success: boolean; outputPath: string; stats: any }>(`/projects/${id}/export/renpy`, {
+      method: 'POST',
+    }),
+
+  generateAssets: (id: string) =>
+    request<{ success: boolean; generated: string[]; errors: string[] }>(`/projects/${id}/export/generate-assets`, {
+      method: 'POST',
+    }),
 }
