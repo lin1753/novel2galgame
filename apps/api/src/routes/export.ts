@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { RenPyBuilder } from "@novel2gal/export";
+import { readManifest, writeManifest, AgnesImageProducer, markAssetGenerated } from "@novel2gal/asset";
 import { config } from "../config/index.js";
 import { createDatabase, SceneRepository } from "@novel2gal/storage";
 
@@ -83,6 +84,84 @@ export function createExportRoutes(db: ReturnType<typeof createDatabase>) {
     });
 
     res.json(result);
+  });
+
+  // POST /projects/:id/export/generate-assets — Generate real images from manifest
+  router.post("/projects/:id/export/generate-assets", async (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const projectDir = path.join(config.dataDir, "projects", projectId);
+
+    // Find manifest in export directories
+    let manifest = null;
+    let manifestProjectDir = projectDir;
+    const exportDir = path.join(projectDir, "export");
+    if (fs.existsSync(exportDir)) {
+      const exports = fs.readdirSync(exportDir).filter(d =>
+        fs.statSync(path.join(exportDir, d)).isDirectory()
+      );
+      for (const exp of exports) {
+        const candidate = path.join(exportDir, exp);
+        manifest = readManifest(candidate);
+        if (manifest) {
+          manifestProjectDir = candidate;
+          break;
+        }
+      }
+    }
+    if (!manifest) {
+      manifest = readManifest(projectDir);
+      if (manifest) manifestProjectDir = projectDir;
+    }
+    if (!manifest) {
+      return res.status(400).json({ error: "No manifest found. Run export first." });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "No API key configured" });
+    }
+
+    const producer = new AgnesImageProducer({ apiKey });
+    const generated: string[] = [];
+    const errors: string[] = [];
+
+    // Generate backgrounds
+    for (const [id, entry] of Object.entries(manifest.assets.background)) {
+      if (entry.status === "generated" || entry.status === "manual") continue;
+      try {
+        console.log(`[AssetGen] Background: ${id} (${entry.label})`);
+        await producer.generate(entry, manifestProjectDir);
+        markAssetGenerated(manifest, "background", id, undefined, entry.file, "agnes-image");
+        generated.push(entry.file);
+      } catch (err) {
+        errors.push(`background:${id}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    // Generate character expressions
+    for (const [charId, charAsset] of Object.entries(manifest.assets.character)) {
+      for (const [expr, entry] of Object.entries(charAsset.expressions)) {
+        if (entry.status === "generated" || entry.status === "manual") continue;
+        try {
+          console.log(`[AssetGen] Character: ${charId}/${expr}`);
+          await producer.generate(entry, manifestProjectDir);
+          markAssetGenerated(manifest, "character", charId, expr, entry.file, "agnes-image");
+          generated.push(entry.file);
+        } catch (err) {
+          errors.push(`character:${charId}:${expr}: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+    }
+
+    // Save updated manifest
+    writeManifest(manifestProjectDir, manifest);
+
+    res.json({
+      success: errors.length === 0,
+      generated,
+      errors,
+      totalAssets: generated.length + errors.length,
+    });
   });
 
   return router;

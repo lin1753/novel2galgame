@@ -4,7 +4,7 @@ import type { GameBuilder, ExportInput, ExportResult, ExportStats } from "../com
 import { validateIR } from "@novel2gal/ir";
 import { extractAssets, createEmptyManifest, writeManifest, DefaultResolver } from "@novel2gal/asset";
 import { generateScript } from "./script-generator.js";
-import { generateCharacters, generateCharacterImages } from "./character-generator.js";
+import { generateCharacters, generateCharacterImagesFromManifest } from "./character-generator.js";
 import { generatePlaceholders } from "./asset-manager.js";
 import { GUI_RPY, OPTIONS_RPY, SCREENS_RPY } from "./templates.js";
 
@@ -51,9 +51,21 @@ export class RenPyBuilder implements GameBuilder {
       fs.writeFileSync(scriptPath, scriptContent, "utf-8");
       generatedFiles.push(scriptPath);
 
-      // 3. Generate characters.rpy
+      // 3. Generate characters.rpy with expression-based image statements
       const charContent = generateCharacters(input.characters);
-      const charImagesContent = generateCharacterImages(input.characters);
+      // Collect expressions from scripts
+      const charExpressions = new Map<string, Set<string>>();
+      for (const script of input.scripts) {
+        for (const step of script.steps) {
+          if (step.type === "show" && (step as any).characterId && (step as any).expression) {
+            const cid = (step as any).characterId;
+            const expr = (step as any).expression;
+            if (!charExpressions.has(cid)) charExpressions.set(cid, new Set());
+            charExpressions.get(cid)!.add(expr);
+          }
+        }
+      }
+      const charImagesContent = generateCharacterImagesFromManifest(input.characters, charExpressions);
       const charPath = path.join(gameDir, "characters.rpy");
       fs.writeFileSync(charPath, charContent + "\n" + charImagesContent, "utf-8");
       generatedFiles.push(charPath);

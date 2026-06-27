@@ -56,6 +56,10 @@ define gui.choice_button_text_hover_color = "#ffffff"
 define gui.navigation_xpos = 60
 define gui.skip_indicator = True
 define gui.about = _("Powered by All Novel Can Be Galgame")
+
+# Character display transform - scale to fit screen
+transform character_display:
+    xysize (300, 400)
 `;
 
 export const OPTIONS_RPY = (title: string, safeName: string) => `# Game options

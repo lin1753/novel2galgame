@@ -26,14 +26,40 @@ export function generateCharacters(characters: CharacterRef[]): string {
 export function generateCharacterImages(characters: CharacterRef[]): string {
   const lines: string[] = [];
   lines.push("# Auto-generated character image definitions");
-  lines.push("# Placeholder images - replace with actual artwork");
+  lines.push("# Maps 'show char_001 arrogant' to actual image files");
   lines.push("");
 
   for (const char of characters) {
     const id = sanitizeId(char.characterId);
     lines.push(`# Character: ${char.canonicalName || char.characterId}`);
-    lines.push(`# image ${id} = "images/${id}/default.png"`);
+    // Map each expression used in the VN script to its image file
+    lines.push(`image ${id} = "images/char/${id}/default.png"`);
     lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+/** Generate Ren'Py image statements from manifest (with expression variants) */
+export function generateCharacterImagesFromManifest(
+  characters: CharacterRef[],
+  expressions: Map<string, Set<string>>
+): string {
+  const lines: string[] = [];
+  lines.push("# Auto-generated character image definitions");
+  lines.push("");
+
+  for (const char of characters) {
+    const id = sanitizeId(char.characterId);
+    const exprs = expressions.get(char.characterId);
+    if (exprs && exprs.size > 0) {
+      for (const expr of exprs) {
+        const exprId = sanitizeId(expr);
+        lines.push(`image ${id} ${exprId} = "images/char/${id}/${exprId}.png"`);
+      }
+    } else {
+      lines.push(`image ${id} = "images/char/${id}/default.png"`);
+    }
   }
 
   return lines.join("\n");

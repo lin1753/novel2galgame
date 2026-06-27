@@ -37,20 +37,27 @@ export function markAssetGenerated(
   filePath: string,
   provider: string
 ): void {
-  const entry: any = {
-    type,
-    label: id,
-    file: filePath,
-    status: "generated" as const,
-    provider,
-  };
-
   if (type === "character" && expression) {
     if (!manifest.assets.character[id]) {
       manifest.assets.character[id] = { characterId: id, expressions: {} };
     }
-    manifest.assets.character[id].expressions[expression] = entry;
+    manifest.assets.character[id].expressions[expression] = {
+      ...manifest.assets.character[id].expressions[expression],
+      type: "character",
+      label: expression,
+      file: filePath,
+      status: "generated",
+      provider,
+    };
   } else {
-    (manifest.assets as any)[type][id] = entry;
+    const existing = (manifest.assets as any)[type]?.[id];
+    (manifest.assets as any)[type][id] = {
+      ...(existing || {}),
+      type,
+      label: id,
+      file: filePath,
+      status: "generated",
+      provider,
+    };
   }
 }
