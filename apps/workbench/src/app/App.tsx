@@ -12,6 +12,7 @@ import { TasksPage } from '@/pages/TasksPage'
 import { ProjectSettingsPage } from '@/pages/ProjectSettingsPage'
 import { PreviewPage } from '@/pages/PreviewPage'
 import { VisualPromptPage } from '@/pages/VisualPromptPage'
+import { EditorPage } from '@/pages/EditorPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ export function App() {
               <Route path="tasks" element={<TasksPage />} />
               <Route path="settings" element={<ProjectSettingsPage />} />
               <Route path="preview" element={<PreviewPage />} />
+              <Route path="editor/:sceneId" element={<EditorPage />} />
               <Route index element={<ProjectOverviewPage />} />
             </Route>
           </Routes>

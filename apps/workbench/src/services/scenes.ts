@@ -31,4 +31,10 @@ export const sceneService = {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
+
+  updateScript: (projectId: string, sceneId: string, script: VNScript) =>
+    request<{ success: boolean; sceneId: string; stepCount: number }>(
+      `/projects/${projectId}/scenes/${sceneId}/script`,
+      { method: 'PUT', body: JSON.stringify(script) }
+    ),
 }
