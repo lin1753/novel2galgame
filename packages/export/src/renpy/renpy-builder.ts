@@ -36,7 +36,7 @@ export class RenPyBuilder implements GameBuilder {
       };
     }
 
-    // Create directory structure
+    // Create directory structure (preserve existing assets)
     fs.mkdirSync(gameDir, { recursive: true });
     fs.mkdirSync(path.join(gameDir, "images"), { recursive: true });
     fs.mkdirSync(path.join(gameDir, "audio"), { recursive: true });
@@ -112,6 +112,14 @@ export class RenPyBuilder implements GameBuilder {
       const resolver = new DefaultResolver(manifest, input.outputDir);
       const assetFiles = generatePlaceholders(input.scripts, input.characters, input.outputDir);
       generatedFiles.push(...assetFiles);
+
+      // 6b. Copy project-level real assets if available (overrides placeholders)
+      const projectRoot = path.resolve(input.outputDir, "..", "..");
+      const projectAssetDir = path.join(projectRoot, "assets", "images");
+      if (fs.existsSync(projectAssetDir)) {
+        const copied = this.copyProjectAssets(projectAssetDir, gameDir);
+        generatedFiles.push(...copied);
+      }
 
       // 7. Copy Chinese font for text rendering
       const fontDir = path.join(gameDir, "fonts");
@@ -193,5 +201,44 @@ Pipeline: All Novel Can Be Galgame (IR-driven visual novel generation platform)
 
 *Replace placeholder images in \`game/images/\` with actual artwork, or run Asset Pipeline to auto-generate.*
 `;
+  }
+
+  /** Copy project-level real assets (PNG/WebP) to export game dir, overriding placeholders */
+  private copyProjectAssets(assetDir: string, gameDir: string): string[] {
+    const copied: string[] = [];
+    const imagesDir = path.join(gameDir, "images");
+
+    // Copy backgrounds
+    const bgSrc = path.join(assetDir, "bg");
+    if (fs.existsSync(bgSrc)) {
+      const bgDst = path.join(imagesDir, "bg");
+      fs.mkdirSync(bgDst, { recursive: true });
+      for (const file of fs.readdirSync(bgSrc)) {
+        if (/\.(png|jpg|jpeg|webp)$/i.test(file)) {
+          fs.copyFileSync(path.join(bgSrc, file), path.join(bgDst, file));
+          copied.push(path.join(bgDst, file));
+        }
+      }
+    }
+
+    // Copy character images
+    const charSrc = path.join(assetDir, "char");
+    if (fs.existsSync(charSrc)) {
+      const charDst = path.join(imagesDir, "char");
+      for (const charId of fs.readdirSync(charSrc)) {
+        const charDir = path.join(charSrc, charId);
+        if (!fs.statSync(charDir).isDirectory()) continue;
+        const dstCharDir = path.join(charDst, charId);
+        fs.mkdirSync(dstCharDir, { recursive: true });
+        for (const file of fs.readdirSync(charDir)) {
+          if (/\.(png|jpg|jpeg|webp)$/i.test(file)) {
+            fs.copyFileSync(path.join(charDir, file), path.join(dstCharDir, file));
+            copied.push(path.join(dstCharDir, file));
+          }
+        }
+      }
+    }
+
+    return copied;
   }
 }

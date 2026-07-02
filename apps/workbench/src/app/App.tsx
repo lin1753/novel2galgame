@@ -13,6 +13,7 @@ import { ProjectSettingsPage } from '@/pages/ProjectSettingsPage'
 import { PreviewPage } from '@/pages/PreviewPage'
 import { VisualPromptPage } from '@/pages/VisualPromptPage'
 import { EditorPage } from '@/pages/EditorPage'
+import { AssetsPage } from '@/pages/AssetsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,7 @@ export function App() {
               <Route path="preview" element={<PreviewPage />} />
               <Route path="editor" element={<EditorPage />} />
               <Route path="editor/:sceneId" element={<EditorPage />} />
+              <Route path="assets" element={<AssetsPage />} />
               <Route index element={<ProjectOverviewPage />} />
             </Route>
           </Routes>

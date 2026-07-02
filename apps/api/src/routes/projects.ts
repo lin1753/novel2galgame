@@ -34,6 +34,7 @@ import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
 import { config } from "../config/index.js";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
+import { broadcastProgress } from "./progress.js";
 
 const upload = multer({ dest: path.join(config.dataDir, "temp") });
 
@@ -96,13 +97,15 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     const destPath = path.join(destDir, "novel.txt");
     fs.renameSync(req.file.path, destPath);
 
-    project.sourceFileName = req.file.originalname;
+    // Use displayName from form field (sent by frontend) to avoid encoding issues
+    const originalName = (req.body.displayName as string) || req.file.originalname;
+
+    project.sourceFileName = originalName;
     project.sourceFilePath = destPath;
     writeProjectState(config.dataDir, project);
     projectRepo.updateStatus(param(req, "id"), "created");
-    // Also update sourceFileName in SQLite so overview page shows it
     db.prepare("UPDATE projects SET source_file_name = ?, updated_at = ? WHERE project_id = ?")
-      .run(req.file.originalname, new Date().toISOString(), param(req, "id"));
+      .run(originalName, new Date().toISOString(), param(req, "id"));
 
     res.json({ message: "File imported", path: destPath });
   });
@@ -220,7 +223,7 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     if (!fs.existsSync(sourcePath)) return res.status(400).json({ error: "Chapter source not found" });
 
     const chapterText = fs.readFileSync(sourcePath, "utf-8");
-    const model = req.body.model ?? project.config.defaultTextModel;
+    const model = req.body.model ?? project.config.defaultTextModel ?? "agnes-2.0-flash";
 
     // Build per-agent model config
     let agentModels: AgentModelConfig | undefined;
@@ -246,13 +249,19 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     try {
       const result = await runChapterPipeline(
         config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model,
-        undefined, agentModels,
+        (stage, message) => {
+          broadcastProgress({ projectId: param(req, "id"), chapterId: chapter.chapterId, stage, status: "progress", message });
+        },
+        agentModels,
         (scene, sceneIndex) => { try { sceneRepo.create(scene, sceneIndex); } catch {} },
-        chapter.chapterId
+        chapter.chapterId,
+        (chId, flags) => { try { chapterRepo.updateFlags(chId, flags); } catch {} }
       );
+      broadcastProgress({ projectId: param(req, "id"), chapterId: chapter.chapterId, stage: "completed", status: "completed" });
       chapterRepo.updateStatus(param(req, "chapterId"), "chapter_ready");
       res.json(result);
     } catch (err) {
+      broadcastProgress({ projectId: param(req, "id"), chapterId: chapter.chapterId, stage: "failed", status: "failed", message: err instanceof Error ? err.message : String(err) });
       chapterRepo.updateStatus(param(req, "chapterId"), "failed");
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }

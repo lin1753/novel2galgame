@@ -21,11 +21,9 @@ export class AgnesImageProducer implements AssetProducer {
 
   async generate(entry: AssetEntry, outputDir: string): Promise<string> {
     const prompt = this.buildPrompt(entry);
-    // Change extension from .svg to .png for generated images
     const pngFile = entry.file.replace(/\.svg$/, ".png");
-    const filePath = path.join(outputDir, "assets", pngFile);
+    const filePath = path.join(outputDir, pngFile);
 
-    // Ensure directory exists
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
     // Call Agnes Image API

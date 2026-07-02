@@ -9,6 +9,7 @@ import { createImageRoutes } from "../routes/images.js";
 import { createVideoRoutes } from "../routes/videos.js";
 import { createExportRoutes } from "../routes/export.js";
 import { createAutoExportRoutes } from "../routes/auto-export.js";
+import { createAssetRoutes } from "../routes/assets.js";
 import type { LLMProvider } from "@novel2gal/providers";
 
 export function createServer(
@@ -46,13 +47,16 @@ export function createServer(
   app.use("/videos", createVideoRoutes());
 
   // Export routes
-  app.use("/", createExportRoutes(db));
+  app.use("/", createExportRoutes());
 
   // Auto-export routes (one-click full pipeline)
   app.use("/", createAutoExportRoutes(db, getProvider));
 
   // SSE progress routes
   app.use("/", createProgressRoutes());
+
+  // Asset management routes
+  app.use("/", createAssetRoutes());
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });

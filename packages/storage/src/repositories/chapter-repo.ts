@@ -73,6 +73,20 @@ export class ChapterRepository {
       .run(status, now, chapterId);
   }
 
+  updateFlags(chapterId: string, flags: Partial<{ parsingDone: boolean; attributionDone: boolean; segmentationDone: boolean; mappingDone: boolean; reviewDone: boolean }>): void {
+    const sets: string[] = [];
+    const vals: any[] = [];
+    for (const [key, val] of Object.entries(flags)) {
+      const col = key.replace(/([A-Z])/g, "_$1").toLowerCase();
+      sets.push(`${col} = ?`);
+      vals.push(val ? 1 : 0);
+    }
+    if (sets.length === 0) return;
+    sets.push("updated_at = ?");
+    vals.push(new Date().toISOString(), chapterId);
+    this.db.prepare(`UPDATE chapters SET ${sets.join(", ")} WHERE chapter_id = ?`).run(...vals);
+  }
+
   updateSceneCount(chapterId: string, count: number): void {
     const now = new Date().toISOString();
     this.db

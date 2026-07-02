@@ -47,11 +47,14 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 
 ```
 apps/
-  api/          Node.js REST API (per-agent 路由)
+  api/          Node.js REST API (per-agent 路由 + 资产管理)
   workbench/    React SPA 工作台
 packages/
   core/         领域模型与 TypeScript 接口
   agents/       9 个 AI Agent 实现
+  ir/           VN Script IR v1.0 Zod Schema
+  asset/        Asset Pipeline (manifest + producer)
+  export/       Ren'Py Builder + 资产同步
   runtime/      VN 播放引擎
   providers/    LLM + 图像生成 + 视频生成 Provider
   storage/      SQLite 索引 + 文件系统存储
@@ -73,16 +76,26 @@ pnpm install
 # 构建
 pnpm build
 
-# 配置 LLM API
-cp apps/api/.env.example apps/api/.env
-# 编辑 .env，填入 API Key、Base URL、模型名
+# 启动 API + 前端 (PowerShell)
+.\dev.ps1
 
-# 启动 API
-cd apps/api && npx tsx src/index.ts
-
-# 启动前端
-cd apps/workbench && pnpm dev
+# 或手动启动
+cd apps/api && DATA_DIR="D:\Project\novel2glagame\data" npx tsx watch src/index.ts
+# 另一个终端
+cd apps/workbench && npx vite
 ```
+
+访问 http://localhost:5173
+
+### 首次使用
+
+1. **模型配置** → 左侧导航 → 添加 Agnes AI 或其他模型 profile
+2. **新建项目** → 上传 txt 小说文件
+3. **运行结构解析** → 自动识别章节
+4. **章节管理** → 点击"运行管线"处理单章，或项目总览点"一键处理"批量处理
+5. **资产管理** → 查看/生成/调整背景立绘 prompt
+6. **预览播放** → 点击推进 VN 剧情
+7. **导出 Ren'Py** → 生成可游玩项目
 
 ### 本地模型启动 (可选)
 

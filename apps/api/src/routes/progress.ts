@@ -1,11 +1,15 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 
-type ProgressEvent = {
+export type ProgressStatus = "started" | "progress" | "completed" | "failed" | "cancelled";
+
+export type ProgressEvent = {
   projectId: string;
   chapterId?: string;
+  chapterIndex?: number;
+  sceneId?: string;
   stage: string;
-  status: "started" | "progress" | "completed" | "failed";
+  status: ProgressStatus;
   message?: string;
   data?: unknown;
 };
@@ -47,3 +51,5 @@ export function createProgressRoutes() {
 
   return router;
 }
+
+export { connections };

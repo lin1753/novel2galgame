@@ -35,9 +35,10 @@ export const projectService = {
   delete: (id: string) =>
     request<void>(`/projects/${id}`, { method: 'DELETE' }),
 
-  import: (id: string, file: File) => {
+  import: (id: string, file: File, displayName?: string) => {
     const form = new FormData()
     form.append('file', file)
+    if (displayName) form.append('displayName', displayName)
     return request<{ message: string; path: string }>(`/projects/${id}/import`, {
       method: 'POST',
       headers: {},
@@ -62,8 +63,14 @@ export const projectService = {
     }),
 
   autoExport: (id: string, body?: { model?: string; maxChapters?: number; generateAssets?: boolean }) =>
-    request<{ status: string; projectId: string }>(`/projects/${id}/auto-export`, {
+    request<{ status: string; projectId: string; taskId?: string }>(`/projects/${id}/auto-export`, {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
+
+  cancelAutoExportChapter: (id: string, chapterId: string) =>
+    request<void>(`/projects/${id}/auto-export/cancel/${chapterId}`, { method: 'POST' }),
+
+  cancelAllAutoExport: (id: string) =>
+    request<void>(`/projects/${id}/auto-export/cancel`, { method: 'POST' }),
 }

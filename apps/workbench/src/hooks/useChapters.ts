@@ -18,5 +18,9 @@ export function useRunChapter(projectId: string) {
       qc.invalidateQueries({ queryKey: ['project', projectId] })
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })
     },
+    onError: (err: any) => {
+      console.error('[useRunChapter] Error:', err)
+      alert(`管线运行失败: ${err.message}`)
+    },
   })
 }

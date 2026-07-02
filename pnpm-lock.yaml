@@ -20,6 +20,9 @@ importers:
       '@novel2gal/agents':
         specifier: workspace:*
         version: link:../../packages/agents
+      '@novel2gal/asset':
+        specifier: workspace:*
+        version: link:../../packages/asset
       '@novel2gal/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -185,9 +188,15 @@ importers:
 
   packages/export:
     dependencies:
+      '@novel2gal/asset':
+        specifier: workspace:*
+        version: link:../asset
       '@novel2gal/core':
         specifier: workspace:*
         version: link:../core
+      '@novel2gal/ir':
+        specifier: workspace:*
+        version: link:../ir
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

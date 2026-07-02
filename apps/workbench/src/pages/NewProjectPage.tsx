@@ -3,6 +3,18 @@ import { useNavigate } from 'react-router'
 import { Upload, Sparkles } from 'lucide-react'
 import { projectService } from '@/services/projects'
 
+/** Fix garbled Chinese filenames from multipart upload on Windows */
+function fixFileName(name: string): string {
+  try {
+    // Convert back to Latin-1 bytes, then decode as UTF-8
+    const bytes = new Uint8Array([...name].map(c => c.charCodeAt(0) & 0xff))
+    const decoded = new TextDecoder('utf-8').decode(bytes)
+    // If it contains CJK characters, the recovery worked
+    if (/[一-鿿]/.test(decoded)) return decoded
+  } catch {}
+  return name
+}
+
 export function NewProjectPage() {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
@@ -15,13 +27,11 @@ export function NewProjectPage() {
     setIsCreating(true)
     setError(null)
     try {
-      // 1. Create project
+      const displayName = fixFileName(file.name)
       const project = await projectService.create({
-        title: title || file.name.replace(/\.txt$/i, ''),
+        title: title || displayName.replace(/\.txt$/i, ''),
       })
-      // 2. Import file
-      await projectService.import(project.projectId, file)
-      // 3. Navigate to overview
+      await projectService.import(project.projectId, file, displayName)
       navigate(`/projects/${project.projectId}/overview`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

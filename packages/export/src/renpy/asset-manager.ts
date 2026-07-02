@@ -26,10 +26,17 @@ export function generatePlaceholders(
 
   for (const bgId of bgIds) {
     const label = bgId.replace(/_/g, " ");
+    const safeId = sanitizeId(bgId);
+    const pngPath = path.join(bgDir, `${safeId}.png`);
+    const svgPath = path.join(bgDir, `${safeId}.svg`);
+    // Skip if real PNG already exists (from asset generation)
+    if (fs.existsSync(pngPath)) {
+      files.push(pngPath);
+      continue;
+    }
     const svg = createPlaceholderSvg(label, "#1a1a2e", "#e0e0e0");
-    const filePath = path.join(bgDir, `${sanitizeId(bgId)}.svg`);
-    fs.writeFileSync(filePath, svg, "utf-8");
-    files.push(filePath);
+    fs.writeFileSync(svgPath, svg, "utf-8");
+    files.push(svgPath);
   }
 
   // Generate placeholder character images
@@ -38,6 +45,12 @@ export function generatePlaceholders(
     fs.mkdirSync(charDir, { recursive: true });
 
     const label = char.canonicalName || char.characterId;
+    const defaultPng = path.join(charDir, "default.png");
+    // Skip if real PNG already exists
+    if (fs.existsSync(defaultPng)) {
+      files.push(defaultPng);
+      continue;
+    }
     const svg = createPlaceholderSvg(label, charColor(char.characterId), "#ffffff");
     const filePath = path.join(charDir, "default.svg");
     fs.writeFileSync(filePath, svg, "utf-8");
