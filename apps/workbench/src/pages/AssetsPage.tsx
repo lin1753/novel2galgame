@@ -19,8 +19,8 @@ export function AssetsPage() {
   const genMutation = useMutation({
     mutationFn: (body: { type: string; assetId: string; expression?: string; label?: string; prompt?: string }) =>
       assetService.generate(projectId!, body),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['assets', projectId] }); setGenerating(null) },
-    onError: () => setGenerating(null),
+    onSuccess: (data) => { console.log('[AssetGen] Success:', data); qc.invalidateQueries({ queryKey: ['assets', projectId] }); setGenerating(null) },
+    onError: (err) => { console.error('[AssetGen] Error:', err); setGenerating(null) },
   })
 
   const promptMutation = useMutation({

@@ -23,6 +23,7 @@ export class AgnesImageProducer implements AssetProducer {
     const prompt = this.buildPrompt(entry);
     const pngFile = entry.file.replace(/\.svg$/, ".png");
     const filePath = path.join(outputDir, pngFile);
+    console.log(`[AgnesImage] filePath: ${filePath}`);
 
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
@@ -69,9 +70,12 @@ export class AgnesImageProducer implements AssetProducer {
       model: "agnes-image-2.1-flash",
       prompt,
       size,
-      return_base64: true,
+      extra_body: {
+        response_format: "b64_json",
+      },
     });
 
+    console.log(`[AgnesImage] Generating: ${entry.type}, ${size}, prompt=${prompt.slice(0,50)}`);
     return new Promise((resolve, reject) => {
       const url = new URL(`${this.baseUrl}/v1/images/generations`);
       const req = https.request(
@@ -92,12 +96,15 @@ export class AgnesImageProducer implements AssetProducer {
             responseBody += chunk;
           });
           res.on("end", () => {
+            console.log(`[AgnesImage] Response: ${res.statusCode}, ${responseBody.length} bytes`);
             if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
               const data = JSON.parse(responseBody);
               const img = data.data?.[0];
               if (img?.b64_json) {
+                console.log(`[AgnesImage] Got b64: ${img.b64_json.length} chars`);
                 resolve({ b64: img.b64_json });
               } else if (img?.url) {
+                console.log(`[AgnesImage] Got URL (no b64), will download: ${img.url.slice(0,60)}`);
                 resolve({ url: img.url });
               } else {
                 reject(new Error("No image data in response"));
@@ -109,9 +116,9 @@ export class AgnesImageProducer implements AssetProducer {
         }
       );
       req.on("error", (e) => reject(new Error(`Request failed: ${e.message}`)));
-      req.setTimeout(120_000, () => {
+      req.setTimeout(180_000, () => {
         req.destroy();
-        reject(new Error("Request timeout"));
+        reject(new Error("Agnes Image API timeout (3min)"));
       });
       req.write(body);
       req.end();
@@ -119,26 +126,40 @@ export class AgnesImageProducer implements AssetProducer {
   }
 
   private async downloadFile(url: string, filePath: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      https.get(url, (res) => {
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          https.get(res.headers.location!, (res2) => {
+    // Retry up to 2 times
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => { req.destroy(); reject(new Error("Download timeout")); }, 30_000);
+          const req = https.get(url, {
+            headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
+          }, (res) => {
+            if (res.statusCode === 301 || res.statusCode === 302) {
+              clearTimeout(timeout);
+              const redirectUrl = res.headers.location!;
+              const req2 = https.get(redirectUrl, {
+                headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
+              }, (res2) => {
+                const timeout2 = setTimeout(() => { res2.destroy(); reject(new Error("Download redirect timeout")); }, 30_000);
+                const chunks: Buffer[] = [];
+                res2.on("data", (c) => chunks.push(c));
+                res2.on("end", () => { clearTimeout(timeout2); fs.writeFileSync(filePath, Buffer.concat(chunks)); resolve(); });
+              });
+              req2.on("error", (e) => { clearTimeout(timeout); reject(e); });
+              return;
+            }
             const chunks: Buffer[] = [];
-            res2.on("data", (c) => chunks.push(c));
-            res2.on("end", () => {
-              fs.writeFileSync(filePath, Buffer.concat(chunks));
-              resolve();
-            });
-          }).on("error", reject);
-          return;
-        }
-        const chunks: Buffer[] = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => {
-          fs.writeFileSync(filePath, Buffer.concat(chunks));
-          resolve();
+            res.on("data", (c) => chunks.push(c));
+            res.on("end", () => { clearTimeout(timeout); fs.writeFileSync(filePath, Buffer.concat(chunks)); resolve(); });
+          });
+          req.on("error", (e) => { clearTimeout(timeout); reject(new Error(`Download failed: ${e.message}`)); });
         });
-      }).on("error", reject);
-    });
+        return; // Success
+      } catch (err) {
+        if (attempt === 2) throw err;
+        console.log(`[AgnesImage] Download attempt ${attempt} failed, retrying...`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
   }
 }

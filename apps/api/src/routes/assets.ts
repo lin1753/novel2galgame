@@ -26,7 +26,14 @@ function scanProjectAssets(projectDir: string) {
     const scriptPath = path.join(scenesDir, sceneId, "vn_script.json");
     if (!fs.existsSync(scriptPath)) continue;
     try {
-      const script = JSON.parse(fs.readFileSync(scriptPath, "utf-8"));
+      // Try UTF-8 first, fallback to GBK
+      let raw = fs.readFileSync(scriptPath, "utf-8");
+      if (raw.includes("�") || raw.charCodeAt(0) === 0xFEFF) {
+        // BOM or replacement chars — try reading as buffer
+        const buf = fs.readFileSync(scriptPath);
+        try { raw = new TextDecoder("utf-8").decode(buf); } catch { raw = buf.toString("latin1"); }
+      }
+      const script = JSON.parse(raw);
       for (const step of script.steps || []) {
         if (step.type === "bg" && step.backgroundId) {
           if (!bgMap.has(step.backgroundId)) {
@@ -46,7 +53,9 @@ function scanProjectAssets(projectDir: string) {
           }
         }
       }
-    } catch {}
+    } catch (e) {
+      console.warn(`[Assets] Failed to parse ${scriptPath}:`, (e as Error).message);
+    }
   }
   return { backgrounds: bgMap, characters: charMap };
 }
@@ -149,7 +158,7 @@ export function createAssetRoutes() {
         await producer.generate({
           type: "background" as const,
           label: label ?? safeId,
-          file: `bg/${safeId}.png`,
+          file: `${safeId}.png`,
           status: "generated",
           prompt: prompt ?? undefined,
         }, bgDir);
@@ -161,7 +170,7 @@ export function createAssetRoutes() {
         await producer.generate({
           type: "character" as const,
           label: prompt ?? label ?? `${safeId}_${exprId}`,
-          file: `char/${safeId}/${exprId}.png`,
+          file: `${exprId}.png`,
           status: "generated",
           prompt: prompt ?? undefined,
         }, charExprDir);

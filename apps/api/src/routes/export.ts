@@ -11,6 +11,10 @@ function param(req: Request, key: string): string {
   return Array.isArray(val) ? val[0] : val;
 }
 
+function sanitizeId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase();
+}
+
 export function createExportRoutes() {
   const router = Router();
 
@@ -84,6 +88,7 @@ export function createExportRoutes() {
   // POST /projects/:id/export/generate-assets — Generate real images from manifest into project assets dir
   router.post("/projects/:id/export/generate-assets", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
+    const { type, assetId, expression, label } = req.body;
     const projectDir = path.join(config.dataDir, "projects", projectId);
 
     // Find or create manifest in project assets dir
@@ -148,39 +153,28 @@ export function createExportRoutes() {
     const generated: string[] = [];
     const errors: string[] = [];
 
-    // Generate backgrounds into assets/images/bg/
-    const bgDir = path.join(assetsDir, "bg");
-    fs.mkdirSync(bgDir, { recursive: true });
-    for (const [id, entry] of Object.entries(manifest.assets.background as Record<string, any>)) {
-      if (entry.status === "generated" || entry.status === "manual") continue;
-      try {
-        const safeId = id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
-        console.log(`[AssetGen] Background: ${id} (${entry.label})`);
-        await producer.generate({ ...entry, file: `${safeId}.png` }, bgDir);
-        markAssetGenerated(manifest, "background", id, undefined, `bg/${safeId}.png`, "agnes-image");
+    try {
+      if (type === "bg") {
+        const bgDir = path.join(assetsDir, "bg");
+        console.log(`[AssetGen] bgDir: ${bgDir}, assetsDir: ${assetsDir}`);
+        fs.mkdirSync(bgDir, { recursive: true });
+        const safeId = sanitizeId(assetId);
+        console.log(`[AssetGen] Background: ${assetId}`);
+        await producer.generate({ type: "background" as any, label: label ?? safeId, file: `${safeId}.png`, status: "placeholder" }, bgDir);
+        markAssetGenerated(manifest as any, "background", assetId, undefined, `bg/${safeId}.png`, "agnes-image");
         generated.push(`bg/${safeId}.png`);
-      } catch (err) {
-        errors.push(`background:${id}: ${err instanceof Error ? err.message : err}`);
+      } else if (type === "character") {
+        const safeCharId = sanitizeId(assetId);
+        const safeExpr = sanitizeId(expression ?? "default");
+        const charDir = path.join(assetsDir, "char", safeCharId);
+        fs.mkdirSync(charDir, { recursive: true });
+        console.log(`[AssetGen] Character: ${assetId}/${expression}`);
+        await producer.generate({ type: "character" as any, label: label ?? `${safeCharId}_${safeExpr}`, file: `${safeExpr}.png`, status: "placeholder" }, charDir);
+        markAssetGenerated(manifest as any, "character", assetId, expression ?? "default", `char/${safeCharId}/${safeExpr}.png`, "agnes-image");
+        generated.push(`char/${safeCharId}/${safeExpr}.png`);
       }
-    }
-
-    // Generate character expressions into assets/images/char/{charId}/
-    for (const [charId, charAsset] of Object.entries(manifest.assets.character as Record<string, any>)) {
-      for (const [expr, entry] of Object.entries(charAsset.expressions as Record<string, any>)) {
-        if (entry.status === "generated" || entry.status === "manual") continue;
-        try {
-          const safeCharId = charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
-          const safeExpr = expr.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
-          const charExprDir = path.join(assetsDir, "char", safeCharId);
-          fs.mkdirSync(charExprDir, { recursive: true });
-          console.log(`[AssetGen] Character: ${charId}/${expr}`);
-          await producer.generate({ ...entry, file: `${safeExpr}.png` }, charExprDir);
-          markAssetGenerated(manifest, "character", charId, expr, `char/${safeCharId}/${safeExpr}.png`, "agnes-image");
-          generated.push(`char/${safeCharId}/${safeExpr}.png`);
-        } catch (err) {
-          errors.push(`character:${charId}:${expr}: ${err instanceof Error ? err.message : err}`);
-        }
-      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
     }
 
     writeManifest(projectDir, manifest);

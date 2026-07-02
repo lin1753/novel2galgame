@@ -29,7 +29,14 @@ export function createServer(
     origin: ["http://localhost:5173", "http://localhost:5174"],
     credentials: true,
   }));
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
+
+  // Set long timeout for image generation requests
+  app.use((req, res, next) => {
+    req.setTimeout(300_000);  // 5 minutes
+    res.setTimeout(300_000);
+    next();
+  });
 
   // Project CRUD + pipeline routes
   app.use("/projects", createProjectRoutes(db, getProvider));
