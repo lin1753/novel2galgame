@@ -13,6 +13,8 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 
 9 个 Agent 组成的流水线，每章自动执行。前 3 个 Agent 支持本地 SFT 模型和云端 API 切换。
 
+**全流程 (v3):** 上传小说 → 结构解析 → 章节管线(并行) → VN Script IR → 资产管理(生成背景立绘) → 预览播放 → 微调编辑 → 导出 Ren'Py 可游玩项目
+
 ## 本地模型 (Qwen3-8B SFT)
 
 基于 Qwen3-8B-Instruct 全参微调，用 669 本中文网络小说训练（约 7200 万字符）。配合 3 个 LoRA adapter 执行专项 Agent 任务。
@@ -31,30 +33,37 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 | 模型 | 用途 | 价格 |
 |------|------|------|
 | [Agnes AI agnes-2.0-flash](https://agnes-ai.com) | LLM 推理 (Narrative, Attribution, Scene, VN Mapping, Fidelity, Consistency) | 免费 |
-| [Agnes AI agnes-image-2.1-flash](https://agnes-ai.com) | 文生图/图生图 | $0.003/张 |
+| [Agnes AI agnes-image-2.1-flash](https://agnes-ai.com) | 文生图 (背景立绘) | 免费 |
 | [Agnes AI agnes-video-v2.0](https://agnes-ai.com) | 文生视频/图生视频/关键帧动画 | 免费 |
+
+支持 OpenAI 兼容 API (DeepSeek, Moonshot, Zhipu, 本地 Ollama 等)，通过工作台模型配置页面切换。
 
 ## 技术栈
 
 - **Monorepo:** pnpm workspaces + Turborepo
 - **后端:** Node.js + Express + SQLite (better-sqlite3)
-- **前端:** React 19 + Vite 6 + Tailwind CSS 4 + Zustand + TanStack Query
+- **前端:** React 19 + Vite 6 + Tailwind CSS 4 + TanStack Query
 - **VN 引擎:** 自研步骤执行器，8 种步骤类型
 - **IR:** Zod schema v1.0（冻结的中间表示）
 - **资源系统:** Asset Pipeline（Manifest + Resolver + Producer）
 - **导出器:** Ren'Py Builder（Builder Pattern）
 - **本地推理:** transformers + bitsandbytes 4-bit (WSL2) + Flask API
+- **Per-Agent 路由:** 前 3 个 Agent 可切换本地/云端模型
+- **图像生成:** Agnes Image API (extra_body.response_format b64_json)
+- **资产管线:** 扫描 IR → 占位资源 → AI 生成 → 缓存 → 导出同步
 
 ## 项目结构
 
 ```
 apps/
-  api/          Node.js REST API (per-agent 路由 + 一键导出)
+  api/          Node.js REST API (per-agent 路由 + 资产管理)
   workbench/    React SPA 工作台
 packages/
   core/         领域模型与 TypeScript 接口
-  ir/           VN Script IR v1.0 (Zod Schema + Validator + Migration)
-  agents/       9 个 AI Agent 实现 (Pipeline, 已冻结)
+  agents/       9 个 AI Agent 实现
+  ir/           VN Script IR v1.0 Zod Schema
+  asset/        Asset Pipeline (manifest + producer)
+  export/       Ren'Py Builder + 资产同步
   runtime/      VN 播放引擎
   asset/        Asset Pipeline (Manifest + Resolver + Producer)
   providers/    LLM + 图像 + 视频 Provider
@@ -78,16 +87,26 @@ pnpm install
 # 构建
 pnpm build
 
-# 配置 LLM API
-cp apps/api/.env.example apps/api/.env
-# 编辑 .env，填入 API Key、Base URL、模型名
+# 启动 API + 前端 (PowerShell)
+.\dev.ps1
 
-# 启动 API
-cd apps/api && npx tsx src/index.ts
-
-# 启动前端
-cd apps/workbench && pnpm dev
+# 或手动启动
+cd apps/api && DATA_DIR="D:\Project\novel2glagame\data" npx tsx watch src/index.ts
+# 另一个终端
+cd apps/workbench && npx vite
 ```
+
+访问 http://localhost:5173
+
+### 首次使用
+
+1. **模型配置** → 左侧导航 → 添加 Agnes AI 或其他模型 profile
+2. **新建项目** → 上传 txt 小说文件
+3. **运行结构解析** → 自动识别章节
+4. **章节管理** → 点击"运行管线"处理单章，或项目总览点"一键处理"批量处理
+5. **资产管理** → 查看/生成/调整背景立绘 prompt
+6. **预览播放** → 点击推进 VN 剧情
+7. **导出 Ren'Py** → 生成可游玩项目
 
 ### 本地模型启动 (可选)
 

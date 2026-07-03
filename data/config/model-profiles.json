@@ -1,0 +1,29 @@
+{
+  "profiles": [
+    {
+      "name": "agnes-cloud",
+      "type": "cloud",
+      "baseUrl": "https://apihub.agnes-ai.com/v1",
+      "apiKey": "sk-GHpE7ZgoQky5Z3BolfaYRlN6YHONJhfP5prFyHNFfvQlZLkb",
+      "defaultModel": "agnes-2.0-flash",
+      "enabled": true
+    },
+    {
+      "name": "qwen3-8b-local",
+      "type": "local",
+      "baseUrl": "http://localhost:11434/v1",
+      "apiKey": "not-needed",
+      "defaultModel": "qwen3:8b",
+      "enabled": false
+    },
+    {
+      "name": "qwen3-8b-sft-local",
+      "type": "local",
+      "baseUrl": "http://172.26.168.13:8000/v1",
+      "apiKey": "not-needed",
+      "defaultModel": "qwen3-8b-sft",
+      "enabled": false
+    }
+  ],
+  "activeProfile": "agnes-cloud"
+}

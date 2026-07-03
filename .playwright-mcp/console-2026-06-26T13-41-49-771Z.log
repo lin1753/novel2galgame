@@ -1,0 +1,105 @@
+[      92ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:20102
+[   56357ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:120:53
+[   93990ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[   98679ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:120:53
+[   98951ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[   99346ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[   99606ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[  471845ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  471845ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  490104ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/api/projects/project_2e70a037bfca/chapters/project_2e70a037bfca_chapter_0001/run:0
+[  495388ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  495389ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  497649ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  497649ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  500089ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  500089ms] [WARNING] No routes matched location "/projects/project_2e70a037bfca/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  521334ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:120:53
+[  526260ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[  526598ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[  526793ms] TypeError: Cannot read properties of undefined (reading 'type')
+    at PlayerController.applyAction (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:79:24)
+    at PlayerController.advance (http://localhost:5173/@fs/D:/Project/novel2glagame/.claude/worktrees/phase2-workbench/packages/runtime/dist/player/player-controller.js:41:14)
+    at http://localhost:5173/src/pages/PreviewPage.tsx:95:39
+    at http://localhost:5173/src/pages/PreviewPage.tsx:126:5
+    at executeDispatch (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13622:11)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:997:72)
+    at processDispatchQueue (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13658:37)
+    at http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:14071:11
+    at batchedUpdates$1 (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:2626:42)
+    at dispatchEventForPluginEventSystem (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=220dbfb1:13763:9)
+[  549358ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5173/config:0
+[  844275ms] [WARNING] No routes matched location "/projects/project_3030e910855b/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646
+[  844275ms] [WARNING] No routes matched location "/projects/project_3030e910855b/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=ab640a3c:646

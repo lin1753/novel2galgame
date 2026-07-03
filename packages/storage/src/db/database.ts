@@ -86,6 +86,14 @@ export function createDatabase(dataDir: string): Database.Database {
 
   db.exec(CREATE_TABLES);
 
+  // Migration: add missing columns if needed
+  const chapterCols = db.prepare("PRAGMA table_info(chapters)").all().map((r: any) => r.name);
+  for (const col of ["parsing_done", "attribution_done", "segmentation_done", "mapping_done", "review_done"]) {
+    if (!chapterCols.includes(col)) {
+      db.prepare(`ALTER TABLE chapters ADD COLUMN ${col} INTEGER DEFAULT 0`).run();
+    }
+  }
+
   const row = db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get() as
     | { value: string }
     | undefined;

@@ -1,0 +1,67 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - img [ref=e8]
+      - generic [ref=e10]: All Novel Can Be Galgame
+    - navigation [ref=e11]:
+      - link "项目列表" [ref=e12] [cursor=pointer]:
+        - /url: /
+        - img [ref=e13]
+        - text: 项目列表
+      - link "新建项目" [ref=e15] [cursor=pointer]:
+        - /url: /projects/new
+        - img [ref=e16]
+        - text: 新建项目
+      - link "模型配置" [ref=e17] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e18]
+        - text: 模型配置
+  - generic [ref=e21]:
+    - complementary [ref=e22]:
+      - generic [ref=e23]:
+        - img [ref=e24]
+        - generic [ref=e26]: 导航
+      - navigation [ref=e27]:
+        - link "项目总览" [ref=e28] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/overview
+          - img [ref=e29]
+          - text: 项目总览
+        - link "章节管理" [ref=e34] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/chapters
+          - img [ref=e35]
+          - text: 章节管理
+        - link "场景工作区" [ref=e38] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/scenes
+          - img [ref=e39]
+          - text: 场景工作区
+        - link "VN 脚本" [ref=e43] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/script
+          - img [ref=e44]
+          - text: VN 脚本
+        - link "视觉提示" [ref=e47] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/prompts
+          - img [ref=e48]
+          - text: 视觉提示
+        - link "预览播放" [ref=e53] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/preview
+          - img [ref=e54]
+          - text: 预览播放
+        - link "场景编辑" [ref=e56] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/editor
+          - img [ref=e57]
+          - text: 场景编辑
+        - link "任务日志" [ref=e60] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/tasks
+          - img [ref=e61]
+          - text: 任务日志
+        - link "项目设置" [ref=e64] [cursor=pointer]:
+          - /url: /projects/project_97441e61113c/settings
+          - img [ref=e65]
+          - text: 项目设置
+      - paragraph [ref=e70]: AI 驱动视觉小说生成平台
+    - main [ref=e71]:
+      - generic [ref=e72]:
+        - heading "场景编辑器" [level=1] [ref=e73]:
+          - img [ref=e74]
+          - text: 场景编辑器
+        - paragraph [ref=e76]: 选择一个场景开始编辑

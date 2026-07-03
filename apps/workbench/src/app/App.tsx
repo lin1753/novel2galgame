@@ -12,6 +12,8 @@ import { TasksPage } from '@/pages/TasksPage'
 import { ProjectSettingsPage } from '@/pages/ProjectSettingsPage'
 import { PreviewPage } from '@/pages/PreviewPage'
 import { VisualPromptPage } from '@/pages/VisualPromptPage'
+import { EditorPage } from '@/pages/EditorPage'
+import { AssetsPage } from '@/pages/AssetsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,12 +35,17 @@ export function App() {
             <Route path="/projects/:projectId" element={<ProjectLayout />}>
               <Route path="overview" element={<ProjectOverviewPage />} />
               <Route path="chapters" element={<ChaptersPage />} />
+              <Route path="scenes" element={<ScenesPage />} />
               <Route path="scenes/:chapterId" element={<ScenesPage />} />
+              <Route path="script" element={<VNScriptPage />} />
               <Route path="script/:sceneId" element={<VNScriptPage />} />
               <Route path="prompts" element={<VisualPromptPage />} />
               <Route path="tasks" element={<TasksPage />} />
               <Route path="settings" element={<ProjectSettingsPage />} />
               <Route path="preview" element={<PreviewPage />} />
+              <Route path="editor" element={<EditorPage />} />
+              <Route path="editor/:sceneId" element={<EditorPage />} />
+              <Route path="assets" element={<AssetsPage />} />
               <Route index element={<ProjectOverviewPage />} />
             </Route>
           </Routes>

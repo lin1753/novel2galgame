@@ -1,0 +1,109 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - img [ref=e7]
+      - generic [ref=e9]: All Novel Can Be Galgame
+    - navigation [ref=e10]:
+      - link "项目列表" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - img [ref=e12]
+        - text: 项目列表
+      - link "新建项目" [ref=e14] [cursor=pointer]:
+        - /url: /projects/new
+        - img [ref=e15]
+        - text: 新建项目
+      - link "模型配置" [ref=e16] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e17]
+        - text: 模型配置
+  - generic [ref=e20]:
+    - complementary [ref=e21]:
+      - navigation [ref=e22]:
+        - link "项目总览" [ref=e23] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/overview
+          - img [ref=e24]
+          - text: 项目总览
+        - link "章节管理" [ref=e29] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/chapters
+          - img [ref=e30]
+          - text: 章节管理
+        - link "场景工作区" [ref=e33] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/scenes
+          - img [ref=e34]
+          - text: 场景工作区
+        - link "VN 脚本" [ref=e38] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/script
+          - img [ref=e39]
+          - text: VN 脚本
+        - link "视觉提示" [ref=e42] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/prompts
+          - img [ref=e43]
+          - text: 视觉提示
+        - link "预览播放" [ref=e48] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/preview
+          - img [ref=e49]
+          - text: 预览播放
+        - link "任务日志" [ref=e51] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/tasks
+          - img [ref=e52]
+          - text: 任务日志
+        - link "项目设置" [ref=e55] [cursor=pointer]:
+          - /url: /projects/project_c060d34bd4cc/settings
+          - img [ref=e56]
+          - text: 项目设置
+    - main [ref=e59]:
+      - generic [ref=e60]:
+        - complementary [ref=e61]:
+          - heading "章节/场景" [level=3] [ref=e62]
+          - generic [ref=e95]:
+            - generic [ref=e96]:
+              - button "第1章" [ref=e97]
+              - generic [ref=e136]:
+                - button "场景 1" [ref=e137]:
+                  - img [ref=e138]
+                  - text: 场景 1
+                - button "场景 2" [ref=e140]:
+                  - img [ref=e141]
+                  - text: 场景 2
+                - button "场景 3" [ref=e143]:
+                  - img [ref=e144]
+                  - text: 场景 3
+            - button "第2章" [ref=e99]
+            - button "第3章" [ref=e101]
+            - button "第4章" [ref=e103]
+            - button "第5章" [ref=e105]
+            - button "第6章" [ref=e107]
+            - button "第7章" [ref=e109]
+            - button "第8章" [ref=e111]
+            - button "第9章" [ref=e113]
+            - button "第10章" [ref=e115]
+            - button "第11章" [ref=e117]
+            - button "第12章" [ref=e119]
+            - button "第13章" [ref=e121]
+            - button "第14章" [ref=e123]
+            - button "第15章" [ref=e125]
+            - button "第16章" [ref=e127]
+            - button "第17章" [ref=e129]
+            - button "第18章" [ref=e131]
+            - button "第19章" [ref=e133]
+            - button "第20章" [ref=e135]
+        - generic [ref=e63]:
+          - generic [ref=e67] [cursor=pointer]: "背景: 无人巷口"
+          - generic [ref=e68]:
+            - button "后退" [ref=e69]:
+              - img [ref=e70]
+            - button "下一步" [active] [ref=e72]:
+              - img [ref=e73]
+            - button "自动播放" [ref=e75]:
+              - img [ref=e76]
+            - generic [ref=e78]: 1 / 22
+            - button "调试模式" [ref=e79]:
+              - img [ref=e80]
+        - complementary [ref=e89]:
+          - heading "信息面板" [level=3] [ref=e90]
+          - generic [ref=e91]:
+            - generic [ref=e92]: 状态:playing
+            - generic [ref=e93]:
+              - text: "步骤:"
+              - generic [ref=e94]: 1 / 22
+            - generic [ref=e146]: 场景:scene_0001_0001

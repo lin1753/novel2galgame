@@ -1,0 +1,106 @@
+- generic [ref=e41]:
+  - banner [ref=e42]:
+    - generic [ref=e43]:
+      - img [ref=e45]
+      - generic [ref=e47]: All Novel Can Be Galgame
+    - navigation [ref=e48]:
+      - link "项目列表" [ref=e49] [cursor=pointer]:
+        - /url: /
+        - img [ref=e50]
+        - text: 项目列表
+      - link "新建项目" [ref=e52] [cursor=pointer]:
+        - /url: /projects/new
+        - img [ref=e53]
+        - text: 新建项目
+      - link "模型配置" [ref=e54] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e55]
+        - text: 模型配置
+  - generic [ref=e58]:
+    - complementary [ref=e59]:
+      - generic [ref=e60]:
+        - img [ref=e61]
+        - generic [ref=e63]: 导航
+      - navigation [ref=e64]:
+        - link "项目总览" [ref=e65] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/overview
+          - img [ref=e66]
+          - text: 项目总览
+        - link "章节管理" [ref=e71] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/chapters
+          - img [ref=e72]
+          - text: 章节管理
+        - link "场景工作区" [ref=e75] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/scenes
+          - img [ref=e76]
+          - text: 场景工作区
+        - link "VN 脚本" [ref=e80] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/script
+          - img [ref=e81]
+          - text: VN 脚本
+        - link "视觉提示" [ref=e84] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/prompts
+          - img [ref=e85]
+          - text: 视觉提示
+        - link "预览播放" [ref=e90] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/preview
+          - img [ref=e91]
+          - text: 预览播放
+        - link "场景编辑" [ref=e93] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/editor
+          - img [ref=e94]
+          - text: 场景编辑
+        - link "任务日志" [ref=e97] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/tasks
+          - img [ref=e98]
+          - text: 任务日志
+        - link "项目设置" [ref=e101] [cursor=pointer]:
+          - /url: /projects/project_05af21f98f9a/settings
+          - img [ref=e102]
+          - text: 项目设置
+      - paragraph [ref=e107]: AI 驱动视觉小说生成平台
+    - main [ref=e108]:
+      - generic [ref=e109]:
+        - generic [ref=e110]:
+          - heading "《AI恋人》作者：妄初" [level=2] [ref=e111]:
+            - img [ref=e112]
+            - text: 《AI恋人》作者：妄初
+          - generic [ref=e114]: 已创建
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - paragraph [ref=e117]: 原始文件
+            - paragraph [ref=e118]: 未导入
+          - generic [ref=e119]:
+            - paragraph [ref=e120]: 总章节数
+            - paragraph [ref=e121]: "0"
+          - generic [ref=e122]:
+            - paragraph [ref=e123]: 已完成
+            - paragraph [ref=e124]: "0"
+          - generic [ref=e125]:
+            - paragraph [ref=e126]: 失败
+            - paragraph [ref=e127]: "0"
+        - generic [ref=e128]:
+          - heading "快捷操作" [level=3] [ref=e129]:
+            - img [ref=e130]
+            - text: 快捷操作
+          - generic [ref=e132]:
+            - button "运行结构解析" [ref=e133]:
+              - img [ref=e134]
+              - text: 运行结构解析
+            - link "场景编辑器" [ref=e136] [cursor=pointer]:
+              - /url: /projects/project_05af21f98f9a/editor
+              - img [ref=e137]
+              - text: 场景编辑器
+            - link "预览" [ref=e139] [cursor=pointer]:
+              - /url: /projects/project_05af21f98f9a/preview
+              - img [ref=e140]
+              - text: 预览
+            - button "导出 Ren'Py 项目" [ref=e144]:
+              - img [ref=e145]
+              - text: 导出 Ren'Py 项目
+            - button "生成背景/立绘" [ref=e148]:
+              - img [ref=e149]
+              - text: 生成背景/立绘
+            - button "一键处理 (管线→导出)" [ref=e154]:
+              - img [ref=e155]
+              - text: 一键处理 (管线→导出)

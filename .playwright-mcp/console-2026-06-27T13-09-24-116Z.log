@@ -1,0 +1,7 @@
+[      91ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=7dbf4cc4:20102
+[  249609ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/src/pages/ProjectOverviewPage.tsx?t=1782566013679:0
+[  249611ms] [ERROR] [vite] Failed to reload /src/pages/ProjectOverviewPage.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:881
+[  273702ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/src/pages/ProjectOverviewPage.tsx?t=1782566037764:0
+[  273702ms] [ERROR] [vite] Failed to reload /src/pages/ProjectOverviewPage.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:881
+[  507713ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/src/pages/ProjectOverviewPage.tsx?t=1782566271788:0
+[  507715ms] [ERROR] [vite] Failed to reload /src/pages/ProjectOverviewPage.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:881

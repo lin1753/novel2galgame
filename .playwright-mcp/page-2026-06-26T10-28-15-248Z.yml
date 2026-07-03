@@ -1,0 +1,55 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - img [ref=e7]
+      - generic [ref=e9]: All Novel Can Be Galgame
+    - navigation [ref=e10]:
+      - link "项目列表" [ref=e11] [cursor=pointer]:
+        - /url: /
+        - img [ref=e12]
+        - text: 项目列表
+      - link "新建项目" [ref=e14] [cursor=pointer]:
+        - /url: /projects/new
+        - img [ref=e15]
+        - text: 新建项目
+      - link "模型配置" [ref=e16] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e17]
+        - text: 模型配置
+  - generic [ref=e20]:
+    - complementary [ref=e21]:
+      - navigation [ref=e22]:
+        - link "项目总览" [ref=e23] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/overview
+          - img [ref=e24]
+          - text: 项目总览
+        - link "章节管理" [ref=e29] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/chapters
+          - img [ref=e30]
+          - text: 章节管理
+        - link "场景工作区" [ref=e33] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/scenes
+          - img [ref=e34]
+          - text: 场景工作区
+        - link "VN 脚本" [ref=e38] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/script
+          - img [ref=e39]
+          - text: VN 脚本
+        - link "视觉提示" [ref=e42] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/prompts
+          - img [ref=e43]
+          - text: 视觉提示
+        - link "预览播放" [ref=e48] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/preview
+          - img [ref=e49]
+          - text: 预览播放
+        - link "任务日志" [ref=e51] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/tasks
+          - img [ref=e52]
+          - text: 任务日志
+        - link "项目设置" [ref=e55] [cursor=pointer]:
+          - /url: /projects/project_3030e910855b/settings
+          - img [ref=e56]
+          - text: 项目设置
+    - main [ref=e59]:
+      - generic [ref=e60]: 加载中...

@@ -6,7 +6,11 @@ import { chapterService } from '@/services/chapters'
 import { PlayerController } from '@novel2gal/runtime'
 import type { RenderAction, TextDisplay } from '@novel2gal/runtime'
 import type { VNScript } from '@novel2gal/core'
-import { Play, Pause, SkipForward, SkipBack, Bug, ChevronRight } from 'lucide-react'
+import { Play, Pause, SkipForward, SkipBack, Bug, ChevronRight, ImageIcon } from 'lucide-react'
+
+function assetImageUrl(projectId: string, type: string, filePath: string): string {
+  return `/api/projects/${projectId}/assets/image/${type}/${filePath}`
+}
 
 function actionToDisplay(action: RenderAction | null): TextDisplay | null {
   if (!action) return null
@@ -50,7 +54,7 @@ export function PreviewPage() {
 
   // Fetch script when scene selected
   const { data: scriptData } = useQuery({
-    queryKey: ['script', selectedSceneId],
+    queryKey: ['script', projectId, selectedSceneId],
     queryFn: () => sceneService.getScript(projectId!, selectedSceneId!),
     enabled: !!projectId && !!selectedSceneId,
   })
@@ -220,23 +224,46 @@ export function PreviewPage() {
           style={{ aspectRatio: '16/9', maxHeight: 'calc(100vh - 200px)' }}
         >
           {/* Background */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-full h-full bg-gradient-to-b from-slate-800 to-slate-900 flex items-center justify-center">
-              <span className="text-slate-500 text-sm">
-                {bgId === 'default' ? '选择场景开始预览' : `背景: ${bgLabel || bgId}`}
-              </span>
-            </div>
+          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-800 to-slate-900">
+            {bgId !== 'default' ? (
+              <img
+                key={bgId}
+                src={assetImageUrl(projectId!, 'bg', `${bgId}.png`)}
+                alt={bgLabel}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  // Fallback to placeholder if image fails to load
+                  (e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+            ) : null}
+            {/* Fallback text overlay when no image */}
+            <span className="absolute text-slate-500 text-sm pointer-events-none">
+              {bgId === 'default' ? '选择场景开始预览' : `背景: ${bgLabel || bgId}`}
+            </span>
           </div>
 
           {/* Characters */}
-          {Array.from(characters.entries()).filter(([, c]) => c.expression !== undefined || true).map(([id, char]) => (
+          {Array.from(characters.entries()).map(([id, char]) => (
             <div
               key={id}
               className={`absolute bottom-[25%] ${posToStyle(char.position)} transform -translate-x-1/2 transition-all duration-300`}
+              style={{ width: '180px', height: '300px' }}
             >
-              <div className="w-24 h-40 bg-slate-700/60 rounded-lg flex items-center justify-center text-xs text-slate-400 border border-slate-600">
-                {id}
-                {char.expression && <span className="block text-[10px]">{char.expression}</span>}
+              <img
+                src={assetImageUrl(projectId!, 'char', `${id}/${char.expression ?? 'default'}.png`)}
+                alt={id}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+              {/* Fallback placeholder */}
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-700/60 rounded-lg border border-slate-600 pointer-events-none" style={{ display: 'none' }}>
+                <span className="text-xs text-slate-400 text-center p-2">
+                  {id}
+                  {char.expression && <span className="block text-[10px]">{char.expression}</span>}
+                </span>
               </div>
             </div>
           ))}

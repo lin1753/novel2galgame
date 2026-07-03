@@ -45,6 +45,40 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
     }
   });
 
+  // PUT /projects/:id/scenes/:sceneId/script - Update VN Script
+  router.put("/projects/:id/scenes/:sceneId/script", (req: Request, res: Response) => {
+    const scene = sceneRepo.getById(param(req, "sceneId"));
+    if (!scene) return res.status(404).json({ error: "Scene not found" });
+
+    const script = req.body;
+    if (!script || !script.steps || !Array.isArray(script.steps)) {
+      return res.status(400).json({ error: "Invalid script: missing steps array" });
+    }
+
+    try {
+      const sceneDir = path.join(
+        config.dataDir, "projects", param(req, "id"), "scenes", param(req, "sceneId")
+      );
+      fs.mkdirSync(sceneDir, { recursive: true });
+
+      // Backup original if exists
+      const scriptPath = path.join(sceneDir, "vn_script.json");
+      if (fs.existsSync(scriptPath)) {
+        const backupPath = path.join(sceneDir, "vn_script.backup.json");
+        fs.copyFileSync(scriptPath, backupPath);
+      }
+
+      // Write updated script
+      script.sceneId = param(req, "sceneId");
+      script.chapterId = script.chapterId ?? scene.chapterId;
+      fs.writeFileSync(scriptPath, JSON.stringify(script, null, 2), "utf-8");
+
+      res.json({ success: true, sceneId: param(req, "sceneId"), stepCount: script.steps.length });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // GET /projects/:id/scenes/:sceneId/fidelity - Fidelity Report
   router.get("/projects/:id/scenes/:sceneId/fidelity", (req: Request, res: Response) => {
     try {

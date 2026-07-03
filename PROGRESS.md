@@ -1022,6 +1022,102 @@ Exporter (读 manifest, 复制/链接资源)
 | 真实角色名 (张三、李四) | ✅ |
 | `character_display` 缩放 | ✅ |
 
+### Phase 8: 章节并行管线 + 全链路贯通 (进行中)
+
+**整体状态:** ✅ 全流程贯通（上传→解析→创作→预览→微调→导出→游玩）
+**日期:** 2026-06-30 ~ 2026-07-03
+**分支:** `v3-export`
+
+**目标:** 打通 Web 工作台全流程（上传→解析→创作→预览→微调→导出→游玩），章节级并行处理。
+
+**完整方案:** `docs/superpowers/specs/2026-06-30-v3-chapter-parallel-pipeline-spec.md`
+
+#### 8.1 异步任务队列 + 章节并行
+
+| 改动 | 说明 |
+|------|------|
+| `apps/api/src/task-queue/task-queue.ts` | **新建** — PipelineTaskQueue 类，管理并发章节处理 |
+| `apps/api/src/routes/auto-export.ts` | **重写** — 改用 TaskQueue，支持取消单章 |
+| `apps/api/src/routes/progress.ts` | **增强** — SSE 事件含 chapterId + sceneId 粒度 |
+| 前端进度面板 | 每章独立进度条，可点已完成章节跳转 |
+
+**并发策略:** 默认同时处理 min(3, cpu_cores) 章，每章内部 scene 并行保持现有 parallelLimit(3)
+
+#### 8.2 ScenesPage 内容与按钮连线
+
+| Tab/按钮 | 应调用的 API | 当前状态 |
+|----------|-------------|---------|
+| "原文" 面板 | `GET .../script` | ❌ 占位符 → 改为真实 VN Script 显示 |
+| "解析" 面板 | `GET .../narrative` | ❌ 占位符 → 改为叙事单元展示 |
+| "归因" 面板 | `GET .../attribution` | ❌ 占位符 → 改为归因结果展示 |
+| "运行 VN 映射" | `POST .../chapters/:chapterId/run` | ❌ 无绑定 |
+| "查看忠实性报告" | `GET .../fidelity` | ❌ 无绑定 |
+| "生成视觉提示" | `POST .../visual-prompt/run` | ❌ 无绑定 |
+
+#### 8.3 Editor→Preview 联动与导出 UX
+
+- Editor 保存后 invalidate preview query cache
+- 导出成功后显示路径 + "打开目录" / "复制路径" 按钮
+
+#### 8.4 资产管理与图片预览 (D)
+
+| 改动 | 说明 |
+|------|------|
+| `apps/api/src/routes/assets.ts` | **新建** — 资产 API（列表/生成/服务图片） |
+| `apps/workbench/src/pages/AssetsPage.tsx` | **新建** — 资产管理页面（背景tab+角色tab） |
+| `apps/workbench/src/services/assets.ts` | **新建** — 资产 API service |
+| `apps/workbench/src/pages/PreviewPage.tsx` | 加载项目资产真实图片，fallback 到占位色块 |
+| `packages/export/src/renpy/renpy-builder.ts` | Build 时从项目资产目录复制 PNG 到 export |
+| 侧边栏导航 | 增加"资产管理"导航项 |
+
+**资产存储:**
+```
+data/projects/{id}/assets/images/
+  bg/{safeId}.png              # 背景
+  char/{charId}/{expression}.png # 角色立绘
+  cg/                          # CG (未来)
+```
+
+**核心流程:**
+1. 管线导出 IR → 提取资产清单 → Asset Manifest
+2. 用户可在资产管理页面查看/重新生成任意图片
+3. 生成的图片存入 `data/projects/{id}/assets/images/`
+4. Preview 页面从项目资产加载图片
+5. Ren'Py Export 从项目资产复制图片到 export 目录
+
+#### 8.5 已完成项
+
+| # | 完成项 | 状态 |
+|---|--------|------|
+| 1 | 异步任务队列 + 章节并行 (max 3 concurrent) | ✅ |
+| 2 | SSE 章节级进度推送 + 跨页面持久化 | ✅ |
+| 3 | ScenesPage 四 Tab 真实数据 + 操作按钮 | ✅ |
+| 4 | Editor→Preview query key 联动 | ✅ |
+| 5 | 导出后显示路径 + 操作按钮 | ✅ |
+| 6 | 资产管理页面 (背景/角色 Tab + prompt 编辑) | ✅ |
+| 7 | 管线完成后自动生成占位资产到 assets/images/ | ✅ |
+| 8 | Preview 页面加载真实图片 (fallback 占位色块) | ✅ |
+| 9 | 章节状态标志实时更新 (parsingDone/attributionDone/segmentationDone) | ✅ |
+| 10 | 模型配置页面 Profile-based (添加/编辑/切换/测试) | ✅ |
+| 11 | 文件名编码修复 (displayName 字段传递) | ✅ |
+| 12 | FetchLLM 超时 300s→600s | ✅ |
+| 13 | AgnesImageProducer 路径嵌套修复 (bg/bg→bg) | ✅ |
+| 14 | AgnesImage 生成使用 extra_body.response_format b64_json | ✅ |
+| 15 | Express 请求超时 5分钟 + JSON 10MB | ✅ |
+| 16 | GBK 编码 VN Script 解析兼容 | ✅ |
+| 17 | SQLite migration 自动加章节标志列 | ✅ |
+| 18 | 单次 generate 只生成请求的资源 (不再循环全部) | ✅ |
+
+#### 8.6 后续优化
+
+- [ ] Visual Editor 可视化编辑器 (AI 80% + 人工 20%)
+- [ ] Godot/Web 等更多 Runtime 导出
+- [ ] 资产管理页面批量生成 + 进度展示
+- [ ] 单章管线独立取消机制
+- [ ] 一致性审查接入前端
+
+---
+
 ## MVP 验收指标
 
 | Agent | 指标 | 目标 |

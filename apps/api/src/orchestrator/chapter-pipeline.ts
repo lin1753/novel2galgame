@@ -23,6 +23,7 @@ import {
 import type { AgentResult } from "@novel2gal/agents";
 import { v4 as uuid } from "uuid";
 import fs from "node:fs";
+import path from "node:path";
 
 const now = () => new Date().toISOString();
 
@@ -125,7 +126,7 @@ export function createDefaultConfig(): ProjectConfig {
     budgetMode: "balanced",
     autoRunVisualPrompt: false,
     autoRunConsistencyReview: false,
-    defaultTextModel: "gpt-4o",
+    defaultTextModel: "agnes-2.0-flash",
     language: "zh-CN",
   };
 }
@@ -159,7 +160,8 @@ export async function runChapterPipeline(
   onProgress?: (stage: string, message: string) => void,
   agentModels?: AgentModelConfig,
   onSceneCreated?: (scene: SceneState, sceneIndex: number) => void,
-  existingChapterId?: string
+  existingChapterId?: string,
+  onChapterFlags?: (chapterId: string, flags: Partial<{ parsingDone: boolean; attributionDone: boolean; segmentationDone: boolean; mappingDone: boolean; reviewDone: boolean }>) => void
 ) {
   const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
 
@@ -178,6 +180,7 @@ export async function runChapterPipeline(
     { label: `narrative:${chapterId}` }
   );
   writeNarrativeResult(dataDir, project.projectId, chapterId, narrativeData);
+  onChapterFlags?.(chapterId, { parsingDone: true });
 
   // Stage 2: Attribution
   onProgress?.("attribution", `Attributing chapter ${chapterTitle}`);
@@ -187,6 +190,7 @@ export async function runChapterPipeline(
     { label: `attribution:${chapterId}` }
   );
   writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
+  onChapterFlags?.(chapterId, { attributionDone: true });
 
   // Stage 3: Scene Segmentation
   onProgress?.("scene_segmentation", `Segmenting chapter ${chapterTitle}`);
@@ -221,7 +225,8 @@ export async function runChapterPipeline(
     }
   }
 
-  writeSegmentationResult(dataDir, project.projectId, chapterId, segResult);
+  writeSegmentationResult(dataDir, project.projectId, chapterId, segResult.data);
+  onChapterFlags?.(chapterId, { segmentationDone: true });
 
   // Register scenes in database
   for (let i = 0; i < segResult.scenes.length; i++) {
@@ -301,6 +306,49 @@ export async function runChapterPipeline(
   });
 
   const sceneResults = await parallelLimit(sceneTasks, sceneConcurrency);
+
+  // Extract asset needs into project asset directory
+  try {
+    const assetDir = path.join(dataDir, "projects", project.projectId, "assets", "images");
+    const bgDir = path.join(assetDir, "bg");
+    const charDir = path.join(assetDir, "char");
+    fs.mkdirSync(bgDir, { recursive: true });
+    fs.mkdirSync(charDir, { recursive: true });
+
+    // Generate placeholder SVGs for backgrounds (skip if real PNG exists)
+    for (const scene of segResult.data.scenes) {
+      const bgId = scene.sceneId;
+      const safeId = bgId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
+      const pngPath = path.join(bgDir, `${safeId}.png`);
+      const svgPath = path.join(bgDir, `${safeId}.svg`);
+      if (!fs.existsSync(pngPath) && !fs.existsSync(svgPath)) {
+        fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#1a1a2e"/><text x="960" y="540" text-anchor="middle" fill="#e0e0e0" font-size="48">${bgId}</text></svg>`, "utf-8");
+      }
+    }
+
+    // Generate placeholder SVGs for characters (skip if real PNG exists)
+    for (const char of attributionResult.data.characters) {
+      const charId = char.characterId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
+      const exprs = new Set<string>(["default"]);
+      for (const scene of segResult.data.scenes) {
+        for (const step of (scene as any).steps ?? []) {
+          if (step?.type === "show" && step.characterId === char.characterId && step.expression) {
+            exprs.add(step.expression);
+          }
+        }
+      }
+      for (const expr of exprs) {
+        const exprSafe = expr.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
+        const charExprDir = path.join(charDir, charId);
+        fs.mkdirSync(charExprDir, { recursive: true });
+        const pngPath = path.join(charExprDir, `${exprSafe}.png`);
+        const svgPath = path.join(charExprDir, `${exprSafe}.svg`);
+        if (!fs.existsSync(pngPath) && !fs.existsSync(svgPath)) {
+          fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500"><rect width="300" height="500" fill="#2d2d44"/><text x="150" y="240" text-anchor="middle" fill="#aaa" font-size="20">${char.canonicalName || charId}</text><text x="150" y="280" text-anchor="middle" fill="#666" font-size="14">${expr}</text></svg>`, "utf-8");
+        }
+      }
+    }
+  } catch {}
 
   return {
     chapterId,

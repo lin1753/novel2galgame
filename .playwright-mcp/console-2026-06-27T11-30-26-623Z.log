@@ -1,0 +1,13 @@
+[     124ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=7dbf4cc4:20102
+[  148444ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=7dbf4cc4:20102
+[  165596ms] [WARNING] No routes matched location "/projects/project_97441e61113c/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  165596ms] [WARNING] No routes matched location "/projects/project_97441e61113c/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  206717ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/api/projects/project_97441e61113c/scenes/scene_97441e61113c_0001_0001/script:0
+[  215378ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/api/projects/project_97441e61113c/scenes/scene_97441e61113c_0001_0001/script:0
+[  262481ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:5173/api/projects/project_97441e61113c/scenes/scene_97441e61113c_0001_0001/script:0
+[  302890ms] [WARNING] No routes matched location "/projects/project_97441e61113c/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  302890ms] [WARNING] No routes matched location "/projects/project_97441e61113c/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  308406ms] [WARNING] No routes matched location "/projects/project_97441e61113c/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  308406ms] [WARNING] No routes matched location "/projects/project_97441e61113c/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  310752ms] [WARNING] No routes matched location "/projects/project_97441e61113c/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  310752ms] [WARNING] No routes matched location "/projects/project_97441e61113c/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646

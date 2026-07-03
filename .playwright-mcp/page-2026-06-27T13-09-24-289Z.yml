@@ -1,0 +1,31 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - img [ref=e8]
+      - generic [ref=e10]: All Novel Can Be Galgame
+    - navigation [ref=e11]:
+      - link "项目列表" [ref=e12] [cursor=pointer]:
+        - /url: /
+        - img [ref=e13]
+        - text: 项目列表
+      - link "新建项目" [ref=e15] [cursor=pointer]:
+        - /url: /projects/new
+        - img [ref=e16]
+        - text: 新建项目
+      - link "模型配置" [ref=e17] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e18]
+        - text: 模型配置
+  - main [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - heading "项目列表" [level=1] [ref=e25]:
+            - img [ref=e26]
+            - text: 项目列表
+          - paragraph [ref=e28]: 管理你的视觉小说项目
+        - link "新建项目" [ref=e29] [cursor=pointer]:
+          - /url: /projects/new
+          - img [ref=e30]
+          - text: 新建项目
+      - paragraph [ref=e33]: 加载中...

@@ -1,0 +1,9 @@
+[      85ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=7dbf4cc4:20102
+[  318276ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  318277ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  856650ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  856650ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  860524ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[  860525ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/script"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[ 3531273ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646
+[ 3531273ms] [WARNING] No routes matched location "/projects/project_05af21f98f9a/scenes"  @ http://localhost:5173/node_modules/.vite/deps/react-router.js?v=7dbf4cc4:646

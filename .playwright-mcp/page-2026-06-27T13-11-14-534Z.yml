@@ -1,0 +1,104 @@
+- generic [ref=e273]:
+  - banner [ref=e274]:
+    - generic [ref=e275]:
+      - img [ref=e277]
+      - generic [ref=e279]: All Novel Can Be Galgame
+    - navigation [ref=e280]:
+      - link "项目列表" [ref=e281] [cursor=pointer]:
+        - /url: /
+        - img [ref=e282]
+        - text: 项目列表
+      - link "新建项目" [ref=e284] [cursor=pointer]:
+        - /url: /projects/new
+        - img [ref=e285]
+        - text: 新建项目
+      - link "模型配置" [ref=e286] [cursor=pointer]:
+        - /url: /config
+        - img [ref=e287]
+        - text: 模型配置
+  - generic [ref=e290]:
+    - complementary [ref=e291]:
+      - generic [ref=e292]:
+        - img [ref=e293]
+        - generic [ref=e295]: 导航
+      - navigation [ref=e296]:
+        - link "项目总览" [ref=e297] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/overview
+          - img [ref=e298]
+          - text: 项目总览
+        - link "章节管理" [ref=e303] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/chapters
+          - img [ref=e304]
+          - text: 章节管理
+        - link "场景工作区" [ref=e307] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/scenes
+          - img [ref=e308]
+          - text: 场景工作区
+        - link "VN 脚本" [ref=e312] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/script
+          - img [ref=e313]
+          - text: VN 脚本
+        - link "视觉提示" [ref=e316] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/prompts
+          - img [ref=e317]
+          - text: 视觉提示
+        - link "预览播放" [ref=e322] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/preview
+          - img [ref=e323]
+          - text: 预览播放
+        - link "场景编辑" [ref=e325] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/editor
+          - img [ref=e326]
+          - text: 场景编辑
+        - link "任务日志" [ref=e329] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/tasks
+          - img [ref=e330]
+          - text: 任务日志
+        - link "项目设置" [ref=e333] [cursor=pointer]:
+          - /url: /projects/project_b64c2ae9ee66/settings
+          - img [ref=e334]
+          - text: 项目设置
+      - paragraph [ref=e339]: AI 驱动视觉小说生成平台
+    - main [ref=e340]:
+      - generic [ref=e341]:
+        - generic [ref=e342]:
+          - heading "�������̲���" [level=2] [ref=e343]:
+            - img [ref=e344]
+            - text: �������̲���
+          - generic [ref=e346]: 结构已解析
+        - generic [ref=e347]:
+          - generic [ref=e348]:
+            - paragraph [ref=e349]: 原始文件
+            - paragraph [ref=e350]: 未导入
+          - generic [ref=e351]:
+            - paragraph [ref=e352]: 总章节数
+            - paragraph [ref=e353]: "90"
+          - generic [ref=e354]:
+            - paragraph [ref=e355]: 已完成
+            - paragraph [ref=e356]: "1"
+          - generic [ref=e357]:
+            - paragraph [ref=e358]: 失败
+            - paragraph [ref=e359]: "0"
+        - generic [ref=e360]:
+          - heading "快捷操作" [level=3] [ref=e361]:
+            - img [ref=e362]
+            - text: 快捷操作
+          - generic [ref=e364]:
+            - link "进入章节管理" [ref=e365] [cursor=pointer]:
+              - /url: /projects/project_b64c2ae9ee66/chapters
+              - img [ref=e366]
+              - text: 进入章节管理
+            - link "场景编辑器" [ref=e369] [cursor=pointer]:
+              - /url: /projects/project_b64c2ae9ee66/editor
+              - img [ref=e370]
+              - text: 场景编辑器
+            - link "预览" [ref=e372] [cursor=pointer]:
+              - /url: /projects/project_b64c2ae9ee66/preview
+              - img [ref=e373]
+              - text: 预览
+            - button "导出 Ren'Py 项目" [ref=e377]:
+              - img [ref=e378]
+              - text: 导出 Ren'Py 项目
+            - button "生成背景/立绘" [ref=e381]:
+              - img [ref=e382]
+              - text: 生成背景/立绘
