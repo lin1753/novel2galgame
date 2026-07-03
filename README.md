@@ -26,10 +26,8 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 | Attribution LoRA | [mikuhhn1239/qwen3-8b-attribution-assist-lora](https://huggingface.co/mikuhhn1239/qwen3-8b-attribution-assist-lora) | 角色归因 | 86.7% 准确率 |
 | Scene LoRA | [mikuhhn1239/qwen3-8b-scene-segmentation-lora](https://huggingface.co/mikuhhn1239/qwen3-8b-scene-segmentation-lora) | 场景边界检测 | 30.5% F1 |
 
-<img width="1024" height="1536" alt="ChatGPT Image 2026年7月3日 10_45_03" src="https://github.com/user-attachments/assets/46145c0d-8293-402b-ac24-0bd1680ab18e" />
-
-
 **训练硬件:** 8× NVIDIA A800-80GB | **方法:** LoRA r=64 α=128 | **详细文档:** [model_cards.md](docs/model_cards.md)
+<img width="1024" height="1536" alt="ChatGPT Image 2026年7月3日 10_45_03" src="https://github.com/user-attachments/assets/46145c0d-8293-402b-ac24-0bd1680ab18e" />
 
 ## 云端模型
 
