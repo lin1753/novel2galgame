@@ -13,6 +13,8 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 
 9 个 Agent 组成的流水线，每章自动执行。前 3 个 Agent 支持本地 SFT 模型和云端 API 切换。
 
+**全流程 (v3):** 上传小说 → 结构解析 → 章节管线(并行) → VN Script IR → 资产管理(生成背景立绘) → 预览播放 → 微调编辑 → 导出 Ren'Py 可游玩项目
+
 ## 本地模型 (Qwen3-8B SFT)
 
 基于 Qwen3-8B-Instruct 全参微调，用 669 本中文网络小说训练（约 7200 万字符）。配合 3 个 LoRA adapter 执行专项 Agent 任务。
@@ -31,17 +33,21 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 | 模型 | 用途 | 价格 |
 |------|------|------|
 | [Agnes AI agnes-2.0-flash](https://agnes-ai.com) | LLM 推理 (Narrative, Attribution, Scene, VN Mapping, Fidelity, Consistency) | 免费 |
-| [Agnes AI agnes-image-2.1-flash](https://agnes-ai.com) | 文生图/图生图 | $0.003/张 |
+| [Agnes AI agnes-image-2.1-flash](https://agnes-ai.com) | 文生图 (背景立绘) | 免费 |
 | [Agnes AI agnes-video-v2.0](https://agnes-ai.com) | 文生视频/图生视频/关键帧动画 | 免费 |
+
+支持 OpenAI 兼容 API (DeepSeek, Moonshot, Zhipu, 本地 Ollama 等)，通过工作台模型配置页面切换。
 
 ## 技术栈
 
 - **Monorepo:** pnpm workspaces + Turborepo
 - **后端:** Node.js + Express + SQLite (better-sqlite3)
-- **前端:** React 19 + Vite 6 + Tailwind CSS 4 + Zustand + TanStack Query
+- **前端:** React 19 + Vite 6 + Tailwind CSS 4 + TanStack Query
 - **VN 引擎:** 自研步骤执行器，8 种步骤类型
 - **本地推理:** transformers + bitsandbytes 4-bit (WSL2) + Flask API
 - **Per-Agent 路由:** 前 3 个 Agent 可切换本地/云端模型
+- **图像生成:** Agnes Image API (extra_body.response_format b64_json)
+- **资产管线:** 扫描 IR → 占位资源 → AI 生成 → 缓存 → 导出同步
 
 ## 项目结构
 
