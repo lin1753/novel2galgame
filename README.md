@@ -232,20 +232,31 @@ export/{项目名}/
 ## 架构
 
 ```
-Novel (.txt)
-    │
-    ▼
-AI Pipeline (7 Agents) ← 已冻结
-    │
-    ▼
-VN Script IR v1.0 (JSON DSL) ← 唯一中间表示
-    │
-    ├────────────┐
-    ▼            ▼
-Ren'Py Export  Web Preview ← 两个 Runtime 共享 IR
-    │
-    ▼
-Asset Manifest → Producer (Agnes Image) → Cache → Export
+Novel (.txt) ──→ [Web 工作台上传]
+         │
+         ▼
+  Structure Agent (章节切分)
+         │
+         ▼
+  多 Agent Pipeline (章节级并行)
+  ┌─ Narrative Parsing
+  ├─ Attribution
+  ├─ Scene Segmentation
+  ├─ VN Mapping ─── Visual Prompt ──┐
+  └─ Fidelity Review ◄─────────────┘
+         │
+         ▼
+  VN Script IR v1.0 (JSON DSL) ← 唯一中间表示
+         │
+         ├──→ [资产管理] ←── Visual Prompt prompts
+         │    扫描 IR → 占位资源 → AI 生成背景立绘
+         │
+         ├──────────────┐
+         ▼              ▼
+  Ren'Py Export    Web Preview ← 两个 Runtime 共享 IR
+         │
+         ▼
+  可游玩 Galgame (Windows EXE / APK)
 ```
 
 ### 设计约束
