@@ -315,7 +315,9 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
       (stage) => {
         // Update pipeline_run current_stage
         db.prepare("UPDATE pipeline_runs SET current_stage=? WHERE run_id=?").run(stage, runId);
-      }
+      },
+      { parsingDone: chapter.parsingDone, attributionDone: chapter.attributionDone, segmentationDone: chapter.segmentationDone },
+      sceneRepo
     ).then((result) => {
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
       chapterRepo.updateStatus(cid, "chapter_ready");
