@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useNavigate } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { assetService } from '@/services/assets'
-import { Image, RefreshCw, Loader2, Pencil, Check, X } from 'lucide-react'
+import { Image, RefreshCw, Loader2, Pencil, Check, X, ExternalLink } from 'lucide-react'
 
 export function AssetsPage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<'bg' | 'character'>('bg')
   const [generating, setGenerating] = useState<string | null>(null)
@@ -55,23 +56,57 @@ export function AssetsPage() {
 
       {activeTab === 'bg' && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {assets?.backgrounds.map(bg => (
-            <AssetCard key={bg.id} label={bg.label} status={bg.status} prompt={bg.prompt}
-              imageUrl={assetService.imageUrl(projectId!, 'bg', bg.file)}
-              isGenerating={generating === bg.id}
-              onGenerate={() => { setGenerating(bg.id); genMutation.mutate({ type: 'bg', assetId: bg.id, label: bg.label }) }}
-              onUpdatePrompt={(p) => promptMutation.mutate({ type: 'bg', assetId: bg.id, prompt: p })}
-            />
-          ))}
+          {assets?.backgrounds.map(bg => {
+            const scenes = assets?.sceneUsage?.backgrounds?.[bg.id] ?? []
+            return (
+              <div key={bg.id}>
+                <AssetCard label={bg.label} status={bg.status} prompt={bg.prompt}
+                  imageUrl={assetService.imageUrl(projectId!, 'bg', bg.file)}
+                  isGenerating={generating === bg.id}
+                  onGenerate={() => { setGenerating(bg.id); genMutation.mutate({ type: 'bg', assetId: bg.id, label: bg.label }) }}
+                  onUpdatePrompt={(p) => promptMutation.mutate({ type: 'bg', assetId: bg.id, prompt: p })}
+                />
+                {scenes.length > 0 && (
+                  <div className="mt-1 px-1">
+                    {scenes.map((sid: string) => (
+                      <button key={sid} onClick={() => navigate(`/projects/${projectId}/editor/${sid}`)}
+                        className="text-[10px] text-muted-foreground hover:text-deep-purple transition-colors flex items-center gap-0.5">
+                        <ExternalLink className="w-2.5 h-2.5" /> {sid.split('_').pop()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
           {bgCount === 0 && <p className="col-span-full text-center py-10 text-muted-foreground">运行章节管线后自动发现背景资源</p>}
         </div>
       )}
 
       {activeTab === 'character' && (
         <div className="space-y-6">
-          {assets?.characters.map(char => (
+          {assets?.characters.map(char => {
+            const scenes = assets?.sceneUsage?.characters?.[char.id] ?? []
+            return (
             <div key={char.id} className="border border-border rounded-2xl p-4 bg-card shadow-card">
-              <h3 className="font-semibold text-deep-purple mb-3">{char.name || char.id}</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <h3 className="font-semibold text-deep-purple">{char.name || char.id}</h3>
+                {scenes.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {scenes.length} 个场景
+                  </span>
+                )}
+              </div>
+              {scenes.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {scenes.map((sid: string) => (
+                    <button key={sid} onClick={() => navigate(`/projects/${projectId}/editor/${sid}`)}
+                      className="px-1.5 py-0.5 text-[10px] border border-border rounded hover:bg-muted hover:text-deep-purple transition-colors">
+                      {sid.split('_').pop()}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {char.expressions.map(expr => (
                   <AssetCard key={expr.expression} label={expr.expression} status={expr.status} prompt={expr.prompt}
@@ -88,7 +123,7 @@ export function AssetsPage() {
                 ))}
               </div>
             </div>
-          ))}
+          )})}
           {charCount === 0 && <p className="text-center py-10 text-muted-foreground">运行章节管线后自动发现角色资源</p>}
         </div>
       )}

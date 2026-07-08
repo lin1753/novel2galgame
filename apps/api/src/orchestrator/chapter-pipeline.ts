@@ -1,4 +1,4 @@
-import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
+﻿import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,
@@ -324,6 +324,7 @@ export async function runChapterPipeline(
       sceneId: scene.sceneId,
       chapterId,
       projectId: project.projectId,
+      indexInChapter: scene.indexInChapter,
       status: "pending",
       updatedAt: new Date().toISOString(),
     }, i);

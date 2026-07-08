@@ -24,6 +24,10 @@ export interface AssetCharEntry {
 export interface AssetListResult {
   backgrounds: AssetBgEntry[]
   characters: AssetCharEntry[]
+  sceneUsage?: {
+    backgrounds: Record<string, string[]>
+    characters: Record<string, string[]>
+  }
   manifest: any | null
 }
 

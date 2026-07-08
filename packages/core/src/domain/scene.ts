@@ -48,6 +48,9 @@ export interface SceneState {
   chapterId: string;
   projectId: string;
 
+  /** Position of this scene within its chapter (0-based). */
+  indexInChapter: number;
+
   status: SceneStatus;
 
   mappingStatus?: "pending" | "done" | "failed";

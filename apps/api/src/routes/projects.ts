@@ -99,6 +99,16 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     res.json(project);
   });
 
+  // PUT /projects/:id/config — Update project config
+  router.put("/:id/config", (req: Request, res: Response) => {
+    const project = projectRepo.getById(param(req, "id"));
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const newConfig = { ...project.config, ...req.body };
+    projectRepo.updateConfig(param(req, "id"), newConfig);
+    writeProjectState(config.dataDir, { ...project, config: newConfig, updatedAt: new Date().toISOString() });
+    res.json({ config: newConfig });
+  });
+
   // DELETE /projects/:id - Delete project
   router.delete("/:id", (req: Request, res: Response) => {
     projectRepo.delete(param(req, "id"));

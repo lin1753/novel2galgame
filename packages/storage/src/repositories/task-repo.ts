@@ -23,7 +23,15 @@ interface TaskRow {
 }
 
 function rowToTask(row: TaskRow): TaskRecord {
-  const hasMetrics = (row.duration_ms ?? 0) > 0 || (row.prompt_tokens ?? 0) > 0 || (row.completion_tokens ?? 0) > 0;
+  // Metrics are only meaningful when the task has actually run.
+  // SQLite INTEGER defaults to 0 for unset columns, so check for
+  // any non-zero metric before building the AgentMetrics object.
+  const hasMetrics =
+    (row.duration_ms ?? 0) > 0 ||
+    (row.prompt_tokens ?? 0) > 0 ||
+    (row.completion_tokens ?? 0) > 0 ||
+    (row.retry_count ?? 0) > 0;
+
   return {
     taskId: row.task_id,
     projectId: row.project_id,
@@ -38,12 +46,14 @@ function rowToTask(row: TaskRow): TaskRecord {
     errorMessage: row.error_message ?? undefined,
     inputHash: row.input_hash ?? undefined,
     outputPath: row.output_path ?? undefined,
-    metrics: hasMetrics ? {
-      durationMs: row.duration_ms ?? 0,
-      promptTokens: row.prompt_tokens ?? 0,
-      completionTokens: row.completion_tokens ?? 0,
-      retryCount: row.retry_count ?? 0,
-    } : undefined,
+    metrics: hasMetrics
+      ? {
+          durationMs: row.duration_ms ?? 0,
+          promptTokens: row.prompt_tokens ?? 0,
+          completionTokens: row.completion_tokens ?? 0,
+          retryCount: row.retry_count ?? 0,
+        }
+      : undefined,
     stageOrder: row.stage_order ?? undefined,
   };
 }
@@ -55,8 +65,9 @@ export class TaskRepository {
     this.db
       .prepare(
         `INSERT INTO tasks (task_id, project_id, chapter_id, scene_id, type, status,
-         provider, model, started_at, finished_at, error_message, input_hash, output_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         provider, model, started_at, finished_at, error_message, input_hash, output_path,
+         duration_ms, prompt_tokens, completion_tokens, retry_count, stage_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         task.taskId,
@@ -71,7 +82,12 @@ export class TaskRepository {
         task.finishedAt ?? null,
         task.errorMessage ?? null,
         task.inputHash ?? null,
-        task.outputPath ?? null
+        task.outputPath ?? null,
+        task.metrics?.durationMs ?? null,
+        task.metrics?.promptTokens ?? null,
+        task.metrics?.completionTokens ?? null,
+        task.metrics?.retryCount ?? null,
+        task.stageOrder ?? null
       );
   }
 
@@ -113,6 +129,36 @@ export class TaskRepository {
          WHERE task_id = ?`
       )
       .run(status, finishedAt, extras?.errorMessage ?? null, extras?.outputPath ?? null, taskId);
+  }
+
+  updateMetrics(
+    taskId: string,
+    metrics: {
+      durationMs?: number;
+      promptTokens?: number;
+      completionTokens?: number;
+      retryCount?: number;
+      stageOrder?: number;
+    }
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE tasks SET
+         duration_ms = COALESCE(?, duration_ms),
+         prompt_tokens = COALESCE(?, prompt_tokens),
+         completion_tokens = COALESCE(?, completion_tokens),
+         retry_count = COALESCE(?, retry_count),
+         stage_order = COALESCE(?, stage_order)
+         WHERE task_id = ?`
+      )
+      .run(
+        metrics.durationMs ?? null,
+        metrics.promptTokens ?? null,
+        metrics.completionTokens ?? null,
+        metrics.retryCount ?? null,
+        metrics.stageOrder ?? null,
+        taskId
+      );
   }
 
   markRunning(taskId: string, provider?: string, model?: string): void {
