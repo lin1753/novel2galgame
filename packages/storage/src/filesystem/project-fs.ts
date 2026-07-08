@@ -1,7 +1,8 @@
-import fs from "node:fs";
+﻿import fs from "node:fs";
 import path from "node:path";
 import type {
   ProjectState,
+  ProjectConfig,
   ProjectManifest,
   ChapterSource,
   NarrativeParsingResult,
@@ -13,6 +14,17 @@ import type {
   ConsistencyReport,
 } from "@novel2gal/core";
 import { DIR_NAMES, FILE_NAMES } from "@novel2gal/core";
+
+const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
+  fidelityMode: "standard",
+  segmentationMode: "standard",
+  visualStyleTemplate: "school-romance-anime",
+  budgetMode: "balanced",
+  autoRunVisualPrompt: false,
+  autoRunConsistencyReview: false,
+  defaultTextModel: "agnes-2.0-flash",
+  language: "zh-CN",
+};
 
 export interface ProjectPaths {
   rawDir: string;
@@ -59,9 +71,23 @@ export function writeProjectState(dataDir: string, project: ProjectState): void 
 export function readProjectState(dataDir: string, projectId: string): ProjectState | null {
   const filePath = path.join(dataDir, "projects", projectId, FILE_NAMES.projectState);
   if (!fs.existsSync(filePath)) return null;
-  return JSON.parse(fs.readFileSync(filePath, "utf-8")) as ProjectState;
+  const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  return {
+    projectId: raw.projectId ?? "",
+    title: raw.title ?? "",
+    sourceFileName: raw.sourceFileName ?? "",
+    sourceFilePath: raw.sourceFilePath ?? "",
+    status: raw.status ?? "created",
+    config: raw.config ?? DEFAULT_PROJECT_CONFIG,
+    totalChapters: raw.totalChapters ?? 0,
+    readyChapters: raw.readyChapters ?? 0,
+    failedChapters: raw.failedChapters ?? 0,
+    currentTaskId: raw.currentTaskId,
+    lastError: raw.lastError,
+    createdAt: raw.createdAt ?? "",
+    updatedAt: raw.updatedAt ?? "",
+  };
 }
-
 export function getProjectManifest(dataDir: string, projectId: string): ProjectManifest {
   const project = readProjectState(dataDir, projectId);
   if (!project) throw new Error(`Project not found: ${projectId}`);

@@ -1,4 +1,4 @@
-﻿import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
+import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,

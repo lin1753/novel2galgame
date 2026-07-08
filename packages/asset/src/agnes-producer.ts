@@ -52,7 +52,12 @@ export class AgnesImageProducer implements AssetProducer {
       case "background":
         return `${entry.label}, ${style}, visual novel background, wide angle, no characters`;
       case "character":
-        return `${entry.label}, ${style}, visual novel character portrait, full body, transparent background, standing pose`;
+        // Default expression: isolated character on transparent background
+        if (!entry.expression || entry.expression === "default") {
+          return `${entry.label}, ${style}, visual novel character sprite, full body, standing pose, isolated on transparent background, no background, character only, clean cutout`;
+        }
+        // Non-default expression: same character, only change expression/outfit
+        return `${entry.label}, ${style}, visual novel character sprite, full body, standing pose, same character as default portrait, keep identical face and body, only change expression and outfit, isolated on transparent background, no background, character only, clean cutout`;
       case "cg":
         return `${entry.label}, ${style}, cinematic scene, dramatic lighting`;
       default:

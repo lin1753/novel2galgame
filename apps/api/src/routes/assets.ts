@@ -183,7 +183,8 @@ export function createAssetRoutes() {
           file: `${exprId}.png`,
           status: "generated",
           prompt: prompt ?? undefined,
-        }, charExprDir);
+          expression: expression ?? "default",
+        } as any, charExprDir);
         res.json({ success: true, type: "character", id: assetId, expression: expression ?? "default", file: `char/${safeId}/${exprId}.png` });
       } else {
         res.status(400).json({ error: `Unknown asset type: ${type}` });

@@ -55,7 +55,7 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
   if (crashedRuns.changes > 0) {
     console.log(`[Startup] Marked ${crashedRuns.changes} dangling pipeline runs as crashed`);
   }
-  const crashedChapters = db.prepare("UPDATE chapters SET status='crashed', updated_at=? WHERE status='running'")
+  const crashedChapters = db.prepare("UPDATE chapters SET status='crashed', current_task_id = NULL, last_error = 'Server restarted; pipeline crashed', updated_at=? WHERE status='running'")
     .run(now());
   if (crashedChapters.changes > 0) {
     console.log(`[Startup] Marked ${crashedChapters.changes} dangling chapters as crashed`);

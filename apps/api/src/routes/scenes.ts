@@ -95,7 +95,7 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
   router.get("/projects/:id/chapters/:chapterId/narrative", (req: Request, res: Response) => {
     try {
       const result = readChapterJson<NarrativeParsingResult>(
-        config.dataDir, param(req, "id"), param(req, "chapterId"), "narrative-units.json"
+        config.dataDir, param(req, "id"), param(req, "chapterId"), "narrative_units.json"
       );
       res.json(result);
     } catch {
@@ -107,7 +107,7 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
   router.get("/projects/:id/chapters/:chapterId/attribution", (req: Request, res: Response) => {
     try {
       const result = readChapterJson<AttributionResult>(
-        config.dataDir, param(req, "id"), param(req, "chapterId"), "attributed-units.json"
+        config.dataDir, param(req, "id"), param(req, "chapterId"), "attributed_units.json"
       );
       res.json(result);
     } catch {

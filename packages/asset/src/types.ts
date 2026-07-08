@@ -11,6 +11,7 @@ export interface AssetEntry {
   status: AssetStatus;
   provider?: string;      // which producer generated it
   prompt?: string;        // prompt used for generation
+  expression?: string;    // for character assets: expression name (e.g., "smile", "angry")
 }
 
 export interface CharacterAsset {
