@@ -1118,6 +1118,88 @@ data/projects/{id}/assets/images/
 
 ---
 
+## Phase 9: RAG 全链路（检索增强生成）
+
+**状态:** 开发中 (pr/rag-core 分支)  
+**日期:** 2026-07-08
+
+### 9.1 架构概览
+
+用检索增强提升管线 agent 的跨章一致性和准确率，尤其是归因 (Attribution) 和场景分割 (Segmentation)。
+
+```
+管线流程:
+  narrative → attribution → segmentation → [vn_mapping + fidelity]
+       ↑           ↑              ↑
+       │    searchCharacters  searchScenePatterns
+       │           │              │
+  ┌────┴───────────┴──────────────┴──────────┐
+  │          KnowledgeStore (向量库)          │
+  │  ┌──────────────┐ ┌───────────────────┐  │
+  │  │ characters_v2 │ │  scene_patterns   │  │
+  │  │ (角色外观/关系)│ │  (场景结构/分布)   │  │
+  │  └──────────────┘ └───────────────────┘  │
+  │         ↑ ingest          ↑ ingest        │
+  └─────────┼─────────────────┼──────────────┘
+            │                 │
+   extractCharacterKnowledge  extractScenePatterns
+   (attribution stage)        (segmentation stage)
+```
+
+### 9.2 标准 RAG 流水线
+
+| 阶段 | 本项目实现 | 说明 |
+|------|-----------|------|
+| **解析** | `extractor.ts` | 从 Agent 输出提取角色外观/关系/性格 + 场景结构 |
+| **清洗** | 内置 | 去重、截断超长文本、过滤无效字符 |
+| **分块** | 细粒度属性切分 | 每个角色拆为身份/外观/关系 3 个独立 chunk |
+| **向量化** | bge-small-zh-v1.5 (512-dim) | 本地 CPU 推理, 中文小说场景优化, 零 API 调用 |
+| **检索** | 余弦相似度 + minScore 阈值 | `minScore=0.6` 过滤低相关结果 |
+| **重排** | LLM relevance scoring | 粗筛 top-10 → LLM 打分 → top-3 |
+| **组装 Prompt** | 注入 Agent system/user prompt | 归因 agent 的 `characterKnowledge` 字段 |
+
+### 9.3 技术选型
+
+| 组件 | 选型 | 原因 |
+|------|------|------|
+| **嵌入模型** | `bge-small-zh-v1.5` (512-dim) | 中文语义最优, CPU 推理 ~10ms/条, 无需 GPU |
+| **备选嵌入** | `text-embedding-3-small` (1536-dim) | Agnes API, 维度更高但需网络 |
+| **向量存储** | JSON 文件型 VectorStore | 零运维, 可替换为 lanceDB |
+| **检索方式** | 纯向量检索 (当前) | 下一步加入 BM25 混合检索提升专有名词匹配 |
+| **相似度** | 余弦相似度 | 标准方案 |
+| **重排序** | LLM relevance scoring | 比纯向量相似度更准, 每次 ~200 tokens |
+| **分块策略** | 语义属性切分 | 比固定长度更适合结构化角色数据 |
+| **去重** | upsert by characterId | 同角色新章节覆盖旧数据 |
+
+### 9.4 当前实现
+
+| 模块 | 文件 | 内容 |
+|------|------|------|
+| 嵌入服务 | `packages/rag/src/embedder.ts` | bge-small-zh 本地 + API 双模式 |
+| 向量存储 | `packages/rag/src/vector-store.ts` | cosine 检索 + upsert + score 过滤 |
+| 知识提取 | `packages/rag/src/extractor.ts` | 角色知识 + 场景模式提取 |
+| 知识库 | `packages/rag/src/knowledge-store.ts` | 统一接口 + 去重 + 重排 |
+| 评测框架 | `packages/rag/src/evaluate.ts` | Recall@K + MRR + smoke test |
+| 管线集成 | `chapter-pipeline.ts` | 三 Agent 共享 RAG, 完成后 ingest |
+
+### 9.5 Agent 注入策略
+
+| Agent | RAG 注入内容 | 方法 |
+|-------|------------|------|
+| **narrative** | 已知角色列表 | `listKnownCharacters()` → prompt: "以下角色已在前几章出现: 苏雨晴, 林晓..." |
+| **attribution** | 角色外观/关系详情 | `searchCharacters()` → prompt: "苏雨晴: 长发及腰, 白裙, 淡蓝眼睛" |
+| **segmentation** | 场景结构模式 | `searchScenePatterns()` → prompt: "前几章的分割方式: 每2-3个场景变化一次..." |
+
+### 9.6 后续优化
+
+- [ ] **混合检索 (Hybrid)** — BM25 关键词 + 向量语义, 解决角色名精确匹配
+- [ ] **HyDE** — 查询前 LLM 生成假设角色描述, 用假设嵌入去检索
+- [ ] **Query Rewriting** — LLM 改写模糊查询为精确检索词
+- [ ] **Parent-Child 引用** — 小 chunk 检索时带回完整角色 block
+- [ ] **自动化 A/B 评测** — narrative 数据作为 RAG 知识源 + 测试集, 对比有/无 RAG 的 agent 准确率
+
+---
+
 ## MVP 验收指标
 
 | Agent | 指标 | 目标 |
