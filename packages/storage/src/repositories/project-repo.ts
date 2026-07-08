@@ -5,6 +5,7 @@ interface ProjectRow {
   project_id: string;
   title: string;
   source_file_name: string;
+  source_file_path?: string;
   status: string;
   config_json: string;
   total_chapters: number;
@@ -19,7 +20,7 @@ function rowToProject(row: ProjectRow): ProjectState {
     projectId: row.project_id,
     title: row.title,
     sourceFileName: row.source_file_name,
-    sourceFilePath: "",
+    sourceFilePath: row.source_file_path ?? "",
     status: row.status as ProjectState["status"],
     config: JSON.parse(row.config_json) as ProjectConfig,
     totalChapters: row.total_chapters,

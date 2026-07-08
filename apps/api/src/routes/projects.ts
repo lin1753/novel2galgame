@@ -123,8 +123,8 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     project.sourceFilePath = destPath;
     writeProjectState(config.dataDir, project);
     projectRepo.updateStatus(param(req, "id"), "created");
-    db.prepare("UPDATE projects SET source_file_name = ?, updated_at = ? WHERE project_id = ?")
-      .run(originalName, new Date().toISOString(), param(req, "id"));
+    db.prepare("UPDATE projects SET source_file_name = ?, source_file_path = ?, updated_at = ? WHERE project_id = ?")
+      .run(originalName, destPath, new Date().toISOString(), param(req, "id"));
 
     res.json({ message: "File imported", path: destPath });
   });

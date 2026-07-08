@@ -125,6 +125,12 @@ export function createDatabase(dataDir: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);
   `);
 
+  // Migration: source_file_path column on projects
+  const projectCols = db.prepare("PRAGMA table_info(projects)").all().map((r: any) => r.name);
+  if (!projectCols.includes("source_file_path")) {
+    db.prepare("ALTER TABLE projects ADD COLUMN source_file_path TEXT DEFAULT ''").run();
+  }
+
   const row = db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get() as
     | { value: string }
     | undefined;

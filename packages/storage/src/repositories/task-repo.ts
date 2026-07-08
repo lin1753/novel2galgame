@@ -15,9 +15,15 @@ interface TaskRow {
   error_message: string | null;
   input_hash: string | null;
   output_path: string | null;
+  duration_ms: number | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  retry_count: number | null;
+  stage_order: number | null;
 }
 
 function rowToTask(row: TaskRow): TaskRecord {
+  const hasMetrics = (row.duration_ms ?? 0) > 0 || (row.prompt_tokens ?? 0) > 0 || (row.completion_tokens ?? 0) > 0;
   return {
     taskId: row.task_id,
     projectId: row.project_id,
@@ -32,6 +38,13 @@ function rowToTask(row: TaskRow): TaskRecord {
     errorMessage: row.error_message ?? undefined,
     inputHash: row.input_hash ?? undefined,
     outputPath: row.output_path ?? undefined,
+    metrics: hasMetrics ? {
+      durationMs: row.duration_ms ?? 0,
+      promptTokens: row.prompt_tokens ?? 0,
+      completionTokens: row.completion_tokens ?? 0,
+      retryCount: row.retry_count ?? 0,
+    } : undefined,
+    stageOrder: row.stage_order ?? undefined,
   };
 }
 
