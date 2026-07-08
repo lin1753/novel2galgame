@@ -7,6 +7,8 @@ export interface AttributionInput {
   chapterId: string;
   units: AttributedNarrativeUnit[];
   knownCharacters?: CharacterRef[];
+  /** RAG-retrieved character knowledge from previous chapters */
+  characterKnowledge?: string;
 }
 
 const SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的任务是为每个叙事单元标注角色归属。
@@ -69,6 +71,7 @@ export async function runAttributionAgent(
 
 章节ID: ${chapterId}
 ${knownCharacters?.length ? `已知角色: ${knownCharacters.map((c) => `${c.canonicalName}(${c.aliases.join("/")})`).join(", ")}` : ""}
+${input.characterKnowledge ? `\n[来自前几章的角色知识 - 请结合这些已有信息进行归因]\n${input.characterKnowledge}\n` : ""}
 
 叙事单元:
 ${unitsText}

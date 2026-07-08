@@ -8,6 +8,8 @@ import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 import { createServer } from "./server/server.js";
 import { config, getActiveProfile } from "./config/index.js";
+import { EmbeddingService, CharacterStore } from "@novel2gal/rag";
+import { extractCharacterKnowledge } from "@novel2gal/rag";
 
 const db = createDatabase(config.dataDir);
 
@@ -31,7 +33,21 @@ function setProvider(newProvider: LLMProvider) {
   provider = newProvider;
 }
 
-const app = createServer(db, provider, setProvider);
+// RAG services (optional — silently degrades if no embedding API key)
+let rag: any = undefined;
+if (apiKey) {
+  try {
+    const embedder = new EmbeddingService({ apiKey, baseUrl: activeProfile?.baseUrl });
+    const charStore = new CharacterStore(config.dataDir, embedder);
+    rag = {
+      characterStore: { search: (q: string, l: number) => charStore.search(q, l), ingest: (c: any[]) => charStore.ingest(c) },
+      extractor: { extractCharacterKnowledge },
+    };
+    console.log("RAG: Character knowledge store ready");
+  } catch (e) { console.log("RAG: Disabled —", (e as Error).message); }
+}
+
+const app = createServer(db, provider, setProvider, rag);
 
 app.listen(config.port, () => {
   console.log(`API server running on http://localhost:${config.port}`);

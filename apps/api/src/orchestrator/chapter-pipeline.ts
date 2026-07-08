@@ -265,6 +265,7 @@ export async function runChapterPipeline(
   onStageUpdate?: (stage: string) => void,
   flagsDone?: { parsingDone?: boolean; attributionDone?: boolean; segmentationDone?: boolean },
   sceneRepo?: { getById: (id: string) => { mappingStatus?: string; reviewStatus?: string } | null },
+  rag?: { characterStore: { search: (q: string, l: number) => Promise<any[]>; ingest: (chunks: any[]) => Promise<void> }; extractor: { extractCharacterKnowledge: (attr: any, chId: string, chTitle: string) => any[] } },
 ) {
   const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
   const d = db!; // db is always passed from the route
@@ -311,14 +312,36 @@ export async function runChapterPipeline(
     const attr = resolveAgent(agentModels, "attribution", provider, model);
     const t1 = { prompt: 0, completion: 0 };
     const wAttr = instrumentProvider(attr.provider, (r: any) => { t1.prompt += r.usage?.promptTokens ?? 0; t1.completion += r.usage?.completionTokens ?? 0; });
+
+    // RAG: search character knowledge from previous chapters
+    let characterKnowledge: string | undefined;
+    if (rag) {
+      try {
+        const results = await rag.characterStore.search(`${chapterTitle} characters`, 5);
+        if (results.length > 0) {
+          characterKnowledge = results.map((c: any) =>
+            `角色"${c.canonicalName}"(首次出现: ${c.firstSeenIn}): ${c.appearance?.join("; ") ?? ""}`
+          ).join("\n");
+        }
+      } catch (e) { /* silent */ }
+    }
+
     attributionData = await runAgentWithMetrics({
       type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
       provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1, dataDir, cacheHint: chapterText.slice(0, 200),
       label: `attribution:${chapterId}`,
-      fn: () => runAttributionAgent({ chapterId, units: narrativeData.units }, wAttr, attr.model),
+      fn: () => runAttributionAgent({ chapterId, units: narrativeData.units, characterKnowledge }, wAttr, attr.model),
     });
     writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
     onChapterFlags?.(chapterId, { attributionDone: true });
+
+    // RAG: ingest new character knowledge
+    if (rag && attributionData) {
+      try {
+        const chunks = rag.extractor.extractCharacterKnowledge(attributionData, chapterId, chapterTitle);
+        await rag.characterStore.ingest(chunks);
+      } catch (e) { /* silent */ }
+    }
   }
 
   // Stage 3: Scene Segmentation

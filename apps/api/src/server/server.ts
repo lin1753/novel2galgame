@@ -15,7 +15,8 @@ import type { LLMProvider } from "@novel2gal/providers";
 export function createServer(
   db: ReturnType<typeof createDatabase>,
   provider: LLMProvider | null,
-  setProvider?: (p: LLMProvider) => void
+  setProvider?: (p: LLMProvider) => void,
+  rag?: any,
 ) {
   const app = express();
 
@@ -39,7 +40,7 @@ export function createServer(
   });
 
   // Project CRUD + pipeline routes
-  app.use("/projects", createProjectRoutes(db, getProvider));
+  app.use("/projects", createProjectRoutes(db, getProvider, rag));
 
   // Scene, chapter result routes
   app.use("/", createSceneRoutes(db, getProvider));
