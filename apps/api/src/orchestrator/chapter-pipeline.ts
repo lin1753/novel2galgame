@@ -265,7 +265,7 @@ export async function runChapterPipeline(
   onStageUpdate?: (stage: string) => void,
   flagsDone?: { parsingDone?: boolean; attributionDone?: boolean; segmentationDone?: boolean },
   sceneRepo?: { getById: (id: string) => { mappingStatus?: string; reviewStatus?: string } | null },
-  rag?: { knowledgeStore: { searchCharacters: (q: string, l: number) => Promise<any[]>; searchScenePatterns: (q: string, l: number) => Promise<any[]>; listKnownCharacters: () => string[]; ingestCharacters: (c: any[]) => Promise<void>; ingestScenePatterns: (c: any[]) => Promise<void> }; extractor: { extractCharacterKnowledge: (attr: any, chId: string, chTitle: string) => any[]; extractScenePatterns: (seg: any, attr: any, chId: string, chTitle: string) => any } },
+  rag?: { knowledgeStore: { searchCharacters: (q: string, l: number) => Promise<any[]>; searchCharactersWithRerank?: (q: string, llm: any, m: string, k: number, c: number) => Promise<any[]>; searchScenePatterns: (q: string, l: number) => Promise<any[]>; listKnownCharacters: () => string[]; ingestCharacters: (c: any[]) => Promise<void>; ingestScenePatterns: (c: any[]) => Promise<void> }; extractor: { extractCharacterKnowledge: (attr: any, chId: string, chTitle: string) => any[]; extractScenePatterns: (seg: any, attr: any, chId: string, chTitle: string) => any } },
 ) {
   const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
   const d = db!; // db is always passed from the route
@@ -326,11 +326,13 @@ export async function runChapterPipeline(
     const t1 = { prompt: 0, completion: 0 };
     const wAttr = instrumentProvider(attr.provider, (r: any) => { t1.prompt += r.usage?.promptTokens ?? 0; t1.completion += r.usage?.completionTokens ?? 0; });
 
-    // RAG: search character knowledge from previous chapters
+    // RAG: two-stage retrieval (vector search → LLM rerank)
     let characterKnowledge: string | undefined;
     if (rag) {
       try {
-        const results = await rag.knowledgeStore.searchCharacters(`${chapterTitle} characters`, 5);
+        const results = rag.knowledgeStore.searchCharactersWithRerank
+          ? await rag.knowledgeStore.searchCharactersWithRerank(`${chapterTitle} characters`, provider as any, model, 3, 10)
+          : await rag.knowledgeStore.searchCharacters(`${chapterTitle} characters`, 5);
         if (results.length > 0) {
           characterKnowledge = results.map((c: any) =>
             `角色"${c.canonicalName}"(首次出现: ${c.firstSeenIn}): ${c.appearance?.join("; ") ?? ""}`

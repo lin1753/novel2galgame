@@ -37,7 +37,8 @@ function setProvider(newProvider: LLMProvider) {
 let rag: any = undefined;
 if (apiKey) {
   try {
-    const embedder = new EmbeddingService({ apiKey, baseUrl: activeProfile?.baseUrl });
+    // Use local bge-small-zh-v1.5 (512-dim, CPU, optimized for Chinese)
+    const embedder = new EmbeddingService({ local: true });
     const knowledgeStore = new KnowledgeStore(config.dataDir, embedder, { minScore: 0.6, topK: 5 });
     rag = {
       knowledgeStore,

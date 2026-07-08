@@ -40,29 +40,51 @@ export function extractCharacterKnowledge(
       if (speaker !== char.characterId) continue;
 
       const text = (unit as any).originalText ?? (unit as any).text ?? "";
-      // Simple heuristic: if the text describes appearance/personality
       if (text.includes("穿") || text.includes("裙") || text.includes("发") || text.includes("眼")) {
         appearanceHints.push(text.slice(0, 80));
       }
+      if (text.includes("同学") || text.includes("友") || text.includes("关系") || text.includes("认识")) {
+        relationHints.push(text.slice(0, 80));
+      }
     }
 
-    // Build embed text — this is what gets vectorized for search
-    const embedText = [
-      `角色: ${name}`,
-      appearanceHints.length > 0 ? `外观: ${appearanceHints.join("; ")}` : "",
-      `别名: ${char.aliases?.join(", ") ?? ""}`,
-    ].filter(Boolean).join("\n");
-
-    result.push({
-      chapterId,
-      characterId: char.characterId,
+    // ── Fine-grained chunks: one per attribute dimension ──
+    const baseChunk: Omit<CharacterKnowledge, "embedText" | "characterId"> = {
+      chapterId: "",
       canonicalName: name,
-      embedText,
       appearance: appearanceHints,
       relationships: relationHints,
       personality: personalityHints,
       firstSeenIn: chapterTitle,
+    };
+
+    // Chunk 1: Name + aliases (identity)
+    result.push({
+      ...baseChunk,
+      chapterId,
+      characterId: `${char.characterId}_identity`,
+      embedText: `角色: ${name}${char.aliases?.length ? ` | 别名: ${char.aliases.join(", ")}` : ""}`,
     });
+
+    // Chunk 2: Appearance
+    if (appearanceHints.length > 0) {
+      result.push({
+        ...baseChunk,
+        chapterId,
+        characterId: `${char.characterId}_appearance`,
+        embedText: `角色: ${name} | 外观: ${appearanceHints.join("; ")}`,
+      });
+    }
+
+    // Chunk 3: Relationships
+    if (relationHints.length > 0) {
+      result.push({
+        ...baseChunk,
+        chapterId,
+        characterId: `${char.characterId}_relationships`,
+        embedText: `角色: ${name} | 关系: ${relationHints.join("; ")}`,
+      });
+    }
   }
 
   console.log(`[RAG] Extracted ${result.length} character knowledge entries from chapter ${chapterTitle}`);

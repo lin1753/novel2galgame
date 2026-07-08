@@ -2,6 +2,13 @@ import { VectorStore, type VectorRecord } from "./vector-store.js";
 import { EmbeddingService } from "./embedder.js";
 import type { CharacterKnowledge } from "./extractor.js";
 
+/** Minimal LLM interface for reranking */
+export interface RerankLLM {
+  chatJson<T>(opts: { model: string; messages: Array<{ role: string; content: string }>; temperature?: number; maxTokens?: number; jsonMode?: boolean }): Promise<T>;
+  chat?(opts: any): Promise<any>;
+  readonly name: string;
+}
+
 export interface ScenePatternKnowledge {
   chapterId: string;
   chapterTitle: string;
@@ -132,6 +139,51 @@ export class KnowledgeStore {
       .filter((r) => r.score >= this.config.minScore)
       .map((r) => ({ ...r.record.metadata, _score: r.score }));
   }
+
+  /** Two-stage retrieval: coarse vector search → LLM rerank → top-K */
+  async searchCharactersWithRerank(
+    queryText: string, llm: RerankLLM, model: string, finalK: number = 3, coarseK: number = 10,
+  ): Promise<CharacterKnowledge[]> {
+    if (this.charStore.count === 0) return [];
+    // Stage 1: Coarse vector search
+    const coarse = await this.searchCharacters(queryText, coarseK);
+    if (coarse.length <= finalK) return coarse;
+
+    // Stage 2: LLM relevance scoring
+    const candidates = coarse.map((c, i) => ({
+      index: i,
+      text: `[${i}] 角色: ${c.canonicalName} | ${c.embedText.slice(0, 120)}`,
+    }));
+    const prompt = `根据查询"${queryText.slice(0, 100)}"，评估以下角色信息的关联度(1-10分):
+${candidates.map((c) => c.text).join("\n")}
+输出: {"scores": [{"index": 0, "score": 8}, ...]}`;
+
+    try {
+      const result = await llm.chatJson<{ scores: Array<{ index: number; score: number }> }>({
+        model,
+        messages: [
+          { role: "system", content: "你是信息检索相关度评估助手。只输出 JSON。" },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0,
+        maxTokens: 200,
+        jsonMode: true,
+      });
+      // Sort by score descending, take top finalK
+      const reranked = (result.scores ?? [])
+        .sort((a, b) => b.score - a.score)
+        .slice(0, finalK)
+        .map((s) => coarse[s.index])
+        .filter(Boolean);
+      return reranked.length > 0 ? reranked : coarse.slice(0, finalK);
+    } catch {
+      // Rerank failed — fall back to coarse results
+      return coarse.slice(0, finalK);
+    }
+  }
+
+  /** Clear all data */
+  clear() { this.charStore.clear(); this.sceneStore.clear(); }
 
   get characterCount(): number { return this.charStore.count; }
   get sceneCount(): number { return this.sceneStore.count; }
