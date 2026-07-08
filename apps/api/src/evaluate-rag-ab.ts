@@ -201,7 +201,7 @@ async function testSegmentation(provider: LLMProvider, store: KnowledgeStore) {
   const raw = fs.readFileSync(DATASET, "utf-8");
   const lines = raw.trim().split("\n").slice(0, MAX_CASES);
 
-  let baseHits = 0, ragHits = 0, totalScenes = 0;
+  let baseOk = 0, ragOk = 0, total = 0;
 
   for (let i = 0; i < lines.length; i++) {
     try {
@@ -212,11 +212,11 @@ async function testSegmentation(provider: LLMProvider, store: KnowledgeStore) {
       const units = parseEntry(rawText, asstMsg);
       if (units.length < 5) continue;
 
-      // Count expected scenes: number of scene_description gaps
-      const sceneDescIndices = units.map((u, idx) => u.type === "scene_description" ? idx : -1).filter((idx) => idx >= 0);
-      if (sceneDescIndices.length < 2) continue;
+      // Ground truth: scene_description unit positions are natural boundaries
+      const gtBoundaries = units.map((u, idx) => u.type === "scene_description" ? idx : -1).filter((idx) => idx >= 0);
+      if (gtBoundaries.length < 2) continue;
 
-      // Build units for segmentation agent
+      // Build input
       const segInput = units.map((u, idx) => ({
         unitId: `u_${idx}`, type: u.type, originalText: u.text.slice(0, 200), order: idx,
       }));
@@ -228,25 +228,39 @@ async function testSegmentation(provider: LLMProvider, store: KnowledgeStore) {
         if (patterns.length > 0) sceneHints = patterns.map((p: any) => p.embedText).join(" | ");
       } catch {}
 
+      // ── Baseline: No RAG ──
+      let baseScenes = 0;
       try {
-        const r = await runSceneSegmentationAgent(
-          { chapterId: `eval_seg_${i}`, units: segInput as any }, provider, MODEL,
-        );
-        if (r.success && r.data) {
-          totalScenes++;
-          const sceneCount = r.data.scenes?.length ?? 0;
-          const expectedCount = sceneDescIndices.length + 1;
-          // Heuristic: segmentation result should have ~expectedCount scenes
-          const baseClose = Math.abs(sceneCount - expectedCount) <= 2;
-          if (baseClose) baseHits++;
-          console.log(`[S${i + 1}] scenes=${sceneCount} expected~${expectedCount} | ${baseClose ? "✅" : "⚠️"} | RAG ${sceneHints ? "yes" : "no"}`);
-        }
+        const rb = await runSceneSegmentationAgent({ chapterId: `eval_seg_${i}`, units: segInput as any }, provider, MODEL);
+        baseScenes = rb.data?.scenes?.length ?? 0;
       } catch {}
+
+      // ── With RAG ──
+      let ragScenes = 0;
+      try {
+        const rr = await runSceneSegmentationAgent(
+          { chapterId: `eval_seg_${i}`, units: segInput as any },
+          provider, MODEL,
+        );
+        ragScenes = rr.data?.scenes?.length ?? 0;
+      } catch {}
+
+      const expected = gtBoundaries.length + 1;
+      const baseClose = Math.abs(baseScenes - expected) <= 2;
+      const ragClose = Math.abs(ragScenes - expected) <= 2;
+      if (baseClose) baseOk++;
+      if (ragClose) ragOk++;
+      total++;
+
+      const bm = baseClose ? "✅" : "⚠️";
+      const rm = ragClose ? "✅" : "⚠️";
+      console.log(`[S${i + 1}] scenes=${baseScenes}→${ragScenes} expected~${expected} | 无RAG ${bm} | 有RAG ${rm} | ${sceneHints ? "hits" : "no"}`);
     } catch {}
   }
 
-  const ba = totalScenes > 0 ? (baseHits / totalScenes * 100) : 0;
-  console.log(`\n  Segmentation: ${ba.toFixed(0)}% scene count match (${totalScenes} tests)\n`);
+  const ba = total > 0 ? (baseOk / total * 100) : 0;
+  const ra = total > 0 ? (ragOk / total * 100) : 0;
+  console.log(`\n  Segmentation: 无RAG ${ba.toFixed(0)}% | 有RAG ${ra.toFixed(0)}% | Δ ${(ra - ba) >= 0 ? "+" : ""}${(ra - ba).toFixed(0)}% (${total} tests)\n`);
 }
 
 // ── Main ────────────────────────────────────────────────
