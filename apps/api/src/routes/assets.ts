@@ -14,22 +14,22 @@ function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase();
 }
 
-/** Scan all VN scripts to discover backgrounds and characters */
+/** Scan all VN scripts to discover backgrounds, characters, and their scene usage */
 function scanProjectAssets(projectDir: string) {
   const bgMap = new Map<string, { id: string; label: string }>();
   const charMap = new Map<string, { id: string; name: string; expressions: Set<string> }>();
+  const bgScenes = new Map<string, string[]>();  // bg id → scene ids
+  const charScenes = new Map<string, string[]>(); // char id → scene ids
 
   const scenesDir = path.join(projectDir, "scenes");
-  if (!fs.existsSync(scenesDir)) return { backgrounds: bgMap, characters: charMap };
+  if (!fs.existsSync(scenesDir)) return { backgrounds: bgMap, characters: charMap, sceneUsage: { backgrounds: bgScenes, characters: charScenes } };
 
   for (const sceneId of fs.readdirSync(scenesDir)) {
     const scriptPath = path.join(scenesDir, sceneId, "vn_script.json");
     if (!fs.existsSync(scriptPath)) continue;
     try {
-      // Try UTF-8 first, fallback to GBK
       let raw = fs.readFileSync(scriptPath, "utf-8");
       if (raw.includes("�") || raw.charCodeAt(0) === 0xFEFF) {
-        // BOM or replacement chars — try reading as buffer
         const buf = fs.readFileSync(scriptPath);
         try { raw = new TextDecoder("utf-8").decode(buf); } catch { raw = buf.toString("latin1"); }
       }
@@ -39,25 +39,28 @@ function scanProjectAssets(projectDir: string) {
           if (!bgMap.has(step.backgroundId)) {
             bgMap.set(step.backgroundId, { id: step.backgroundId, label: step.backgroundLabel || step.backgroundId.replace(/_/g, " ") });
           }
+          if (!bgScenes.has(step.backgroundId)) bgScenes.set(step.backgroundId, []);
+          if (!bgScenes.get(step.backgroundId)!.includes(sceneId)) bgScenes.get(step.backgroundId)!.push(sceneId);
         }
         if ((step.type === "show" || step.type === "say" || step.type === "thought") && step.characterId) {
           if (!charMap.has(step.characterId)) {
             charMap.set(step.characterId, { id: step.characterId, name: step.displayName || step.characterId, expressions: new Set() });
           }
-          // Update name from say/thought steps which have displayName
           if ((step.type === "say" || step.type === "thought") && step.displayName) {
             charMap.get(step.characterId)!.name = step.displayName;
           }
           if (step.type === "show" && step.expression) {
             charMap.get(step.characterId)!.expressions.add(step.expression);
           }
+          if (!charScenes.has(step.characterId)) charScenes.set(step.characterId, []);
+          if (!charScenes.get(step.characterId)!.includes(sceneId)) charScenes.get(step.characterId)!.push(sceneId);
         }
       }
     } catch (e) {
       console.warn(`[Assets] Failed to parse ${scriptPath}:`, (e as Error).message);
     }
   }
-  return { backgrounds: bgMap, characters: charMap };
+  return { backgrounds: bgMap, characters: charMap, sceneUsage: { backgrounds: bgScenes, characters: charScenes } };
 }
 
 export function createAssetRoutes() {
@@ -69,7 +72,7 @@ export function createAssetRoutes() {
     const projectDir = path.join(config.dataDir, "projects", projectId);
     const assetDir = path.join(projectDir, "assets", "images");
 
-    const { backgrounds: bgFromScripts, characters: charFromScripts } = scanProjectAssets(projectDir);
+    const { backgrounds: bgFromScripts, characters: charFromScripts, sceneUsage } = scanProjectAssets(projectDir);
 
     // Check disk for actual files
     const bgDir = path.join(assetDir, "bg");
@@ -134,7 +137,14 @@ export function createAssetRoutes() {
       }
     }
 
-    res.json({ backgrounds, characters });
+    res.json({
+      backgrounds,
+      characters,
+      sceneUsage: {
+        backgrounds: Object.fromEntries(sceneUsage.backgrounds),
+        characters: Object.fromEntries(sceneUsage.characters),
+      },
+    });
   });
 
   // POST /projects/:id/assets/generate — Generate/regenerate a specific asset

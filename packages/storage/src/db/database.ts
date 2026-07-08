@@ -9,11 +9,14 @@ CREATE TABLE IF NOT EXISTS projects (
   project_id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   source_file_name TEXT NOT NULL,
+  source_file_path TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL,
   config_json TEXT NOT NULL,
   total_chapters INTEGER DEFAULT 0,
   ready_chapters INTEGER DEFAULT 0,
   failed_chapters INTEGER DEFAULT 0,
+  current_task_id TEXT,
+  last_error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -25,6 +28,8 @@ CREATE TABLE IF NOT EXISTS chapters (
   title TEXT NOT NULL,
   status TEXT NOT NULL,
   scene_count INTEGER DEFAULT 0,
+  current_task_id TEXT,
+  last_error TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
@@ -39,6 +44,7 @@ CREATE TABLE IF NOT EXISTS scenes (
   mapping_status TEXT,
   review_status TEXT,
   visual_status TEXT,
+  last_error TEXT,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (chapter_id) REFERENCES chapters(chapter_id) ON DELETE CASCADE,
   FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
@@ -58,6 +64,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   error_message TEXT,
   input_hash TEXT,
   output_path TEXT,
+  duration_ms INTEGER DEFAULT 0,
+  prompt_tokens INTEGER DEFAULT 0,
+  completion_tokens INTEGER DEFAULT 0,
+  retry_count INTEGER DEFAULT 0,
+  stage_order INTEGER DEFAULT 0,
   FOREIGN KEY (project_id) REFERENCES projects(project_id) ON DELETE CASCADE
 );
 
@@ -86,11 +97,34 @@ export function createDatabase(dataDir: string): Database.Database {
 
   db.exec(CREATE_TABLES);
 
-  // Migration: add missing columns if needed
+  // Migration: add missing columns to chapters
   const chapterCols = db.prepare("PRAGMA table_info(chapters)").all().map((r: any) => r.name);
   for (const col of ["parsing_done", "attribution_done", "segmentation_done", "mapping_done", "review_done"]) {
     if (!chapterCols.includes(col)) {
       db.prepare(`ALTER TABLE chapters ADD COLUMN ${col} INTEGER DEFAULT 0`).run();
+    }
+  }
+  for (const col of ["current_task_id", "last_error"]) {
+    if (!chapterCols.includes(col)) {
+      db.prepare(`ALTER TABLE chapters ADD COLUMN ${col} TEXT`).run();
+    }
+  }
+
+  // Migration: add missing columns to scenes
+  const sceneCols = db.prepare("PRAGMA table_info(scenes)").all().map((r: any) => r.name);
+  if (!sceneCols.includes("last_error")) {
+    db.prepare("ALTER TABLE scenes ADD COLUMN last_error TEXT").run();
+  }
+
+  // Migration: add missing columns to projects
+  const projectCols = db.prepare("PRAGMA table_info(projects)").all().map((r: any) => r.name);
+  for (const [col, type] of [
+    ["source_file_path", "TEXT NOT NULL DEFAULT ''"],
+    ["current_task_id", "TEXT"],
+    ["last_error", "TEXT"],
+  ] as const) {
+    if (!projectCols.includes(col)) {
+      db.prepare(`ALTER TABLE projects ADD COLUMN ${col} ${type}`).run();
     }
   }
 
@@ -124,12 +158,6 @@ export function createDatabase(dataDir: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_pipeline_runs_chapter ON pipeline_runs(chapter_id);
     CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);
   `);
-
-  // Migration: source_file_path column on projects
-  const projectCols = db.prepare("PRAGMA table_info(projects)").all().map((r: any) => r.name);
-  if (!projectCols.includes("source_file_path")) {
-    db.prepare("ALTER TABLE projects ADD COLUMN source_file_path TEXT DEFAULT ''").run();
-  }
 
   const row = db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get() as
     | { value: string }

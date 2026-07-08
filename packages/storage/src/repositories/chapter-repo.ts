@@ -13,6 +13,8 @@ interface ChapterRow {
   segmentation_done?: number;
   mapping_done?: number;
   review_done?: number;
+  current_task_id: string | null;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,6 +34,8 @@ function rowToChapter(row: ChapterRow, db: Database.Database): ChapterState {
     segmentationDone: (row.segmentation_done ?? 0) === 1,
     mappingDone: (row.mapping_done ?? 0) === 1,
     reviewDone: (row.review_done ?? 0) === 1,
+    currentTaskId: row.current_task_id ?? undefined,
+    lastError: row.last_error ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -44,8 +48,8 @@ export class ChapterRepository {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO chapters (chapter_id, project_id, chapter_index, title, status,
-         scene_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         scene_count, current_task_id, last_error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         chapter.chapterId,
@@ -54,6 +58,8 @@ export class ChapterRepository {
         chapter.title,
         chapter.status,
         chapter.sceneIds.length,
+        chapter.currentTaskId ?? null,
+        chapter.lastError ?? null,
         chapter.createdAt,
         chapter.updatedAt
       );
@@ -92,6 +98,22 @@ export class ChapterRepository {
     sets.push("updated_at = ?");
     vals.push(new Date().toISOString(), chapterId);
     this.db.prepare(`UPDATE chapters SET ${sets.join(", ")} WHERE chapter_id = ?`).run(...vals);
+  }
+
+  updateRuntimeState(
+    chapterId: string,
+    state: { currentTaskId?: string | null; lastError?: string | null }
+  ): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE chapters SET
+         current_task_id = COALESCE(?, current_task_id),
+         last_error = COALESCE(?, last_error),
+         updated_at = ?
+         WHERE chapter_id = ?`
+      )
+      .run(state.currentTaskId ?? null, state.lastError ?? null, now, chapterId);
   }
 
   updateSceneCount(chapterId: string, count: number): void {

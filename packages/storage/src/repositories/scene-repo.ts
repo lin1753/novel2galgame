@@ -10,6 +10,7 @@ interface SceneRow {
   mapping_status: string | null;
   review_status: string | null;
   visual_status: string | null;
+  last_error: string | null;
   updated_at: string;
 }
 
@@ -18,10 +19,12 @@ function rowToScene(row: SceneRow): SceneState {
     sceneId: row.scene_id,
     chapterId: row.chapter_id,
     projectId: row.project_id,
+    indexInChapter: row.scene_index,
     status: row.status as SceneState["status"],
     mappingStatus: (row.mapping_status as SceneState["mappingStatus"]) ?? undefined,
     reviewStatus: (row.review_status as SceneState["reviewStatus"]) ?? undefined,
     visualStatus: (row.visual_status as SceneState["visualStatus"]) ?? undefined,
+    lastError: row.last_error ?? undefined,
     updatedAt: row.updated_at,
   };
 }
@@ -29,22 +32,25 @@ function rowToScene(row: SceneRow): SceneState {
 export class SceneRepository {
   constructor(private db: Database.Database) {}
 
-  create(scene: SceneState, sceneIndex: number): void {
+  /** Register a scene. sceneIndex is optional; falls back to scene.indexInChapter if omitted. */
+  create(scene: SceneState, sceneIndex?: number): void {
+    const idx = sceneIndex ?? scene.indexInChapter;
     this.db
       .prepare(
         `INSERT INTO scenes (scene_id, chapter_id, project_id, scene_index, status,
-         mapping_status, review_status, visual_status, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         mapping_status, review_status, visual_status, last_error, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         scene.sceneId,
         scene.chapterId,
         scene.projectId,
-        sceneIndex,
+        idx,
         scene.status,
         scene.mappingStatus ?? null,
         scene.reviewStatus ?? null,
         scene.visualStatus ?? null,
+        scene.lastError ?? null,
         scene.updatedAt
       );
   }
@@ -98,6 +104,18 @@ export class SceneRepository {
         now,
         sceneId
       );
+  }
+
+  updateRuntimeState(sceneId: string, state: { lastError?: string | null }): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `UPDATE scenes SET
+         last_error = COALESCE(?, last_error),
+         updated_at = ?
+         WHERE scene_id = ?`
+      )
+      .run(state.lastError ?? null, now, sceneId);
   }
 
   delete(sceneId: string): void {
