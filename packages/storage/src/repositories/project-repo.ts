@@ -123,7 +123,7 @@ export class ProjectRepository {
   updateLastError(projectId: string, error: string | null): void {
     const now = new Date().toISOString();
     this.db
-      .prepare("UPDATE projects SET last_error = COALESCE(?, last_error), updated_at = ? WHERE project_id = ?")
+      .prepare("UPDATE projects SET last_error = ?, updated_at = ? WHERE project_id = ?")
       .run(error, now, projectId);
   }
 

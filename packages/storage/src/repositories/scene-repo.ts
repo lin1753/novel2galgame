@@ -109,7 +109,7 @@ export class SceneRepository {
   updateLastError(sceneId: string, error: string | null): void {
     const now = new Date().toISOString();
     this.db
-      .prepare("UPDATE scenes SET last_error = COALESCE(?, last_error), updated_at = ? WHERE scene_id = ?")
+      .prepare("UPDATE scenes SET last_error = ?, updated_at = ? WHERE scene_id = ?")
       .run(error, now, sceneId);
   }
 

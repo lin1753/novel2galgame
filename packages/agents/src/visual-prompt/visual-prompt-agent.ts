@@ -20,9 +20,9 @@ export interface VisualPromptInput {
 }
 
 const STYLE_TEMPLATES: Record<string, string> = {
-  "school-romance-anime": "anime style, school romance, soft lighting, pastel colors",
-  "urban-romance": "modern urban setting, realistic illustration style, warm tones",
-  "fresh-japanese": "Japanese illustration style, clean lines, fresh and bright, soft watercolor",
+  "school-romance-anime": "Japanese visual novel style (galgame art), bishoujo anime character design, moe aesthetic, large expressive kawaii eyes, soft cel shading with subtle gradients, vibrant school uniform, cherry blossom spring atmosphere, warm golden hour lighting, detailed flowing hair with shine highlights, slim youthful character proportions, cute face, clean lineart, modern anime 2020s style",
+  "urban-romance": "Japanese visual novel style, modern urban anime aesthetic, stylish character design, sophisticated city atmosphere, soft bokeh lighting, warm evening tones, fashion-conscious outfits, clean modern art style",
+  "fresh-japanese": "Japanese illustration style,清新治愈系, watercolor texture, soft pastel palette, dreamy lighting, clean flowing lines, gentle expression, iyashikei aesthetic, natural outdoor settings",
 };
 
 const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是从叙事单元中提取角色外观和场景背景的视觉信息，并生成适合 AI 图像生成模型的结构化提示词包。
@@ -49,7 +49,14 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
    - 提供保守补全
    - 生成最终英文背景提示词
 
-4. **所有 finalPrompt 必须为英文**, 适合 gpt-image-2 等图像生成模型
+4. **所有 finalPrompt 必须为英文**, 适合 AI 图像生成模型使用
+5. **角色 finalPrompt 要求**:
+   - 加入 "Japanese visual novel character sprite, galgame art style, bishoujo anime, solo character, plain white background, no background scenery, character only, clean cutout, standing pose, full body"
+   - 包含具体的角色外貌细节（发型颜色长度、眼睛、体型、服装款式颜色）
+   - 使用现代日系ACG术语: moe style, kawaii, cel shading, soft gradient hair
+6. **背景 finalPrompt 要求**:
+   - 加入 "Japanese anime background art, visual novel scene, painted style, no characters"
+   - 包含地点、时间、天气、氛围的具体描述
 
 ## 输出 JSON 格式
 

@@ -29,8 +29,14 @@ export function cacheLookup(dataDir: string, key: CacheKey): CacheEntry | null {
   const metaPath = keyToMetaPath(dataDir, key);
   if (!fs.existsSync(metaPath)) return null;
 
-  const entry = JSON.parse(fs.readFileSync(metaPath, "utf-8")) as CacheEntry;
-  entry.hitCount += 1;
+  const raw = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+  const hitCount = (typeof raw.hitCount === "number" ? raw.hitCount : 0) + 1;
+  const entry: CacheEntry = {
+    key: raw.key ?? key,
+    hitCount,
+    createdAt: raw.createdAt ?? new Date().toISOString(),
+    outputPath: raw.outputPath ?? "",
+  };
   fs.writeFileSync(metaPath, JSON.stringify(entry, null, 2), "utf-8");
   return entry;
 }

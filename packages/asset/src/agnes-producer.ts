@@ -47,21 +47,21 @@ export class AgnesImageProducer implements AssetProducer {
   }
 
   private buildPrompt(entry: AssetEntry): string {
-    const style = "anime style, high quality, detailed";
+    const acgStyle = "Japanese visual novel game art, galgame character design, bishoujo anime style, moe aesthetic, modern 2020s anime, soft cel shading, detailed hair with highlights, large expressive eyes, cute youthful face, slim body proportions, vibrant colors, high quality illustration";
     switch (entry.type) {
       case "background":
-        return `${entry.label}, ${style}, visual novel background, wide angle, no characters`;
-      case "character":
-        // Default expression: isolated character on transparent background
+        return `${entry.label}, Japanese anime background art, visual novel scene, painted style, wide angle establishing shot, atmospheric lighting, detailed environment, no characters, ${acgStyle.split(",").slice(0, 3).join(",")}`;
+      case "character": {
+        const charBase = `solo character, full body standing pose, plain white solid background, no scenery no environment, character sprite sheet style, ${acgStyle}`;
         if (!entry.expression || entry.expression === "default") {
-          return `${entry.label}, ${style}, visual novel character sprite, full body, standing pose, isolated on transparent background, no background, character only, clean cutout`;
+          return `${entry.label}, ${charBase}`;
         }
-        // Non-default expression: same character, only change expression/outfit
-        return `${entry.label}, ${style}, visual novel character sprite, full body, standing pose, same character as default portrait, keep identical face and body, only change expression and outfit, isolated on transparent background, no background, character only, clean cutout`;
+        return `${entry.label}, same character identical appearance as default portrait, only different expression and outfit, keep face body hair exactly the same, ${charBase}`;
+      }
       case "cg":
-        return `${entry.label}, ${style}, cinematic scene, dramatic lighting`;
+        return `${entry.label}, ${acgStyle}, cinematic visual novel CG, dramatic composition, emotional scene, beautiful lighting`;
       default:
-        return `${entry.label}, ${style}`;
+        return `${entry.label}, ${acgStyle}`;
     }
   }
 

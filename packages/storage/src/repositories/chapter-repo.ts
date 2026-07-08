@@ -110,7 +110,7 @@ export class ChapterRepository {
   updateLastError(chapterId: string, error: string | null): void {
     const now = new Date().toISOString();
     this.db
-      .prepare("UPDATE chapters SET last_error = COALESCE(?, last_error), updated_at = ? WHERE chapter_id = ?")
+      .prepare("UPDATE chapters SET last_error = ?, updated_at = ? WHERE chapter_id = ?")
       .run(error, now, chapterId);
   }
 
