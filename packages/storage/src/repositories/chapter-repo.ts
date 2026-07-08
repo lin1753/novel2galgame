@@ -100,20 +100,18 @@ export class ChapterRepository {
     this.db.prepare(`UPDATE chapters SET ${sets.join(", ")} WHERE chapter_id = ?`).run(...vals);
   }
 
-  updateRuntimeState(
-    chapterId: string,
-    state: { currentTaskId?: string | null; lastError?: string | null }
-  ): void {
+  updateCurrentTaskId(chapterId: string, taskId: string | null): void {
     const now = new Date().toISOString();
     this.db
-      .prepare(
-        `UPDATE chapters SET
-         current_task_id = COALESCE(?, current_task_id),
-         last_error = COALESCE(?, last_error),
-         updated_at = ?
-         WHERE chapter_id = ?`
-      )
-      .run(state.currentTaskId ?? null, state.lastError ?? null, now, chapterId);
+      .prepare("UPDATE chapters SET current_task_id = ?, updated_at = ? WHERE chapter_id = ?")
+      .run(taskId, now, chapterId);
+  }
+
+  updateLastError(chapterId: string, error: string | null): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare("UPDATE chapters SET last_error = COALESCE(?, last_error), updated_at = ? WHERE chapter_id = ?")
+      .run(error, now, chapterId);
   }
 
   updateSceneCount(chapterId: string, count: number): void {

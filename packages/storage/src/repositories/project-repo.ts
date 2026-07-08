@@ -113,20 +113,18 @@ export class ProjectRepository {
       .run(JSON.stringify(config), now, projectId);
   }
 
-  updateRuntimeState(
-    projectId: string,
-    state: { currentTaskId?: string | null; lastError?: string | null }
-  ): void {
+  updateCurrentTaskId(projectId: string, taskId: string | null): void {
     const now = new Date().toISOString();
     this.db
-      .prepare(
-        `UPDATE projects SET
-         current_task_id = COALESCE(?, current_task_id),
-         last_error = COALESCE(?, last_error),
-         updated_at = ?
-         WHERE project_id = ?`
-      )
-      .run(state.currentTaskId ?? null, state.lastError ?? null, now, projectId);
+      .prepare("UPDATE projects SET current_task_id = ?, updated_at = ? WHERE project_id = ?")
+      .run(taskId, now, projectId);
+  }
+
+  updateLastError(projectId: string, error: string | null): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare("UPDATE projects SET last_error = COALESCE(?, last_error), updated_at = ? WHERE project_id = ?")
+      .run(error, now, projectId);
   }
 
   delete(projectId: string): void {

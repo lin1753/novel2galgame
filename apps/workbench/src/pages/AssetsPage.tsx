@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { assetService } from '@/services/assets'
-import { Image, RefreshCw, Loader2, Pencil, Check, X, ExternalLink } from 'lucide-react'
+import { Image, RefreshCw, Loader2, Pencil, Check, X, ExternalLink, Maximize2 } from 'lucide-react'
 
 export function AssetsPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -10,6 +10,7 @@ export function AssetsPage() {
   const qc = useQueryClient()
   const [activeTab, setActiveTab] = useState<'bg' | 'character'>('bg')
   const [generating, setGenerating] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ url: string; label: string } | null>(null)
 
   const { data: assets, isLoading } = useQuery({
     queryKey: ['assets', projectId],
@@ -65,6 +66,7 @@ export function AssetsPage() {
                   isGenerating={generating === bg.id}
                   onGenerate={() => { setGenerating(bg.id); genMutation.mutate({ type: 'bg', assetId: bg.id, label: bg.label }) }}
                   onUpdatePrompt={(p) => promptMutation.mutate({ type: 'bg', assetId: bg.id, prompt: p })}
+                  onEnlarge={() => setLightbox({ url: assetService.imageUrl(projectId!, 'bg', bg.file), label: bg.label })}
                 />
                 {scenes.length > 0 && (
                   <div className="mt-1 px-1">
@@ -119,6 +121,7 @@ export function AssetsPage() {
                       genMutation.mutate({ type: 'character', assetId: char.id, expression: expr.expression, label: `${char.name} ${expr.expression}` })
                     }}
                     onUpdatePrompt={(p) => promptMutation.mutate({ type: 'character', assetId: char.id, expression: expr.expression, prompt: p })}
+                    onEnlarge={() => setLightbox({ url: assetService.imageUrl(projectId!, 'char', expr.file), label: `${char.name} ${expr.expression}` })}
                   />
                 ))}
               </div>
@@ -127,13 +130,30 @@ export function AssetsPage() {
           {charCount === 0 && <p className="text-center py-10 text-muted-foreground">运行章节管线后自动发现角色资源</p>}
         </div>
       )}
+
+      {/* Lightbox modal */}
+      {lightbox && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-pointer"
+          onClick={() => setLightbox(null)}>
+          <div className="relative max-w-[90vw] max-h-[90vh]">
+            <img src={lightbox.url} alt={lightbox.label}
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" />
+            <p className="absolute bottom-2 left-2 text-white text-sm bg-black/50 px-2 py-1 rounded">{lightbox.label}</p>
+            <button onClick={() => setLightbox(null)}
+              className="absolute top-2 right-2 text-white bg-black/50 rounded-full p-1 hover:bg-black/70">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function AssetCard({ label, status, prompt, imageUrl, isGenerating, onGenerate, onUpdatePrompt, size = 'md' }: {
+function AssetCard({ label, status, prompt, imageUrl, isGenerating, onGenerate, onUpdatePrompt, onEnlarge, size = 'md' }: {
   label: string; status: string; prompt: string | null; imageUrl: string
   isGenerating: boolean; onGenerate: () => void; onUpdatePrompt: (p: string | null) => void
+  onEnlarge?: () => void
   size?: 'sm' | 'md'
 }) {
   const [imgError, setImgError] = useState(false)
@@ -147,9 +167,15 @@ function AssetCard({ label, status, prompt, imageUrl, isGenerating, onGenerate, 
 
   return (
     <div className="border border-border rounded-xl overflow-hidden bg-card shadow-card transition-all hover:shadow-md">
-      <div className={`relative ${size === 'sm' ? 'h-28' : 'h-36'} bg-gradient-to-b from-slate-800 to-slate-900 flex items-center justify-center overflow-hidden`}>
+      <div className={`relative ${size === 'sm' ? 'h-28' : 'h-36'} bg-gradient-to-b from-slate-800 to-slate-900 flex items-center justify-center overflow-hidden group`}
+        onClick={() => { if (status === 'generated' && !imgError) onEnlarge?.() }}>
         {status === 'generated' && !imgError ? (
-          <img src={imageUrl} alt={label} className="w-full h-full object-cover" onError={() => setImgError(true)} />
+          <>
+            <img src={imageUrl} alt={label} className="w-full h-full object-cover" onError={() => setImgError(true)} />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+              <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </>
         ) : (
           <div className="text-center p-2">
             <Image className={`mx-auto ${size === 'sm' ? 'w-6 h-6' : 'w-8 h-8'} text-slate-600`} />

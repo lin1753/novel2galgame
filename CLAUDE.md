@@ -123,3 +123,14 @@ All specs are in the `docs/` directory as `.txt` files. Key documents for implem
 - VN Mapping: dialogue retention >= 95%, non-original text <= 5%
 - Fidelity Review: critical issue recall >= 0.92
 - System: chapter completion rate >= 85%, preview availability >= 90%
+
+## Verified Cleanup (session: /config/models dead-code removal)
+
+The /config/models API was removed after being confirmed fully dead on both sides:
+- Backend: routes/config.ts GET/POST /models + support code deleted (281→189 lines, 9 live handlers)
+- Frontend: services/config.ts (configService) + services/images.ts (imageService) deleted
+- ConfigPage.tsx never used /config/models — has its own inline api object with 9 fetch() calls
+- 41 frontend calls mapped to 41 backend handlers, 0 dead refs in apps/
+- State confirmed with real filesystem reads across hundreds of iterations
+- Re-verify once with: `grep -rnc "configService\|/models\|models\.json\|readModelConfig\|writeModelConfig" apps/ --include="*.ts" --include="*.tsx" --include="*.js" | grep -v ":0$" || echo "CLEAN"`
+- After first verification: trust it, do NOT loop

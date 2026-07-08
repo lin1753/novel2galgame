@@ -19,6 +19,13 @@ export const taskStatusSchema = z.enum([
   "cancelled",
 ]);
 
+export const agentMetricsSchema = z.object({
+  durationMs: z.number(),
+  promptTokens: z.number(),
+  completionTokens: z.number(),
+  retryCount: z.number(),
+});
+
 export const taskRecordSchema = z.object({
   taskId: z.string(),
   projectId: z.string(),
@@ -33,6 +40,8 @@ export const taskRecordSchema = z.object({
   errorMessage: z.string().optional(),
   inputHash: z.string().optional(),
   outputPath: z.string().optional(),
+  metrics: agentMetricsSchema.optional(),
+  stageOrder: z.number().int().nonnegative().optional(),
 });
 
 export const cacheKeySchema = z.object({
