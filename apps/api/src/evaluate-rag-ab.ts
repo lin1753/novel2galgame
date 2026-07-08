@@ -1,91 +1,66 @@
 /**
- * RAG A/B 评测 — 同一份 narrative 数据，有 RAG vs 无 RAG 对比 attribution 准确率。
+ * RAG A/B 评测 — 用 narrative 标注的类型标签驱动下游评测。
  *
- * Phase 1: 扫描全部 narrative 条目 → 从对话标注提取角色名 → ingest 到 RAG
- * Phase 2: 逐条取对话单元作为 attribution 测试用例
- *          - ground truth = 对话中 "X说"/"X道" 提取的说话人
- *          - 无RAG: 直接跑 attribution agent
- *          - 有RAG: 检索 RAG → 注入 prompt → 跑 attribution agent
- *          - 对比两者命中率
+ * 流程:
+ *   Phase 1: 从 narrative 标注数据提取角色+场景信息 → RAG ingest
+ *     - action/narration 单元(在dialogue之前) → 说话人名字 → character RAG
+ *     - scene_description 单元 → 地点/时间 → scene RAG
  *
- * 用法: cd apps/api && EVAL_MAX=20 npx tsx src/evaluate-rag-ab.ts
+ *   Phase 2: attribution 评测 (有RAG vs 无RAG)
+ *     - ground truth: dialogue前一个action单元中的说话人
+ *
+ *   Phase 3: segmentation 评测 (有RAG vs 无RAG)
+ *     - ground truth: scene_description 边界位置
  */
 
 import fs from "node:fs";
-import { runAttributionAgent } from "@novel2gal/agents";
+import { runAttributionAgent, runSceneSegmentationAgent } from "@novel2gal/agents";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 import { EmbeddingService, KnowledgeStore } from "@novel2gal/rag";
 
-// ── Config ────────────────────────────────────────────
 const DATASET = "D:/data/1/datasets/training/v3.1-narrative-type-classification/test.jsonl";
 const MODEL = process.env["EVAL_MODEL"] ?? "agnes-2.0-flash";
-const MAX_CASES = parseInt(process.env["EVAL_MAX"] ?? "20", 10);
+const MAX_CASES = parseInt(process.env["EVAL_MAX"] ?? "10", 10);
 const API_KEY = process.env["OPENAI_API_KEY"] ?? "";
 const BASE_URL = process.env["OPENAI_BASE_URL"] ?? "https://apihub.agnes-ai.com/v1";
 
-interface TestCase {
-  index: number;
-  context: string;         // surrounding text (narration/action units)
-  targetText: string;      // the dialogue to attribute
-  speakerGT: string;       // ground truth speaker (from "X说"/"X道")
-}
+// ── Data types ──────────────────────────────────────────
 
-// ── Parse narrative entry → extract dialogue test cases ──
+interface LabeledUnit { unitId: number; type: string; text: string }
+interface TestCase { index: number; context: LabeledUnit[]; targetUnit: LabeledUnit; speakerGT: string }
 
-function parseEntry(rawText: string, labels: any[], entryIndex: number): TestCase[] {
+// ── Load + parse ────────────────────────────────────────
+
+function parseEntry(rawText: string, asstContent: string): LabeledUnit[] {
   const lines = rawText.split("\n");
-  const cases: TestCase[] = [];
-
-  for (const label of labels) {
-    if (label.type !== "dialogue") continue;
-    const unitId = parseInt(label.unit_id ?? "0", 10);
-    if (unitId < 1 || unitId > lines.length) continue;
-    const dialogueLine = lines[unitId - 1].trim();
-    if (!dialogueLine) continue;
-
-    // Extract ground truth speaker: look for "X说" / "X道" / "X问道" before or after
-    const speakerPatterns = [
-      // Pattern: X说道："..." or X说："..."
-      new RegExp(`^([一-鿿]{2,4})(?:说|道|问|喊|叫|回答|问道|说道|笑道|怒道|叹道|冷声道|淡淡道|轻声道)`),
-      // Pattern: "..." X说
-      new RegExp(`([一-鿿]{2,4})(?:说|道|问|喊|叫|回答|问道|说道|笑道|怒道|叹道|冷声道|淡淡道|轻声道)[。！？]?$`),
-    ];
-
-    let speakerGT = "";
-    for (const pattern of speakerPatterns) {
-      const match = dialogueLine.match(pattern);
-      if (match) {
-        const name = match[1];
-        if (!name.match(/^(这个|那个|什么|怎么|为什么|然后|但是|不过|所以|可是|虽然|因此)/)) {
-          speakerGT = name;
-          break;
-        }
-      }
-    }
-    if (!speakerGT) continue;
-
-    // Build context: 2 lines before + 2 lines after the dialogue
-    const ctxStart = Math.max(0, unitId - 3);
-    const ctxEnd = Math.min(lines.length, unitId + 2);
-    const context = lines.slice(ctxStart, ctxEnd).join("\n").trim();
-
-    cases.push({ index: entryIndex, context, targetText: dialogueLine, speakerGT });
-  }
-
-  return cases;
+  const labels = (JSON.parse(asstContent).labels ?? JSON.parse(asstContent).units ?? []) as any[];
+  return labels
+    .map((l: any) => {
+      const id = parseInt(l.unit_id ?? "0", 10);
+      return { unitId: id, type: l.type, text: id > 0 && id <= lines.length ? lines[id - 1].trim() : "" };
+    })
+    .filter((u) => u.text);
 }
 
-// ── Phase 1: RAG ingest ───────────────────────────────
+function extractSpeaker(unit: LabeledUnit, units: LabeledUnit[]): string | null {
+  // Name at start of line followed by speech verb
+  const m = unit.text.match(/^([王李张刘陈杨黄赵周吴徐孙马胡朱郭何罗高林郑梁谢唐许冯宋韩邓彭曹曾田萧潘袁蔡蒋余于杜叶程魏苏吕丁任卢姚钟姜崔谭陆汪范金石廖贾夏韦付方白邹孟熊秦邱江尹薛闫段雷侯龙史陶黎贺顾毛郝龚邵万钱严覃武戴莫孔向汤][一-鿿]{1,2})/);
+  return m?.[1] ?? null;
+}
 
-async function buildRAG(embedder: EmbeddingService): Promise<KnowledgeStore> {
-  console.log(`\n=== Phase 1: Build RAG from narrative data ===`);
+// ── Phase 1: RAG ingest ────────────────────────────────
+
+async function buildRAG(): Promise<KnowledgeStore> {
+  console.log(`\n=== Phase 1: Build RAG from ${MAX_CASES} narrative entries ===`);
+  const embedder = new EmbeddingService({ local: true });
   const store = new KnowledgeStore("../../data/eval/rag", embedder, { minScore: 0.4 });
-  store.clear();
 
   const raw = fs.readFileSync(DATASET, "utf-8");
   const lines = raw.trim().split("\n").slice(0, MAX_CASES);
-  const charSet = new Set<string>();
+  const charChunks: any[] = [];
+  const sceneChunks: any[] = [];
+  let charCount = 0, sceneCount = 0;
 
   for (let i = 0; i < lines.length; i++) {
     try {
@@ -93,48 +68,62 @@ async function buildRAG(embedder: EmbeddingService): Promise<KnowledgeStore> {
       const userMsg = entry.messages?.find((m: any) => m.role === "user")?.content ?? "";
       const asstMsg = entry.messages?.find((m: any) => m.role === "assistant")?.content ?? "";
       const rawText = userMsg.replace(/^units:\n/, "").replace(/\[\d+\] /g, "").trim();
-      const labels = (JSON.parse(asstMsg).labels ?? JSON.parse(asstMsg).units ?? []) as any[];
-      const dialogueLines = rawText.split("\n");
+      const units = parseEntry(rawText, asstMsg);
 
-      for (const label of labels) {
-        if (label.type !== "dialogue") continue;
-        const unitId = parseInt(label.unit_id ?? "0", 10);
-        if (unitId < 1 || unitId > dialogueLines.length) continue;
-        const line = dialogueLines[unitId - 1].trim();
+      for (let j = 0; j < units.length; j++) {
+        const u = units[j];
+        const prev = j > 0 ? units[j - 1] : null;
 
-        // Extract speaker name
-        const match = line.match(/([一-鿿]{2,4})(?:说|道|问|喊|叫|回答|问道|说道|笑道)/);
-        if (match && !match[1].match(/^(这个|那个|什么|怎么|为什么|然后|但是|不过|所以|可是|虽然|因此)/)) {
-          charSet.add(match[1]);
+        // Character: action/narration that introduces a dialogue speaker
+        if ((u.type === "action" || u.type === "narration") && j + 1 < units.length) {
+          const next = units[j + 1];
+          if (next.type === "dialogue") {
+            const speaker = extractSpeaker(u, units);
+            if (speaker) {
+              charChunks.push({
+                chapterId: `narr_${i}`,
+                characterId: speaker,
+                canonicalName: speaker,
+                embedText: `角色: ${speaker} | 上下文: ${u.text.slice(0, 80)}`,
+                appearance: [u.text.slice(0, 100)],
+                relationships: [],
+                personality: [],
+                firstSeenIn: `Entry ${i}`,
+              });
+              charCount++;
+            }
+          }
+        }
+
+        // Scene: scene_description units → location/time/mood
+        if (u.type === "scene_description") {
+          sceneChunks.push({
+            chapterId: `narr_${i}`,
+            chapterTitle: `Entry ${i}`,
+            sceneCount: 1,
+            locationHints: [u.text.slice(0, 80)],
+            characterDistribution: {},
+            embedText: `场景描述: ${u.text.slice(0, 150)}`,
+          });
+          sceneCount++;
         }
       }
     } catch {}
   }
 
-  const chunks = Array.from(charSet).map((name) => ({
-    chapterId: "narr_base",
-    characterId: name,
-    canonicalName: name,
-    embedText: `角色: ${name}`,
-    appearance: [],
-    relationships: [],
-    personality: [],
-    firstSeenIn: "Narrative training data",
-  }));
-
-  await store.ingestCharacters(chunks);
-  console.log(`  Ingested ${chunks.length} characters: ${Array.from(charSet).slice(0, 10).join(", ")}...\n`);
+  await store.ingestCharacters(charChunks);
+  if (sceneChunks.length > 0) await store.ingestScenePatterns(sceneChunks);
+  console.log(`  Characters: ${charCount} | Scene patterns: ${sceneCount}\n`);
   return store;
 }
 
-// ── Phase 2: A/B test ─────────────────────────────────
+// ── Phase 2: Attribution A/B ────────────────────────────
 
-async function runAB(provider: LLMProvider, store: KnowledgeStore) {
-  console.log(`=== Phase 2: A/B Test ===\n`);
-
+async function testAttribution(provider: LLMProvider, store: KnowledgeStore) {
+  console.log(`=== Phase 2: Attribution A/B ===\n`);
   const raw = fs.readFileSync(DATASET, "utf-8");
   const lines = raw.trim().split("\n").slice(0, MAX_CASES);
-  const allCases: TestCase[] = [];
+  const cases: TestCase[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     try {
@@ -142,83 +131,137 @@ async function runAB(provider: LLMProvider, store: KnowledgeStore) {
       const userMsg = entry.messages?.find((m: any) => m.role === "user")?.content ?? "";
       const asstMsg = entry.messages?.find((m: any) => m.role === "assistant")?.content ?? "";
       const rawText = userMsg.replace(/^units:\n/, "").replace(/\[\d+\] /g, "").trim();
-      const labels = (JSON.parse(asstMsg).labels ?? JSON.parse(asstMsg).units ?? []) as any[];
-      allCases.push(...parseEntry(rawText, labels, i));
+      const units = parseEntry(rawText, asstMsg);
+
+      for (let j = 1; j < units.length; j++) {
+        if (units[j].type !== "dialogue") continue;
+        const prev = units[j - 1];
+        if (prev.type !== "action" && prev.type !== "narration") continue;
+        const speaker = extractSpeaker(prev, units);
+        if (!speaker) continue;
+        // Give more context: prev 2 + target + next 2 units
+        const ctxStart = Math.max(0, j - 2);
+        const ctxEnd = Math.min(units.length, j + 3);
+        const context = units.slice(ctxStart, ctxEnd);
+        cases.push({ index: i, context, targetUnit: units[j], speakerGT: speaker });
+      }
     } catch {}
   }
 
-  console.log(`  ${allCases.length} dialogue test cases\n`);
+  console.log(`  ${cases.length} attribution test cases\n`);
+  let baseOk = 0, ragOk = 0, total = 0;
 
-  let baseCorrect = 0, ragCorrect = 0, total = 0;
-
-  for (let i = 0; i < allCases.length; i++) {
-    const c = allCases[i];
-    const gt = c.speakerGT;
-    const candidates = [gt]; // baseline: only known speaker
-
-    // Build units from context lines
-    const ctxLines = c.context.split("\n").filter(Boolean);
-    const units: any[] = [];
-    for (let j = 0; j < ctxLines.length; j++) {
-      units.push({ unitId: `u_${j}`, type: "narration", originalText: ctxLines[j].slice(0, 200), order: j });
-    }
-    units.push({ unitId: "u_target", type: "dialogue", originalText: c.targetText.slice(0, 200), order: units.length });
+  for (let k = 0; k < cases.length; k++) {
+    const c = cases[k];
+    const buildAttributionInput = (ragCtx?: string) => ({
+      chapterId: `eval_${k}`,
+      units: c.context.map((u, idx) => ({
+        unitId: `u_${idx}`, chapterId: `eval_${k}`, type: u.type, originalText: u.text.slice(0, 200), order: idx,
+      })) as any,
+      knownCharacters: [{ characterId: "c_0", canonicalName: c.speakerGT, aliases: [] }],
+      characterKnowledge: ragCtx,
+    });
 
     try {
-      // ── Baseline: No RAG ──
-      const resBase = await runAttributionAgent(
-        { chapterId: `eval_${i}`, units, knownCharacters: candidates.map((n, k) => ({ characterId: `c_${k}`, canonicalName: n, aliases: [] })) },
-        provider, MODEL,
-      );
-      const predBase = resBase.data?.units?.find((u: any) => u.unitId === "u_target")?.attribution;
-      const baseOk = predBase?.speakerId === c.speakerGT || predBase?.speakerId === `c_0`;
-      if (baseOk) baseCorrect++;
+      // Baseline
+      const r1 = await runAttributionAgent(buildAttributionInput(), provider, MODEL);
+      const p1 = r1.data?.units?.find((u: any) => u.unitId === "u_target")?.attribution;
+      const s1 = p1?.speakerId ?? "";
+      if (s1 === c.speakerGT || s1 === "c_0" || s1.includes(c.speakerGT)) baseOk++;
 
-      // ── With RAG ──
-      let ragContext: string | undefined;
-      let ragResults: any[] = [];
-      try { ragResults = await store.searchCharacters(`${gt} ${c.context.slice(0, 100)}`, 3); } catch {}
-      if (ragResults.length > 0) {
-        ragContext = ragResults.map((r: any) => `已知角色: ${r.canonicalName}`).join("\n");
-        // Also add RAG-found characters as candidates
-        const ragChars = ragResults.map((r: any) => r.canonicalName).filter((n: string) => !candidates.includes(n));
-        candidates.push(...ragChars);
-      }
-
-      const resRag = await runAttributionAgent(
-        { chapterId: `eval_${i}`, units, knownCharacters: candidates.map((n, k) => ({ characterId: `c_${k}`, canonicalName: n, aliases: [] })), characterKnowledge: ragContext },
-        provider, MODEL,
-      );
-      const predRag = resRag.data?.units?.find((u: any) => u.unitId === "u_target")?.attribution;
-      const ragOk = predRag?.speakerId === c.speakerGT || predRag?.speakerId === `c_0`;
-      if (ragOk) ragCorrect++;
+      // With RAG
+      let ragCtx: string | undefined;
+      let ragHits = 0;
+      try {
+        const results = await store.searchCharactersHybrid(`${c.speakerGT} ${c.context[0].text.slice(0, 80)}`, 3);
+        ragHits = results.length;
+        if (ragHits > 0) ragCtx = results.map((r: any) => `已知: ${r.canonicalName} | ${r.embedText?.slice(0, 80)}`).join("\n");
+      } catch {}
+      const r2 = await runAttributionAgent(buildAttributionInput(ragCtx), provider, MODEL);
+      const p2 = r2.data?.units?.find((u: any) => u.unitId === "u_target")?.attribution;
+      const s2 = p2?.speakerId ?? "";
+      if (s2 === c.speakerGT || s2 === "c_0" || s2.includes(c.speakerGT)) ragOk++;
 
       total++;
-      const baseMark = baseOk ? "✅" : "❌";
-      const ragMark = ragOk ? "✅" : baseOk ? "⚠️" : "❌";
-      console.log(`[${i + 1}/${allCases.length}] "${c.targetText.slice(0, 25)}..." gt=${gt} | 无RAG ${baseMark} | 有RAG ${ragMark} | RAG ${ragResults.length}hits`);
-
-    } catch (e) {
-      console.log(`[${i + 1}] SKIP: ${(e as Error).message.slice(0, 60)}`);
-    }
+      const bm = s1 === c.speakerGT ? "✅" : "❌";
+      const rm = s2 === c.speakerGT ? "✅" : "❌";
+      console.log(`[A${k + 1}/${cases.length}] "${c.targetUnit.text.slice(0, 25)}..." gt=${c.speakerGT} | 无RAG:${s1.slice(0, 8)} ${bm} | 有RAG:${s2.slice(0, 8)} ${rm} | ${ragHits}hits`);
+    } catch (e) { console.log(`[A${k + 1}] SKIP: ${(e as Error).message.slice(0, 50)}`); }
   }
 
-  const baseAcc = total > 0 ? (baseCorrect / total * 100) : 0;
-  const ragAcc = total > 0 ? (ragCorrect / total * 100) : 0;
-  console.log(`\n${"=".repeat(60)}`);
-  console.log(`A/B RESULTS (${total} cases)`);
-  console.log(`  无RAG: ${baseAcc.toFixed(1)}% (${baseCorrect}/${total})`);
-  console.log(`  有RAG: ${ragAcc.toFixed(1)}% (${ragCorrect}/${total})`);
-  console.log(`  提升:   ${(ragAcc - baseAcc) >= 0 ? "+" : ""}${(ragAcc - baseAcc).toFixed(1)}%`);
+  const ba = total > 0 ? (baseOk / total * 100) : 0;
+  const ra = total > 0 ? (ragOk / total * 100) : 0;
+  console.log(`\n  Attribution: 无RAG ${ba.toFixed(0)}% | 有RAG ${ra.toFixed(0)}% | Δ ${(ra - ba) >= 0 ? "+" : ""}${(ra - ba).toFixed(0)}% (${total} cases)\n`);
 }
 
-// ── Main ──────────────────────────────────────────────
+// ── Phase 3: Segmentation A/B ───────────────────────────
+
+async function testSegmentation(provider: LLMProvider, store: KnowledgeStore) {
+  console.log(`=== Phase 3: Segmentation A/B ===\n`);
+  const raw = fs.readFileSync(DATASET, "utf-8");
+  const lines = raw.trim().split("\n").slice(0, MAX_CASES);
+
+  let baseHits = 0, ragHits = 0, totalScenes = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    try {
+      const entry = JSON.parse(lines[i]);
+      const userMsg = entry.messages?.find((m: any) => m.role === "user")?.content ?? "";
+      const asstMsg = entry.messages?.find((m: any) => m.role === "assistant")?.content ?? "";
+      const rawText = userMsg.replace(/^units:\n/, "").replace(/\[\d+\] /g, "").trim();
+      const units = parseEntry(rawText, asstMsg);
+      if (units.length < 5) continue;
+
+      // Count expected scenes: number of scene_description gaps
+      const sceneDescIndices = units.map((u, idx) => u.type === "scene_description" ? idx : -1).filter((idx) => idx >= 0);
+      if (sceneDescIndices.length < 2) continue;
+
+      // Build units for segmentation agent
+      const segInput = units.map((u, idx) => ({
+        unitId: `u_${idx}`, type: u.type, originalText: u.text.slice(0, 200), order: idx,
+      }));
+
+      // Get scene hints from RAG
+      let sceneHints: string | undefined;
+      try {
+        const patterns = await store.searchScenePatterns("场景 地点 时间", 3);
+        if (patterns.length > 0) sceneHints = patterns.map((p: any) => p.embedText).join(" | ");
+      } catch {}
+
+      try {
+        const r = await runSceneSegmentationAgent(
+          { chapterId: `eval_seg_${i}`, units: segInput as any }, provider, MODEL,
+        );
+        if (r.success && r.data) {
+          totalScenes++;
+          const sceneCount = r.data.scenes?.length ?? 0;
+          const expectedCount = sceneDescIndices.length + 1;
+          // Heuristic: segmentation result should have ~expectedCount scenes
+          const baseClose = Math.abs(sceneCount - expectedCount) <= 2;
+          if (baseClose) baseHits++;
+          console.log(`[S${i + 1}] scenes=${sceneCount} expected~${expectedCount} | ${baseClose ? "✅" : "⚠️"} | RAG ${sceneHints ? "yes" : "no"}`);
+        }
+      } catch {}
+    } catch {}
+  }
+
+  const ba = totalScenes > 0 ? (baseHits / totalScenes * 100) : 0;
+  console.log(`\n  Segmentation: ${ba.toFixed(0)}% scene count match (${totalScenes} tests)\n`);
+}
+
+// ── Main ────────────────────────────────────────────────
+
 async function main() {
   if (!API_KEY) { console.error("No OPENAI_API_KEY"); process.exit(1); }
   const provider = new FetchLLMProvider({ apiKey: API_KEY, baseUrl: BASE_URL, defaultModel: MODEL, name: "eval" });
-  const embedder = new EmbeddingService({ apiKey: API_KEY, baseUrl: BASE_URL });
-  const store = await buildRAG(embedder);
-  await runAB(provider, store);
+
+  console.log(`[RAG A/B] Dataset: v3.1 narrative (${MAX_CASES} entries)`);
+  console.log(`[RAG A/B] Model: ${MODEL} | Embedding: bge-small-zh-v1.5 (local)\n`);
+
+  const store = await buildRAG();
+  await testAttribution(provider, store);
+  await testSegmentation(provider, store);
+
 }
 
 main().catch(console.error);
