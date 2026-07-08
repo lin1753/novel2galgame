@@ -48,8 +48,9 @@ export class ChapterRepository {
     this.db
       .prepare(
         `INSERT OR IGNORE INTO chapters (chapter_id, project_id, chapter_index, title, status,
-         scene_count, current_task_id, last_error, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         scene_count, parsing_done, attribution_done, segmentation_done, mapping_done, review_done,
+         current_task_id, last_error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         chapter.chapterId,
@@ -58,6 +59,11 @@ export class ChapterRepository {
         chapter.title,
         chapter.status,
         chapter.sceneIds.length,
+        chapter.parsingDone ? 1 : 0,
+        chapter.attributionDone ? 1 : 0,
+        chapter.segmentationDone ? 1 : 0,
+        chapter.mappingDone ? 1 : 0,
+        chapter.reviewDone ? 1 : 0,
         chapter.currentTaskId ?? null,
         chapter.lastError ?? null,
         chapter.createdAt,
