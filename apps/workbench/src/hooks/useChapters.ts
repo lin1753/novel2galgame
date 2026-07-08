@@ -13,14 +13,23 @@ export function useRunChapter(projectId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (chapterId: string) => chapterService.run(projectId, chapterId),
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      // Pipeline is now async — response is { chapterId, status: "started" }
+      if (data.status === 'started') {
+        // Immediately refresh to show "running" status
+        qc.invalidateQueries({ queryKey: ['chapters', projectId] })
+        return
+      }
       qc.invalidateQueries({ queryKey: ['chapters', projectId] })
       qc.invalidateQueries({ queryKey: ['project', projectId] })
       qc.invalidateQueries({ queryKey: ['tasks', projectId] })
     },
     onError: (err: any) => {
       console.error('[useRunChapter] Error:', err)
-      alert(`管线运行失败: ${err.message}`)
+      // Only show alert for actual errors (not the async pipeline response)
+      if (err.message !== 'started') {
+        alert(`管线启动失败: ${err.message}`)
+      }
     },
   })
 }

@@ -94,6 +94,37 @@ export function createDatabase(dataDir: string): Database.Database {
     }
   }
 
+  // Migration: task metrics columns
+  const taskCols = db.prepare("PRAGMA table_info(tasks)").all().map((r: any) => r.name);
+  for (const [col, type] of [
+    ["duration_ms", "INTEGER DEFAULT 0"],
+    ["prompt_tokens", "INTEGER DEFAULT 0"],
+    ["completion_tokens", "INTEGER DEFAULT 0"],
+    ["retry_count", "INTEGER DEFAULT 0"],
+    ["stage_order", "INTEGER DEFAULT 0"],
+  ] as const) {
+    if (!taskCols.includes(col)) {
+      db.prepare(`ALTER TABLE tasks ADD COLUMN ${col} ${type}`).run();
+    }
+  }
+
+  // Migration: pipeline_runs table for persistent pipeline state
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pipeline_runs (
+      run_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      chapter_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'running',
+      current_stage TEXT,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      error_message TEXT,
+      FOREIGN KEY (chapter_id) REFERENCES chapters(chapter_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pipeline_runs_chapter ON pipeline_runs(chapter_id);
+    CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);
+  `);
+
   const row = db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get() as
     | { value: string }
     | undefined;

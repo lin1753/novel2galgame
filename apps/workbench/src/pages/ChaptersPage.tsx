@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { chapterService } from '@/services/chapters'
 import { useRunChapter } from '@/hooks/useChapters'
 import { useAutoExport } from '@/hooks/useAutoExport'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { PipelineProgress } from '@/components/common/PipelineProgress'
-import { Play, Layers, Loader2 } from 'lucide-react'
+import { Play, Layers, Loader2, XCircle, Clock, Zap, RotateCcw } from 'lucide-react'
 
 export function ChaptersPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -17,10 +17,30 @@ export function ChaptersPage() {
     enabled: !!projectId,
   })
   const runChapter = useRunChapter(projectId!)
+  const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
 
   // Use the global auto-export store for SSE progress that persists across navigation
   const { chapters: progressChapters } = useAutoExport(projectId!)
+
+  // Fetch task metrics for selected chapter
+  const { data: taskMetrics } = useQuery({
+    queryKey: ['chapter-tasks', projectId, selectedId],
+    queryFn: () => fetch(`/api/projects/${projectId}/chapters/${selectedId}/tasks`).then(r => r.json()),
+    enabled: !!selectedId,
+    refetchInterval: selectedId && chapters?.find((c: any) => c.chapterId === selectedId)?.status === 'running' ? 3000 : false,
+  })
+
+  const handleCancel = async () => {
+    if (!selectedId) return
+    setCancelling(true)
+    try {
+      await fetch(`/api/projects/${projectId}/chapters/${selectedId}/cancel`, { method: 'POST' })
+      qc.invalidateQueries({ queryKey: ['chapters', projectId] })
+    } catch {}
+    setCancelling(false)
+  }
 
   const selected = chapters?.find((c: any) => c.chapterId === selectedId)
   const currentProgress = selectedId ? progressChapters.get(selectedId) : null
@@ -122,6 +142,56 @@ export function ChaptersPage() {
               </div>
             )}
 
+            {/* Task metrics */}
+            {taskMetrics && taskMetrics.length > 0 && (
+              <div className="border border-border rounded-xl overflow-hidden">
+                <div className="px-4 py-2 border-b border-border/60 bg-muted/20">
+                  <h4 className="text-sm font-medium flex items-center gap-2">
+                    <Zap className="w-3.5 h-3.5 text-yellow-500" /> 运行指标
+                  </h4>
+                </div>
+                <div className="divide-y divide-border/40">
+                  {taskMetrics.map((t: any) => (
+                    <div key={t.task_id} className="px-4 py-2.5 flex items-center gap-3 text-xs">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        t.status === 'succeeded' ? 'bg-green-500' :
+                        t.status === 'failed' ? 'bg-red-500' : 'bg-yellow-500'
+                      }`} />
+                      <span className="w-28 shrink-0 text-muted-foreground">{taskLabel(t.type)}</span>
+                      <span className="w-16 text-right tabular-nums">
+                        {t.duration_ms ? `${(t.duration_ms / 1000).toFixed(1)}s` : '-'}
+                      </span>
+                      <span className="text-muted-foreground">
+                        <Clock className="w-3 h-3 inline mr-0.5" />
+                      </span>
+                      <span className="w-24 text-right tabular-nums">
+                        {t.prompt_tokens + t.completion_tokens > 0
+                          ? `${((t.prompt_tokens + t.completion_tokens) / 1000).toFixed(1)}k`
+                          : '-'}
+                      </span>
+                      <span className="text-muted-foreground">tokens</span>
+                      {t.retry_count > 0 && (
+                        <span className="flex items-center gap-0.5 text-amber-500">
+                          <RotateCcw className="w-3 h-3" /> {t.retry_count}
+                        </span>
+                      )}
+                      {t.status === 'failed' && t.error_message && (
+                        <span className="text-destructive truncate flex-1 min-w-0" title={t.error_message}>
+                          {t.error_message.slice(0, 60)}
+                        </span>
+                      )}
+                      <span className={`ml-auto text-[10px] ${
+                        t.status === 'succeeded' ? 'text-green-500' :
+                        t.status === 'failed' ? 'text-red-500' : 'text-yellow-500'
+                      }`}>
+                        {t.status === 'succeeded' ? '✓' : t.status === 'failed' ? '✗' : '...'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {selected.lastError && (
               <div className="border border-destructive/50 rounded p-3 bg-destructive/10 text-sm">
                 <p className="font-medium text-destructive mb-1">错误信息</p>
@@ -158,9 +228,30 @@ export function ChaptersPage() {
                 <Layers className="w-4 h-4" /> 查看场景
               </button>
             )}
+            {(selected.status === 'running' || currentProgress?.status === 'running') && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-destructive/30 text-destructive rounded text-sm hover:bg-destructive/5 disabled:opacity-50"
+              >
+                <XCircle className="w-4 h-4" /> {cancelling ? '取消中...' : '取消运行'}
+              </button>
+            )}
           </div>
         )}
       </aside>
     </div>
   )
+}
+
+function taskLabel(type: string): string {
+  const labels: Record<string, string> = {
+    narrative_parsing: '叙事解析',
+    attribution: '角色归因',
+    scene_segmentation: '场景分割',
+    vn_mapping: 'VN映射',
+    fidelity_review: '忠实度审查',
+    visual_prompt: '视觉提示',
+  }
+  return labels[type] ?? type
 }

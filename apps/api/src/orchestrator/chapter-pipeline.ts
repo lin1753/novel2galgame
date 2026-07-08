@@ -1,4 +1,4 @@
-import type { ProjectConfig, ProjectState, SceneState } from "@novel2gal/core";
+import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,
@@ -10,6 +10,7 @@ import {
   writeVNScript,
   writeFidelityReport,
   writeVisualPromptResult,
+  createDatabase,
 } from "@novel2gal/storage";
 import {
   runStructureAgent,
@@ -26,6 +27,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 const now = () => new Date().toISOString();
+
+/** Metrics collected during a single agent call */
+interface CallMetrics { durationMs: number; promptTokens: number; completionTokens: number; retryCount: number }
 
 /** Wrap an agent call: throw on recoverable failure so withRetry catches it */
 function retryable<T>(fn: () => Promise<AgentResult<T>>): () => Promise<T> {
@@ -118,6 +122,68 @@ async function parallelLimit<T>(
   return results;
 }
 
+/** Wrap a provider to collect token usage via onResponse callback */
+function instrumentProvider(p: LLMProvider, onResponse: (r: any) => void): LLMProvider {
+  return {
+    name: p.name,
+    chat(options: any) {
+      return p.chat({ ...options, onResponse: (r: any) => { options.onResponse?.(r); onResponse(r); } });
+    },
+    chatJson<T>(options: any): Promise<T> {
+      return p.chatJson<T>({ ...options, onResponse: (r: any) => { options.onResponse?.(r); onResponse(r); } });
+    },
+  };
+}
+
+/** Run an agent with observability: creates/updates task record with timing, retry, and token metrics */
+async function runAgentWithMetrics(opts: {
+  type: TaskType;
+  projectId: string;
+  chapterId: string;
+  stageOrder: number;
+  provider: LLMProvider;
+  model: string;
+  signal?: AbortSignal;
+  db: ReturnType<typeof createDatabase>;
+  fn: () => Promise<AgentResult<any>>;
+  label: string;
+  tokenAcc?: { prompt: number; completion: number };
+}): Promise<any> {
+  const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
+  const startedAt = Date.now();
+  let retryCount = 0;
+  // Insert task record (running)
+  opts.db.prepare(`INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at)
+    VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)`)
+    .run(taskId, opts.projectId, opts.chapterId, opts.type, opts.provider.name, opts.model, opts.stageOrder, now());
+
+  try {
+    const data = await withRetry(
+      retryable(() => {
+        retryCount++;
+        return opts.fn();
+      }),
+      { label: opts.label }
+    );
+
+    // Success — update task (read tokenAcc AFTER agent completes)
+    const durationMs = Date.now() - startedAt;
+    const actualRetries = Math.max(0, retryCount - 1);
+    opts.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=? WHERE task_id=?`)
+      .run(now(), durationMs, actualRetries, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, taskId);
+
+    return data;
+  } catch (err) {
+    // Failed — update task
+    const durationMs = Date.now() - startedAt;
+    const actualRetries = Math.max(0, retryCount - 1);
+    const msg = err instanceof Error ? err.message : String(err);
+    opts.db.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=? WHERE task_id=?`)
+      .run(now(), durationMs, actualRetries, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg.slice(0, 500), taskId);
+    throw err;
+  }
+}
+
 export function createDefaultConfig(): ProjectConfig {
   return {
     fidelityMode: "standard",
@@ -161,9 +227,14 @@ export async function runChapterPipeline(
   agentModels?: AgentModelConfig,
   onSceneCreated?: (scene: SceneState, sceneIndex: number) => void,
   existingChapterId?: string,
-  onChapterFlags?: (chapterId: string, flags: Partial<{ parsingDone: boolean; attributionDone: boolean; segmentationDone: boolean; mappingDone: boolean; reviewDone: boolean }>) => void
+  onChapterFlags?: (chapterId: string, flags: Partial<{ parsingDone: boolean; attributionDone: boolean; segmentationDone: boolean; mappingDone: boolean; reviewDone: boolean }>) => void,
+  signal?: AbortSignal,
+  db?: ReturnType<typeof createDatabase>,
+  onStageUpdate?: (stage: string) => void,
 ) {
   const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
+  const d = db!; // db is always passed from the route
+  const checkAbort = () => { if (signal?.aborted) throw new Error("ABORTED: Pipeline cancelled by user"); };
 
   // Save chapter source
   writeChapterSource(dataDir, project.projectId, chapterId, {
@@ -173,37 +244,55 @@ export async function runChapterPipeline(
   });
 
   // Stage 1: Narrative Parsing
+  checkAbort();
   onProgress?.("narrative_parsing", `Parsing chapter ${chapterTitle}`);
+  onStageUpdate?.("narrative_parsing");
   const narr = resolveAgent(agentModels, "narrative", provider, model);
-  const narrativeData = await withRetry(
-    retryable(() => runNarrativeParsingAgent({ chapterId, chapterTitle, chapterText }, narr.provider, narr.model)),
-    { label: `narrative:${chapterId}` }
-  );
+  const t0 = { prompt: 0, completion: 0 };
+  const wNarr = instrumentProvider(narr.provider, (r: any) => { t0.prompt += r.usage?.promptTokens ?? 0; t0.completion += r.usage?.completionTokens ?? 0; });
+  const narrativeData = await runAgentWithMetrics({
+    type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
+    provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0,
+    label: `narrative:${chapterId}`,
+    fn: () => runNarrativeParsingAgent({ chapterId, chapterTitle, chapterText }, wNarr, narr.model),
+  });
   writeNarrativeResult(dataDir, project.projectId, chapterId, narrativeData);
   onChapterFlags?.(chapterId, { parsingDone: true });
 
   // Stage 2: Attribution
+  checkAbort();
   onProgress?.("attribution", `Attributing chapter ${chapterTitle}`);
+  onStageUpdate?.("attribution");
   const attr = resolveAgent(agentModels, "attribution", provider, model);
-  const attributionData = await withRetry(
-    retryable(() => runAttributionAgent({ chapterId, units: narrativeData.units }, attr.provider, attr.model)),
-    { label: `attribution:${chapterId}` }
-  );
+  const t1 = { prompt: 0, completion: 0 };
+  const wAttr = instrumentProvider(attr.provider, (r: any) => { t1.prompt += r.usage?.promptTokens ?? 0; t1.completion += r.usage?.completionTokens ?? 0; });
+  const attributionData = await runAgentWithMetrics({
+    type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
+    provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1,
+    label: `attribution:${chapterId}`,
+    fn: () => runAttributionAgent({ chapterId, units: narrativeData.units }, wAttr, attr.model),
+  });
   writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
   onChapterFlags?.(chapterId, { attributionDone: true });
 
   // Stage 3: Scene Segmentation
+  checkAbort();
   onProgress?.("scene_segmentation", `Segmenting chapter ${chapterTitle}`);
+  onStageUpdate?.("segmentation");
   const seg = resolveAgent(agentModels, "segmentation", provider, model);
-  const segResult = await withRetry(
-    retryable(() => runSceneSegmentationAgent({ chapterId, units: attributionData.units }, seg.provider, seg.model)),
-    { label: `segmentation:${chapterId}` }
-  );
+  const t2 = { prompt: 0, completion: 0 };
+  const wSeg = instrumentProvider(seg.provider, (r: any) => { t2.prompt += r.usage?.promptTokens ?? 0; t2.completion += r.usage?.completionTokens ?? 0; });
+  const segResult = await runAgentWithMetrics({
+    type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
+    provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2,
+    label: `segmentation:${chapterId}`,
+    fn: () => runSceneSegmentationAgent({ chapterId, units: attributionData.units }, wSeg, seg.model),
+  });
 
   // Fix scene unitIds: LLM may generate inconsistent IDs, remap by order
-  const allUnitIds = new Set(attributionData.units.map((u) => u.unitId));
+  const allUnitIds = new Set(attributionData.units.map((u: any) => u.unitId));
   const needsRemap = segResult.scenes.some(
-    (s) => s.unitIds.some((id) => !allUnitIds.has(id))
+    (s: any) => s.unitIds.some((id: string) => !allUnitIds.has(id))
   );
   if (needsRemap) {
     // Rebuild scene unit assignments from sceneUnitMap or order ranges
@@ -211,7 +300,7 @@ export async function runChapterPipeline(
     let offset = 0;
     for (const scene of segResult.scenes) {
       const count = scene.unitIds.length;
-      scene.unitIds = units.slice(offset, offset + count).map((u) => u.unitId);
+      scene.unitIds = units.slice(offset, offset + count).map((u: any) => u.unitId);
       if (scene.unitIds.length > 0) {
         scene.startUnitId = scene.unitIds[0];
         scene.endUnitId = scene.unitIds[scene.unitIds.length - 1];
@@ -225,7 +314,7 @@ export async function runChapterPipeline(
     }
   }
 
-  writeSegmentationResult(dataDir, project.projectId, chapterId, segResult.data);
+  writeSegmentationResult(dataDir, project.projectId, chapterId, segResult);
   onChapterFlags?.(chapterId, { segmentationDone: true });
 
   // Register scenes in database
@@ -244,33 +333,42 @@ export async function runChapterPipeline(
   const sceneConcurrency = 3;
   const attrUnits = attributionData.units;
   const attrCharacters = attributionData.characters;
-  const sceneTasks = segResult.scenes.map((scene) => async () => {
-    const sceneUnits = attrUnits.filter((u) =>
+  const sceneTasks = segResult.scenes.map((scene: any) => async () => {
+    const sceneUnits = attrUnits.filter((u: any) =>
       scene.unitIds.includes(u.unitId)
     );
 
     onProgress?.("vn_mapping", `Mapping scene ${scene.sceneId}`);
     const vn = resolveAgent(agentModels, "vnMapping", provider, model);
-    const vnData = await withRetry(
-      retryable(() => runVNMappingAgent(
+    const sceneIdx = segResult.scenes.indexOf(scene);
+    const tv = { prompt: 0, completion: 0 };
+    const wVn = instrumentProvider(vn.provider, (r: any) => { tv.prompt += r.usage?.promptTokens ?? 0; tv.completion += r.usage?.completionTokens ?? 0; });
+    const vnData = await runAgentWithMetrics({
+      type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
+      provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv,
+      label: `vn_mapping:${scene.sceneId}`,
+      fn: () => runVNMappingAgent(
         { sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" },
-        vn.provider, vn.model
-      )),
-      { label: `vn_mapping:${scene.sceneId}` }
-    );
+        wVn, vn.model
+      ),
+    });
     writeVNScript(dataDir, project.projectId, scene.sceneId, vnData);
 
     onProgress?.("fidelity_review", `Reviewing scene ${scene.sceneId}`);
     const fr = resolveAgent(agentModels, "fidelityReview", provider, model);
     let fidelityPassed = true;
+    const tf = { prompt: 0, completion: 0 };
+    const wFr = instrumentProvider(fr.provider, (r: any) => { tf.prompt += r.usage?.promptTokens ?? 0; tf.completion += r.usage?.completionTokens ?? 0; });
     try {
-      const fidelityData = await withRetry(
-        retryable(() => runFidelityReviewAgent(
+      const fidelityData = await runAgentWithMetrics({
+        type: "fidelity_review", projectId: project.projectId, chapterId, stageOrder: 4 + sceneIdx * 2,
+        provider: fr.provider, model: fr.model, signal, db: d, tokenAcc: tf,
+        label: `fidelity:${scene.sceneId}`,
+        fn: () => runFidelityReviewAgent(
           { sceneId: scene.sceneId, chapterId, vnScript: vnData, originalUnits: sceneUnits },
-          fr.provider, fr.model
-        )),
-        { label: `fidelity:${scene.sceneId}`, maxRetries: 2 }
-      );
+          wFr, fr.model
+        ),
+      });
       writeFidelityReport(dataDir, project.projectId, scene.sceneId, fidelityData);
       fidelityPassed = fidelityData.passed;
     } catch (err) {
@@ -316,7 +414,7 @@ export async function runChapterPipeline(
     fs.mkdirSync(charDir, { recursive: true });
 
     // Generate placeholder SVGs for backgrounds (skip if real PNG exists)
-    for (const scene of segResult.data.scenes) {
+    for (const scene of segResult.scenes) {
       const bgId = scene.sceneId;
       const safeId = bgId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
       const pngPath = path.join(bgDir, `${safeId}.png`);
@@ -327,10 +425,10 @@ export async function runChapterPipeline(
     }
 
     // Generate placeholder SVGs for characters (skip if real PNG exists)
-    for (const char of attributionResult.data.characters) {
+    for (const char of attributionData.characters) {
       const charId = char.characterId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
       const exprs = new Set<string>(["default"]);
-      for (const scene of segResult.data.scenes) {
+      for (const scene of segResult.scenes) {
         for (const step of (scene as any).steps ?? []) {
           if (step?.type === "show" && step.characterId === char.characterId && step.expression) {
             exprs.add(step.expression);

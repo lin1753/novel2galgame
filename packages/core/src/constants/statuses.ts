@@ -26,6 +26,7 @@ export const PROJECT_STATUSES: readonly ProjectStatus[] = [
 
 export const CHAPTER_STATUSES: readonly ChapterStatus[] = [
   "raw",
+  "running",
   "narrative_parsed",
   "attributed",
   "segmented",
@@ -33,6 +34,8 @@ export const CHAPTER_STATUSES: readonly ChapterStatus[] = [
   "fidelity_reviewing",
   "chapter_ready",
   "failed",
+  "cancelled",
+  "crashed",
 ];
 
 export const SCENE_STATUSES: readonly SceneStatus[] = [

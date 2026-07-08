@@ -14,6 +14,7 @@ const projectStatusConfig: Record<ProjectStatus, { label: string; color: string 
 
 const chapterStatusConfig: Record<ChapterStatus, { label: string; color: string }> = {
   raw: { label: '待处理', color: 'bg-gray-500' },
+  running: { label: '运行中', color: 'bg-yellow-500' },
   narrative_parsed: { label: '已解析', color: 'bg-blue-500' },
   attributed: { label: '已归因', color: 'bg-blue-600' },
   segmented: { label: '已分镜', color: 'bg-cyan-500' },
@@ -21,6 +22,8 @@ const chapterStatusConfig: Record<ChapterStatus, { label: string; color: string 
   fidelity_reviewing: { label: '审查中', color: 'bg-purple-500' },
   chapter_ready: { label: '就绪', color: 'bg-green-500' },
   failed: { label: '失败', color: 'bg-red-500' },
+  cancelled: { label: '已取消', color: 'bg-gray-400' },
+  crashed: { label: '已中断', color: 'bg-orange-500' },
 }
 
 const sceneStatusConfig: Record<SceneStatus, { label: string; color: string }> = {

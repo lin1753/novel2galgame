@@ -38,12 +38,31 @@ import { broadcastProgress } from "./progress.js";
 
 const upload = multer({ dest: path.join(config.dataDir, "temp") });
 
+// Track running pipelines for cancellation
+const runningPipelines = new Map<string, AbortController>();
+
 export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase>>, getProvider: () => LLMProvider | null) {
   const router = Router();
   const projectRepo = new ProjectRepository(db);
   const chapterRepo = new ChapterRepository(db);
   const sceneRepo = new SceneRepository(db);
   const taskRepo = new TaskRepository(db);
+
+  // ── Startup crash recovery ──
+  // Mark any pipeline_runs and chapters still "running" as crashed
+  const crashedRuns = db.prepare("UPDATE pipeline_runs SET status='crashed', finished_at=? WHERE status='running'")
+    .run(now());
+  if (crashedRuns.changes > 0) {
+    console.log(`[Startup] Marked ${crashedRuns.changes} dangling pipeline runs as crashed`);
+  }
+  const crashedChapters = db.prepare("UPDATE chapters SET status='crashed', updated_at=? WHERE status='running'")
+    .run(now());
+  if (crashedChapters.changes > 0) {
+    console.log(`[Startup] Marked ${crashedChapters.changes} dangling chapters as crashed`);
+  }
+
+  // Helper
+  function now() { return new Date().toISOString(); }
 
   // POST /projects - Create project
   router.post("/", (req: Request, res: Response) => {
@@ -206,21 +225,28 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     res.json(chapterRepo.listByProject(param(req, "id")));
   });
 
-  // POST /projects/:id/chapters/:chapterId/run - Run chapter pipeline
+  // POST /projects/:id/chapters/:chapterId/run - Run chapter pipeline (async)
   router.post("/:id/chapters/:chapterId/run", async (req: Request, res: Response) => {
     const provider = getProvider();
     if (!provider) return res.status(503).json({ error: "No LLM provider configured" });
 
-    const project = projectRepo.getById(param(req, "id"));
+    const pid = param(req, "id");
+    const cid = param(req, "chapterId");
+    const project = projectRepo.getById(pid);
     if (!project) return res.status(404).json({ error: "Project not found" });
 
-    const chapter = chapterRepo.getById(param(req, "chapterId"));
+    const chapter = chapterRepo.getById(cid);
     if (!chapter) return res.status(404).json({ error: "Chapter not found" });
 
     const sourcePath = path.join(
-      config.dataDir, "projects", param(req, "id"), "chapters", param(req, "chapterId"), "source.txt"
+      config.dataDir, "projects", pid, "chapters", cid, "source.txt"
     );
     if (!fs.existsSync(sourcePath)) return res.status(400).json({ error: "Chapter source not found" });
+
+    // If already running, don't start again
+    if (chapter.status === "running") {
+      return res.status(409).json({ error: "Chapter pipeline already running" });
+    }
 
     const chapterText = fs.readFileSync(sourcePath, "utf-8");
     const model = req.body.model ?? project.config.defaultTextModel ?? "agnes-2.0-flash";
@@ -241,30 +267,81 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
         narrative: trainedAgent,
         attribution: trainedAgent,
         segmentation: trainedAgent,
-        // vnMapping, fidelityReview, visualPrompt use default cloud provider
       };
       console.log(`Per-agent routing: narrative/attribution/segmentation → ${localBaseUrl} (${localModel}), others → cloud (${model})`);
     }
 
-    try {
-      const result = await runChapterPipeline(
-        config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model,
-        (stage, message) => {
-          broadcastProgress({ projectId: param(req, "id"), chapterId: chapter.chapterId, stage, status: "progress", message });
-        },
-        agentModels,
-        (scene, sceneIndex) => { try { sceneRepo.create(scene, sceneIndex); } catch {} },
-        chapter.chapterId,
-        (chId, flags) => { try { chapterRepo.updateFlags(chId, flags); } catch {} }
-      );
-      broadcastProgress({ projectId: param(req, "id"), chapterId: chapter.chapterId, stage: "completed", status: "completed" });
-      chapterRepo.updateStatus(param(req, "chapterId"), "chapter_ready");
-      res.json(result);
-    } catch (err) {
-      broadcastProgress({ projectId: param(req, "id"), chapterId: chapter.chapterId, stage: "failed", status: "failed", message: err instanceof Error ? err.message : String(err) });
-      chapterRepo.updateStatus(param(req, "chapterId"), "failed");
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
-    }
+    // Cancel any existing pipeline for this chapter
+    runningPipelines.get(cid)?.abort();
+    runningPipelines.delete(cid);
+
+    // Mark chapter as running
+    chapterRepo.updateStatus(cid, "running");
+
+    // Create pipeline_run record
+    const runId = `run_${uuid().replace(/-/g, "").slice(0, 12)}`;
+    db.prepare(`INSERT INTO pipeline_runs (run_id, project_id, chapter_id, status, started_at)
+      VALUES (?, ?, ?, 'running', ?)`).run(runId, pid, cid, now());
+
+    // Create AbortController for cancellation
+    const ac = new AbortController();
+    runningPipelines.set(cid, ac);
+
+    // Return immediately, run pipeline in background
+    res.json({ chapterId: cid, status: "started", message: "管线已启动" });
+
+    // Run pipeline asynchronously
+    runChapterPipeline(
+      config.dataDir, project, chapter.index, chapter.title, chapterText, provider, model,
+      (stage, message) => {
+        broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message });
+      },
+      agentModels,
+      (scene, sceneIndex) => { try { sceneRepo.create(scene, sceneIndex); } catch {} },
+      cid,
+      (chId, flags) => { try { chapterRepo.updateFlags(chId, flags); } catch {} },
+      ac.signal,
+      db,
+      (stage) => {
+        // Update pipeline_run current_stage
+        db.prepare("UPDATE pipeline_runs SET current_stage=? WHERE run_id=?").run(stage, runId);
+      }
+    ).then((result) => {
+      broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
+      chapterRepo.updateStatus(cid, "chapter_ready");
+      db.prepare("UPDATE pipeline_runs SET status='completed', finished_at=? WHERE run_id=?")
+        .run(now(), runId);
+      console.log(`[Pipeline] ${cid} completed: ${result.sceneCount} scenes`);
+    }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isCancelled = msg.includes("ABORTED");
+      broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: msg });
+      chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
+      db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
+        .run(isCancelled ? "cancelled" : "failed", now(), msg.slice(0, 500), runId);
+      console.error(`[Pipeline] ${cid} ${isCancelled ? "cancelled" : "failed"}:`, msg);
+    }).finally(() => {
+      runningPipelines.delete(cid);
+    });
+  });
+
+  // POST /projects/:id/chapters/:chapterId/cancel — Cancel a running pipeline
+  router.post("/:id/chapters/:chapterId/cancel", (req: Request, res: Response) => {
+    const cid = param(req, "chapterId");
+    const ac = runningPipelines.get(cid);
+    if (!ac) return res.status(404).json({ error: "No running pipeline for this chapter" });
+    ac.abort();
+    res.json({ chapterId: cid, status: "cancelling", message: "正在取消管线..." });
+  });
+
+  // GET /projects/:id/chapters/:chapterId/tasks — Get task metrics for a chapter
+  router.get("/:id/chapters/:chapterId/tasks", (req: Request, res: Response) => {
+    const rows = db.prepare(
+      `SELECT task_id, type, status, provider, model, started_at, finished_at, duration_ms,
+              prompt_tokens, completion_tokens, retry_count, stage_order, error_message
+       FROM tasks WHERE chapter_id=? ORDER BY stage_order ASC`
+    ).all(param(req, "chapterId"));
+    res.json(rows);
   });
 
   // GET /projects/:id/tasks - List tasks

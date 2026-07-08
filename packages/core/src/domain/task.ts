@@ -15,6 +15,13 @@ export type TaskStatus =
   | "failed"
   | "cancelled";
 
+export interface AgentMetrics {
+  durationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  retryCount: number;
+}
+
 export interface TaskRecord {
   taskId: string;
   projectId: string;
@@ -34,6 +41,11 @@ export interface TaskRecord {
 
   inputHash?: string;
   outputPath?: string;
+
+  /** Per-agent observability metrics */
+  metrics?: AgentMetrics;
+  /** Order within the pipeline (0-based) */
+  stageOrder?: number;
 }
 
 export interface CacheKey {

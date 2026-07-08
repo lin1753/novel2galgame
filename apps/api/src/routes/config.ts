@@ -1,7 +1,5 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import fs from "node:fs";
-import path from "node:path";
 import {
   config,
   readProfilesConfig,
@@ -20,100 +18,11 @@ import {
 } from "@novel2gal/providers";
 import type { LLMProvider, ImageProvider, VideoProvider } from "@novel2gal/providers";
 
-interface ModelConfig {
-  provider: string;
-  apiKey: string;
-  baseUrl: string;
-  defaultModel: string;
-  /** Image generation provider: "openai" | "agnes" | "zhipu" | "siliconflow" */
-  imageProvider?: string;
-  imageModel?: string;
-  /** Video generation provider: "agnes" (currently the only one) */
-  videoProvider?: string;
-  videoModel?: string;
-  budgetMode: string;
-  timeout: number;
-  retryCount: number;
-}
-
-const CONFIG_PATH = () => path.join(config.dataDir, "config", "models.json");
-
-function readModelConfig(): ModelConfig {
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH(), "utf-8"));
-  } catch {
-    // Fall back to active profile so frontend reflects the actual backend config
-    const profile = readProfilesConfig();
-    const active = profile.profiles.find((p) => p.name === profile.activeProfile);
-    return {
-      provider: active?.name ?? "openai",
-      apiKey: active?.apiKey ?? process.env.OPENAI_API_KEY ?? "",
-      baseUrl: active?.baseUrl ?? process.env.OPENAI_BASE_URL ?? "",
-      defaultModel: active?.defaultModel ?? process.env.DEFAULT_MODEL ?? "gpt-4o",
-      imageProvider: active?.type === "cloud" ? "agnes" : "openai",
-      imageModel: "agnes-image-2.1-flash",
-      videoProvider: "agnes",
-      videoModel: "agnes-video-v2.0",
-      budgetMode: "balanced",
-      timeout: 60,
-      retryCount: 2,
-    };
-  }
-}
-
-function writeModelConfig(cfg: ModelConfig) {
-  fs.mkdirSync(path.dirname(CONFIG_PATH()), { recursive: true });
-  fs.writeFileSync(CONFIG_PATH(), JSON.stringify(cfg, null, 2), "utf-8");
-}
-
 export function createConfigRoutes(
   getProvider: () => LLMProvider | null,
   setProvider?: (p: LLMProvider) => void
 ) {
   const router = Router();
-
-  // GET /config/models
-  router.get("/models", (_req: Request, res: Response) => {
-    res.json(readModelConfig());
-  });
-
-  // POST /config/models
-  router.post("/models", (req: Request, res: Response) => {
-    const cfg = { ...readModelConfig(), ...req.body };
-    writeModelConfig(cfg);
-    // Sync to profiles: update matching profile or add a new one
-    if (cfg.provider && cfg.apiKey) {
-      const profilesCfg = readProfilesConfig();
-      const existingIdx = profilesCfg.profiles.findIndex((p) => p.name === cfg.provider);
-      const profile: ModelProfile = {
-        name: cfg.provider,
-        type: "cloud",
-        baseUrl: cfg.baseUrl || "https://api.openai.com/v1",
-        apiKey: cfg.apiKey,
-        defaultModel: cfg.defaultModel,
-        enabled: true,
-      };
-      if (existingIdx >= 0) {
-        profilesCfg.profiles[existingIdx] = { ...profilesCfg.profiles[existingIdx], ...profile };
-      } else {
-        profilesCfg.profiles.push(profile);
-      }
-      profilesCfg.activeProfile = cfg.provider;
-      writeProfilesConfig(profilesCfg);
-      // Apply the new provider
-      if (setProvider) {
-        const newProvider = new FetchLLMProvider({
-          apiKey: cfg.apiKey,
-          baseUrl: profile.baseUrl,
-          defaultModel: profile.defaultModel,
-          name: profile.name,
-        });
-        setProvider(newProvider);
-        console.log(`Model config saved → active profile: ${profile.name}`);
-      }
-    }
-    res.json(cfg);
-  });
 
   // GET /config/profiles - List all model profiles
   router.get("/profiles", (_req: Request, res: Response) => {

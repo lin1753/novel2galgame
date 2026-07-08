@@ -10,9 +10,20 @@ export function useAutoExport(projectId: string) {
   const [state, setState] = useState<AutoExportState>(autoExportStore.getState())
 
   useEffect(() => {
-    // Sync state from global store
-    return autoExportStore.subscribe((s) => setState(s))
+    // Subscribe to global store for state updates
+    const unsub = autoExportStore.subscribe((s) => setState(s))
+    return unsub
   }, [])
+
+  // Auto-connect SSE for real-time progress tracking (persists across navigation)
+  useEffect(() => {
+    if (projectId) {
+      autoExportStore.watchProgress(projectId)
+    }
+    return () => {
+      // Don't disconnect on unmount — SSE should stay alive across navigation
+    }
+  }, [projectId])
 
   const startAutoExport = async (opts?: { model?: string; maxChapters?: number; generateAssets?: boolean }) => {
     autoExportStore.start(projectId)

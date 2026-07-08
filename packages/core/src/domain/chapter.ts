@@ -1,12 +1,15 @@
 export type ChapterStatus =
   | "raw"
+  | "running"
   | "narrative_parsed"
   | "attributed"
   | "segmented"
   | "scene_mapping"
   | "fidelity_reviewing"
   | "chapter_ready"
-  | "failed";
+  | "failed"
+  | "cancelled"
+  | "crashed";
 
 export interface ChapterState {
   chapterId: string;

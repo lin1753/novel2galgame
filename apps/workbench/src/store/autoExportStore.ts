@@ -1,6 +1,6 @@
 /**
- * Auto-export progress store — persists SSE state across page navigation.
- * Uses a module-level singleton so the EventSource stays alive while the app is open.
+ * Global progress store — persists SSE state across page navigation.
+ * Singleton: tracks pipeline progress for both single chapter runs and auto-export.
  */
 
 export interface ChapterProgress {
@@ -52,24 +52,64 @@ class AutoExportStore {
     this.notify()
   }
 
-  start(projectId: string) {
-    // Close existing SSE
-    this.eventSource?.close()
+  /** SSE message handler — shared by watchProgress and start */
+  private handleSSEMessage(e: MessageEvent) {
+    try {
+      const event = JSON.parse(e.data)
+      if (event.status === 'connected') return
 
-    // Reset state for new project
-    this.state = {
-      running: false,
-      chapters: new Map(),
-      logs: [],
+      const chapterId = event.chapterId as string | undefined
+      const msg = chapterId
+        ? `[${event.stage}] ${event.status}`
+        : `[${event.stage}] ${event.status}${event.message ? ': ' + event.message : ''}`
+
+      this.update((prev) => {
+        const chapters = new Map(prev.chapters)
+        if (chapterId) {
+          const existing = chapters.get(chapterId) ?? {
+            chapterId,
+            chapterIndex: event.chapterIndex ?? 0,
+            stage: event.stage,
+            status: 'queued' as const,
+          }
+          chapters.set(chapterId, {
+            ...existing,
+            stage: event.stage,
+            status: (event.status === 'progress' ? 'running' : event.status) as ChapterProgress['status'],
+            message: event.message,
+          })
+        }
+        const logs = [...prev.logs, msg].slice(-200)
+        return { chapters, logs, running: prev.running || chapters.size > 0 }
+      })
+    } catch {}
+  }
+
+  /** Connect SSE for a project — keeps existing state. Used by chapter pages for progress tracking. */
+  watchProgress(projectId: string) {
+    if (this.eventSource) {
+      // If already watching the same project, skip
+      const currentUrl = this.eventSource.url
+      if (currentUrl.includes(projectId)) return
+      this.eventSource.close()
     }
+    this.update(() => ({ projectId }))
 
-    this.update(() => ({
-      running: true,
-      projectId,
-      chapters: new Map(),
-      logs: ['Starting auto-export...'],
-      exportOutput: undefined,
-    }))
+    const es = new EventSource(`/api/projects/${projectId}/progress`)
+    this.eventSource = es
+
+    es.onmessage = (e) => this.handleSSEMessage(e)
+
+    es.onerror = () => {
+      // SSE will auto-reconnect; don't clear state
+    }
+  }
+
+  /** Start auto-export flow — resets state and connects SSE */
+  start(projectId: string) {
+    this.eventSource?.close()
+    this.state = { running: true, projectId, chapters: new Map(), logs: ['Starting auto-export...'] }
+    this.notify()
 
     const es = new EventSource(`/api/projects/${projectId}/progress`)
     this.eventSource = es
@@ -79,7 +119,7 @@ class AutoExportStore {
         const event = JSON.parse(e.data)
         if (event.status === 'connected') return
 
-        const chapterId = event.chapterId
+        const chapterId = event.chapterId as string | undefined
         const msg = chapterId
           ? `[Ch${event.chapterIndex != null ? event.chapterIndex + 1 : ''}:${event.stage}] ${event.status}`
           : `[${event.stage}] ${event.status}${event.message ? ': ' + event.message : ''}`
@@ -96,7 +136,7 @@ class AutoExportStore {
             chapters.set(chapterId, {
               ...existing,
               stage: event.stage,
-              status: event.status as ChapterProgress['status'],
+              status: (event.status === 'progress' ? 'running' : event.status) as ChapterProgress['status'],
               message: event.message,
             })
           }
@@ -122,6 +162,11 @@ class AutoExportStore {
       es.close()
       this.eventSource = null
     }
+  }
+
+  disconnect() {
+    this.eventSource?.close()
+    this.eventSource = null
   }
 
   async cancelChapter(chapterId: string) {

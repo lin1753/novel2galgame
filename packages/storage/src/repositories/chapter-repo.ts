@@ -8,6 +8,11 @@ interface ChapterRow {
   title: string;
   status: string;
   scene_count: number;
+  parsing_done?: number;
+  attribution_done?: number;
+  segmentation_done?: number;
+  mapping_done?: number;
+  review_done?: number;
   created_at: string;
   updated_at: string;
 }
@@ -20,11 +25,11 @@ function rowToChapter(row: ChapterRow): ChapterState {
     title: row.title,
     status: row.status as ChapterState["status"],
     sceneIds: [],
-    parsingDone: false,
-    attributionDone: false,
-    segmentationDone: false,
-    mappingDone: false,
-    reviewDone: false,
+    parsingDone: (row.parsing_done ?? 0) === 1,
+    attributionDone: (row.attribution_done ?? 0) === 1,
+    segmentationDone: (row.segmentation_done ?? 0) === 1,
+    mappingDone: (row.mapping_done ?? 0) === 1,
+    reviewDone: (row.review_done ?? 0) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

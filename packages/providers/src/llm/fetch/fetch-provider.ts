@@ -156,7 +156,7 @@ export class FetchLLMProvider implements LLMProvider {
     const choice = data.choices?.[0];
     if (!choice) throw new Error("No response from LLM");
 
-    return {
+    const response: LLMResponse = {
       content: choice.message.content ?? "",
       reasoning: typeof choice.message.reasoning_content === "string"
         ? choice.message.reasoning_content
@@ -169,6 +169,8 @@ export class FetchLLMProvider implements LLMProvider {
       },
       finishReason: choice.finish_reason ?? "unknown",
     };
+    options.onResponse?.(response);
+    return response;
   }
 
   async chatJson<T>(options: LLMRequestOptions): Promise<T> {
