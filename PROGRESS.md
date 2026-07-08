@@ -1190,13 +1190,30 @@ data/projects/{id}/assets/images/
 | **attribution** | 角色外观/关系详情 | `searchCharacters()` → prompt: "苏雨晴: 长发及腰, 白裙, 淡蓝眼睛" |
 | **segmentation** | 场景结构模式 | `searchScenePatterns()` → prompt: "前几章的分割方式: 每2-3个场景变化一次..." |
 
-### 9.6 后续优化
+### 9.6 后续优化计划
 
-- [ ] **混合检索 (Hybrid)** — BM25 关键词 + 向量语义, 解决角色名精确匹配
-- [ ] **HyDE** — 查询前 LLM 生成假设角色描述, 用假设嵌入去检索
-- [ ] **Query Rewriting** — LLM 改写模糊查询为精确检索词
-- [ ] **Parent-Child 引用** — 小 chunk 检索时带回完整角色 block
-- [ ] **自动化 A/B 评测** — narrative 数据作为 RAG 知识源 + 测试集, 对比有/无 RAG 的 agent 准确率
+| 优先级 | 任务 | 收益 | 成本 |
+|--------|------|------|------|
+| 🔴 P0 | **混合检索 (Hybrid)** — BM25 关键词 + 向量语义融合, 解决角色名精确匹配 | 召回率 +20-30% | 半天 |
+| 🟡 P1 | **HyDE** — 查询前 LLM 生成假设角色描述, 用假设嵌入检索 | 准确率 +10-15% | ~200t/query |
+| 🟡 P1 | **Parent-Child 引用** — chunk 检索时带回完整角色 block | 上下文完整性 | 半天 |
+| 🟢 P2 | **Query Rewriting** — LLM 改写模糊查询为精确检索词 | 召回率 +5-10% | ~100t/query |
+| 🟢 P2 | **自动化 A/B 评测** — narrative 数据作为 RAG 知识源 + 测试集 | 量化提升值 | 等 API 可用 |
+
+### 9.7 路线图
+
+```
+已完成 ✅
+  bge-small-zh-v1.5 本地嵌入 + 细粒度切分 + LLM 重排序
+  KnowledgeStore 统一接口 + 去重 + 三Agent共享
+  评测框架 (Recall@K, MRR, A/B对比)
+
+进行中 🔴
+  混合检索 (Hybrid) — BM25 + Vector + Weighted Fusion
+
+下一步 🟡
+  HyDE + Parent-Child 引用
+```
 
 ---
 

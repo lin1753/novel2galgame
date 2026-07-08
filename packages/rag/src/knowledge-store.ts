@@ -83,10 +83,20 @@ export class KnowledgeStore {
 
   // ── Search ──────────────────────────────────────────
 
-  /** Search character knowledge (for attribution agent) */
+  /** Search character knowledge (for attribution agent) — pure vector */
   async searchCharacters(queryText: string, limit?: number): Promise<CharacterKnowledge[]> {
     if (this.charStore.count === 0) return [];
     return await this.searchStore(this.charStore, queryText, limit ?? this.config.topK) as any[];
+  }
+
+  /** Hybrid search: BM25 keyword + vector semantic → weighted fusion (vectorWeight=0.6) */
+  async searchCharactersHybrid(queryText: string, limit: number = 5, vectorWeight: number = 0.6): Promise<CharacterKnowledge[]> {
+    if (this.charStore.count === 0) return [];
+    const queryVector = (await this.embedder.embed([queryText]))[0];
+    const results = this.charStore.searchHybrid(queryVector, queryText, limit, vectorWeight);
+    return results
+      .filter((r) => r.score >= this.config.minScore)
+      .map((r) => ({ ...r.record.metadata as any, _score: r.score }));
   }
 
   /** Search scene patterns (for segmentation agent) */
