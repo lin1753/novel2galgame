@@ -48,10 +48,11 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 - **IR:** Zod schema v1.0（冻结的中间表示）
 - **资源系统:** Asset Pipeline（Manifest + Resolver + Producer）
 - **导出器:** Ren'Py Builder（Builder Pattern）
-- **本地推理:** transformers + bitsandbytes 4-bit (WSL2) + Flask API
-- **Per-Agent 路由:** 前 3 个 Agent 可切换本地/云端模型
+- **本地推理:** transformers + bitsandbytes 4-bit (WSL2) + Flask + LoRA 热切换
 - **图像生成:** Agnes Image API (extra_body.response_format b64_json)
-- **资产管线:** 扫描 IR → 占位资源 → AI 生成 → 缓存 → 导出同步
+- **RAG 检索:** bge-small-zh-v1.5 (512-dim) + BM25 Hybrid + LLM 重排序
+- **管线韧性:** 异步执行 + 断点续跑 + SHA256 响应缓存 + AbortController 取消
+- **可观测性:** Agent 指标 (duration/token/retry) + SSE 实时进度 + 崩溃恢复
 
 ## 项目结构
 
