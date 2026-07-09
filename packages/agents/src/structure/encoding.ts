@@ -24,41 +24,46 @@ export function detectAndDecode(input: Buffer | string): { text: string; encodin
     }
   }
 
-  // Try UTF-8 first - check for invalid sequences
+  // Try UTF-8 first
   const asUtf8 = input.toString("utf-8");
-  if (!hasInvalidUtf8Sequences(input)) {
-    // Valid UTF-8, but check if it contains CJK characters
-    // (a GBK file might also be "valid" UTF-8 with garbled chars)
-    const hasAsciiOnly = /^[\x00-\x7f\s]*$/.test(asUtf8);
-    if (hasAsciiOnly || hasReasonableCJK(asUtf8)) {
-      return { text: asUtf8, encoding: "utf-8" };
-    }
+  if (!hasInvalidUtf8Sequences(input) && hasReasonableCJK(asUtf8)) {
+    return { text: asUtf8, encoding: "utf-8" };
   }
 
-  // Try GBK
-  try {
-    const decoder = new TextDecoder("gbk");
-    const asGbk = decoder.decode(input);
-    if (hasReasonableCJK(asGbk)) {
-      return { text: asGbk, encoding: "gbk" };
-    }
-  } catch {
-    // GBK decode failed, continue
-  }
-
-  // Try GB18030 as fallback
+  // Try GB18030 (superset of GBK, wider CJK coverage)
   try {
     const decoder = new TextDecoder("gb18030");
     const asGb18030 = decoder.decode(input);
     if (hasReasonableCJK(asGb18030)) {
       return { text: asGb18030, encoding: "gb18030" };
     }
-  } catch {
-    // GB18030 decode failed
+  } catch {}
+
+  // Try Big5 (traditional Chinese)
+  try {
+    const decoder = new TextDecoder("big5");
+    const asBig5 = decoder.decode(input);
+    if (hasReasonableCJK(asBig5)) {
+      return { text: asBig5, encoding: "big5" };
+    }
+  } catch {}
+
+  // Try GBK as last CJK fallback
+  try {
+    const decoder = new TextDecoder("gbk");
+    const asGbk = decoder.decode(input);
+    if (hasReasonableCJK(asGbk)) {
+      return { text: asGbk, encoding: "gbk" };
+    }
+  } catch {}
+
+  // If all CJK encodings fail, try UTF-8 without strict CJK check
+  if (!hasInvalidUtf8Sequences(input)) {
+    return { text: asUtf8, encoding: "utf-8" };
   }
 
-  // Default to UTF-8
-  return { text: asUtf8, encoding: "utf-8" };
+  // Last resort: UTF-8
+  return { text: asUtf8, encoding: "utf-8 (fallback)" };
 }
 
 function hasInvalidUtf8Sequences(buf: Buffer): boolean {
