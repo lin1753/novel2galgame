@@ -163,11 +163,21 @@ async function testAttribution(provider: LLMProvider, store: KnowledgeStore) {
     });
 
     try {
+      // Target is the last unit in context
+      const targetId = `u_${c.context.length - 1}`;
+
+      // Helper: resolve speakerId → canonicalName from agent's character list
+      const resolveSpeaker = (units: any[], chars: any[], targetId: string): string => {
+        const attr = units.find((u: any) => u.unitId === targetId)?.attribution ?? units[units.length - 1]?.attribution;
+        if (!attr?.speakerId) return "";
+        const ch = chars.find((x: any) => x.characterId === attr.speakerId);
+        return ch?.canonicalName ?? attr.speakerId;
+      };
+
       // Baseline
       const r1 = await runAttributionAgent(buildAttributionInput(), provider, MODEL);
-      const p1 = r1.data?.units?.find((u: any) => u.unitId === "u_target")?.attribution;
-      const s1 = p1?.speakerId ?? "";
-      if (s1 === c.speakerGT || s1 === "c_0" || s1.includes(c.speakerGT)) baseOk++;
+      const s1 = resolveSpeaker(r1.data?.units ?? [], r1.data?.characters ?? [], targetId);
+      if (s1 === c.speakerGT) baseOk++;
 
       // With RAG
       let ragCtx: string | undefined;
@@ -178,20 +188,24 @@ async function testAttribution(provider: LLMProvider, store: KnowledgeStore) {
         if (ragHits > 0) ragCtx = results.map((r: any) => `已知: ${r.canonicalName} | ${r.embedText?.slice(0, 80)}`).join("\n");
       } catch {}
       const r2 = await runAttributionAgent(buildAttributionInput(ragCtx), provider, MODEL);
-      const p2 = r2.data?.units?.find((u: any) => u.unitId === "u_target")?.attribution;
-      const s2 = p2?.speakerId ?? "";
-      if (s2 === c.speakerGT || s2 === "c_0" || s2.includes(c.speakerGT)) ragOk++;
+      const s2 = resolveSpeaker(r2.data?.units ?? [], r2.data?.characters ?? [], targetId);
+      if (s2 === c.speakerGT) ragOk++;
 
       total++;
-      const bm = s1 === c.speakerGT ? "✅" : "❌";
-      const rm = s2 === c.speakerGT ? "✅" : "❌";
-      console.log(`[A${k + 1}/${cases.length}] "${c.targetUnit.text.slice(0, 25)}..." gt=${c.speakerGT} | 无RAG:${s1.slice(0, 8)} ${bm} | 有RAG:${s2.slice(0, 8)} ${rm} | ${ragHits}hits`);
+      console.log(`[A${k + 1}/${cases.length}] "${c.targetUnit.text.slice(0, 25)}..." gt=${c.speakerGT} | 无RAG:${s1.slice(0, 8)} ${s1 === c.speakerGT ? "✅" : "❌"} | 有RAG:${s2.slice(0, 8)} ${s2 === c.speakerGT ? "✅" : "❌"} | ${ragHits}hits`);
     } catch (e) { console.log(`[A${k + 1}] SKIP: ${(e as Error).message.slice(0, 50)}`); }
   }
 
   const ba = total > 0 ? (baseOk / total * 100) : 0;
   const ra = total > 0 ? (ragOk / total * 100) : 0;
-  console.log(`\n  Attribution: 无RAG ${ba.toFixed(0)}% | 有RAG ${ra.toFixed(0)}% | Δ ${(ra - ba) >= 0 ? "+" : ""}${(ra - ba).toFixed(0)}% (${total} cases)\n`);
+  console.log(`\n  ========================================`);
+  console.log(`  Attribution A/B Results (${total} cases)`);
+  console.log(`  ========================================`);
+  console.log(`  无RAG 准确率 (Accuracy):  ${baseOk}/${total} = ${ba.toFixed(1)}%`);
+  console.log(`  有RAG 准确率 (Accuracy):  ${ragOk}/${total} = ${ra.toFixed(1)}%`);
+  console.log(`  提升 (Delta):             ${(ra - ba) >= 0 ? "+" : ""}${(ra - ba).toFixed(1)}%`);
+  console.log(`  命中率 (Hit Rate):        RAG检索平均 ${total > 0 ? "见个案" : "N/A"}`);
+  console.log(``);
 }
 
 // ── Phase 3: Segmentation A/B ───────────────────────────
