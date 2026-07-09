@@ -234,20 +234,25 @@ export/{项目名}/
 ## 架构
 
 ```
-Novel (.txt) ──→ [Web 工作台上传]
+Novel (.txt) ──→ [Web 工作台上传 + 自动编码检测]
          │
          ▼
   Structure Agent (章节切分)
          │
          ▼
-  多 Agent Pipeline (章节级并行)
-  ┌─ Narrative Parsing
-  ├─ Attribution
-  ├─ Scene Segmentation
+  多 Agent Pipeline (章节级异步并行) ←── [断点续跑 + LLM 响应缓存]
+  ┌─ Narrative Parsing  ←── RAG: 已知角色列表
+  ├─ Attribution        ←── RAG: 角色外观检索
+  ├─ Scene Segmentation ←── RAG: 场景模式检索
   ├─ VN Mapping ─── Visual Prompt ──┐
   └─ Fidelity Review ◄─────────────┘
-         │
-         ▼
+         │                    │
+         ▼                    ▼
+    [Agent Metrics]    [RAG Knowledge Store]
+    耗时 / Token        bge-small-zh (512-dim)
+    重试次数 / 状态     BM25+Vector Hybrid
+         │                    │
+         ▼                    ▼
   VN Script IR v1.0 (JSON DSL) ← 唯一中间表示
          │
          ├──→ [资产管理] ←── Visual Prompt prompts
