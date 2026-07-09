@@ -43,7 +43,7 @@ export interface DetectResult {
 
 export function detectChapters(text: string): DetectResult {
   const warnings: string[] = [];
-  const lines = text.split("\n");
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 
   // 收集所有模式的匹配结果, 按行号去重 (高置信度优先)
   const matchMap = new Map<number, { lineIndex: number; title: string; confidence: number }>();
