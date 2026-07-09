@@ -1,0 +1,11 @@
+export { EmbeddingService } from "./embedder.js";
+export type { EmbeddingConfig } from "./embedder.js";
+export { VectorStore } from "./vector-store.js";
+export type { VectorRecord } from "./vector-store.js";
+export { CharacterStore } from "./character-store.js";
+export { KnowledgeStore } from "./knowledge-store.js";
+export type { RAGConfig, ScenePatternKnowledge } from "./knowledge-store.js";
+export { extractCharacterKnowledge, extractScenePatterns } from "./extractor.js";
+export type { CharacterKnowledge } from "./extractor.js";
+export { evaluateRetrieval, smokeTest } from "./evaluate.js";
+export type { EvalCase, EvalResult } from "./evaluate.js";

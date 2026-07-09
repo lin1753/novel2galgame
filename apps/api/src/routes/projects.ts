@@ -41,7 +41,11 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 // Track running pipelines for cancellation
 const runningPipelines = new Map<string, AbortController>();
 
-export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase>>, getProvider: () => LLMProvider | null) {
+export function createProjectRoutes(
+  db: Awaited<ReturnType<typeof createDatabase>>,
+  getProvider: () => LLMProvider | null,
+  rag?: any,
+) {
   const router = Router();
   const projectRepo = new ProjectRepository(db);
   const chapterRepo = new ChapterRepository(db);
@@ -335,7 +339,8 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
         db.prepare("UPDATE pipeline_runs SET current_stage=? WHERE run_id=?").run(stage, runId);
       },
       { parsingDone: chapter.parsingDone, attributionDone: chapter.attributionDone, segmentationDone: chapter.segmentationDone },
-      sceneRepo
+      sceneRepo,
+      rag,
     ).then((result) => {
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
       chapterRepo.updateStatus(cid, "chapter_ready");

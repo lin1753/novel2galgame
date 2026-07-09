@@ -43,6 +43,7 @@ export interface DetectResult {
 
 export function detectChapters(text: string): DetectResult {
   const warnings: string[] = [];
+  // Normalize line endings: \r\n (Windows) or \r (old Mac) → \n
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 
   // 收集所有模式的匹配结果, 按行号去重 (高置信度优先)
