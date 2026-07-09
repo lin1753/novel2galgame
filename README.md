@@ -71,6 +71,7 @@ packages/
   export/       Ren'Py 导出器 (Builder Pattern)
   storage/      SQLite 索引 + 文件系统存储
   evaluation/   评测框架
+  rag/           RAG 知识检索 (bge-small-zh + Hybrid)
 scripts/
   serve-sft.py  本地 SFT 模型服务 (LoRA 热切换)
   download-models.py  模型下载脚本
@@ -262,6 +263,36 @@ Novel (.txt) ──→ [Web 工作台上传]
 
 <img width="1024" height="1536" alt="ChatGPT Image 2026年7月3日 14_31_28" src="https://github.com/user-attachments/assets/5943aa3d-bef9-4553-84d2-1c25a166e47e" />
 
+
+## RAG 知识检索
+
+跨章节角色知识检索增强系统，提升管线 agent 的跨章一致性：
+
+```
+Pipeline 运行时:
+  narrative agent  ← listKnownCharacters() → "已有角色: 苏雨晴, 林晓..."
+  attribution agent ← searchCharacters()    → "苏雨晴: 长发, 白裙, 淡蓝眼睛"
+  segmentation agent ← searchScenePatterns() → "前几章分割: 每2-3场景变化"
+  
+完成后: attribution → ingest 角色外观/关系
+        segmentation → ingest 场景结构/分布
+```
+
+### 技术栈
+
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| 嵌入模型 | bge-small-zh-v1.5 (512-dim) | 本地 CPU 推理, 中文小说优化 |
+| 检索 | BM25 关键词 + 向量语义 Hybrid | `vectorWeight=0.6` 加权融合 |
+| 重排序 | LLM relevance scoring | 粗筛 top-10 → LLM → top-3 |
+| 去重 | upsert by characterId | 新章节信息覆盖旧数据 |
+| 相似度阈值 | `minScore=0.6` | 过滤低相关结果 |
+
+### 评测结果
+
+| 评测 | 无 RAG | 有 RAG | 提升 |
+|------|--------|--------|------|
+| Segmentation 场景数匹配率 | 67% | 73% | **+7%** |
 
 ### 设计约束
 
