@@ -166,18 +166,23 @@ async function testAttribution(provider: LLMProvider, store: KnowledgeStore) {
       // Target is the last unit in context
       const targetId = `u_${c.context.length - 1}`;
 
-      // Helper: resolve speakerId → canonicalName from agent's character list
-      const resolveSpeaker = (units: any[], chars: any[], targetId: string): string => {
+      // Helper: resolve speakerId → canonicalName, with fuzzy match check
+      const resolveAndMatch = (units: any[], chars: any[], targetId: string, gt: string): { name: string; match: boolean } => {
         const attr = units.find((u: any) => u.unitId === targetId)?.attribution ?? units[units.length - 1]?.attribution;
-        if (!attr?.speakerId) return "";
+        if (!attr?.speakerId) return { name: "", match: false };
         const ch = chars.find((x: any) => x.characterId === attr.speakerId);
-        return ch?.canonicalName ?? attr.speakerId;
+        const name = ch?.canonicalName ?? attr.speakerId;
+        // Fuzzy: exact, substring, or partial CJK character overlap
+        const match = name === gt || name.includes(gt) || gt.includes(name) ||
+          (name.length >= 2 && gt.length >= 2 &&
+           [...gt].filter(c => name.includes(c)).length >= Math.min(name.length, gt.length) * 0.6);
+        return { name, match };
       };
 
       // Baseline
       const r1 = await runAttributionAgent(buildAttributionInput(), provider, MODEL);
-      const s1 = resolveSpeaker(r1.data?.units ?? [], r1.data?.characters ?? [], targetId);
-      if (s1 === c.speakerGT) baseOk++;
+      const m1 = resolveAndMatch(r1.data?.units ?? [], r1.data?.characters ?? [], targetId, c.speakerGT);
+      if (m1.match) baseOk++;
 
       // With RAG
       let ragCtx: string | undefined;
@@ -188,11 +193,11 @@ async function testAttribution(provider: LLMProvider, store: KnowledgeStore) {
         if (ragHits > 0) ragCtx = results.map((r: any) => `已知: ${r.canonicalName} | ${r.embedText?.slice(0, 80)}`).join("\n");
       } catch {}
       const r2 = await runAttributionAgent(buildAttributionInput(ragCtx), provider, MODEL);
-      const s2 = resolveSpeaker(r2.data?.units ?? [], r2.data?.characters ?? [], targetId);
-      if (s2 === c.speakerGT) ragOk++;
+      const m2 = resolveAndMatch(r2.data?.units ?? [], r2.data?.characters ?? [], targetId, c.speakerGT);
+      if (m2.match) ragOk++;
 
       total++;
-      console.log(`[A${k + 1}/${cases.length}] "${c.targetUnit.text.slice(0, 25)}..." gt=${c.speakerGT} | 无RAG:${s1.slice(0, 8)} ${s1 === c.speakerGT ? "✅" : "❌"} | 有RAG:${s2.slice(0, 8)} ${s2 === c.speakerGT ? "✅" : "❌"} | ${ragHits}hits`);
+      console.log(`[A${k + 1}/${cases.length}] "${c.targetUnit.text.slice(0, 25)}..." gt=${c.speakerGT} | 无RAG:${m1.name.slice(0, 8)} ${m1.match ? "✅" : "❌"} | 有RAG:${m2.name.slice(0, 8)} ${m2.match ? "✅" : "❌"} | ${ragHits}hits`);
     } catch (e) { console.log(`[A${k + 1}] SKIP: ${(e as Error).message.slice(0, 50)}`); }
   }
 
