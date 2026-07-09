@@ -1,7 +1,7 @@
 import { runStructureAgent } from "../structure/structure-agent.js";
 import fs from "node:fs";
 
-const novelPath = "D:/Project/novel2glagame/2/《AI恋人》作者：妄初.txt";
+const novelPath = "./test-data/《AI恋人》作者：妄初.txt";
 const rawBuffer = fs.readFileSync(novelPath);
 
 console.log(`Novel: ${novelPath.split("/").pop()}`);

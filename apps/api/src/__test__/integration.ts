@@ -71,7 +71,7 @@ async function runTests() {
   // Test 5: Copy test novel to raw dir
   const rawDir = path.join(tmpDir, "projects", projectId, "raw");
   fs.mkdirSync(rawDir, { recursive: true });
-  const srcPath = "D:/Project/novel2glagame/2/《AI恋人》作者：妄初.txt";
+  const srcPath = "./test-data/《AI恋人》作者：妄初.txt";
   const destPath = path.join(rawDir, "novel.txt");
   if (fs.existsSync(srcPath)) {
     fs.copyFileSync(srcPath, destPath);

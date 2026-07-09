@@ -178,13 +178,13 @@ if __name__ == "__main__":
                         default="Qwen/Qwen3-8B",
                         help="基座模型名称或路径")
     parser.add_argument("--data_dir", type=str,
-                        default="/workspace/project-nas-1000073/linyupeng/data/datasets/training/base-sft",
+                        default="/workspace/project-nas-1000073/<your-username>/data/datasets/training/base-sft",
                         help="训练数据目录")
     parser.add_argument("--output_dir", type=str,
-                        default="/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage1-base-sft",
+                        default="/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage1-base-sft",
                         help="checkpoint 输出目录")
     parser.add_argument("--cache_dir", type=str,
-                        default="/workspace/project-nas-1000073/linyupeng/cache",
+                        default="/workspace/project-nas-1000073/<your-username>/cache",
                         help="HuggingFace 缓存目录")
 
     # 训练超参数

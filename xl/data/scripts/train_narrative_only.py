@@ -5,9 +5,9 @@ from datasets import Dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 from peft import LoraConfig, get_peft_model, TaskType
 
-BASE = '/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage1-base-sft/final'
-DATA = '/workspace/project-nas-1000073/linyupeng/data/datasets/training/v3/narrative-type-classification'
-OUT = '/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage2-v3/narrative-type-classification'
+BASE = '/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage1-base-sft/final'
+DATA = '/workspace/project-nas-1000073/<your-username>/data/datasets/training/v3/narrative-type-classification'
+OUT = '/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage2-v3/narrative-type-classification'
 
 def load_jsonl(p):
     with open(p) as f: return [json.loads(l) for l in f]

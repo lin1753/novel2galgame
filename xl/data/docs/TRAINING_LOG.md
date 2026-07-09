@@ -48,7 +48,7 @@ Qwen3-8B 基座
 # HuggingFace 不通，用 ModelScope
 pip install modelscope -q
 modelscope download --model Qwen/Qwen3-8B \
-    --local_dir /workspace/project-nas-1000073/linyupeng/models/Qwen3-8B
+    --local_dir /workspace/project-nas-1000073/<your-username>/models/Qwen3-8B
 ```
 
 ### 调试历程
@@ -89,13 +89,13 @@ modelscope download --model Qwen/Qwen3-8B \
 **训练命令**：
 ```bash
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True torchrun --nproc_per_node=4 \
-    /workspace/project-nas-1000073/linyupeng/data/train_stage1_base_sft.py \
-    --model_name /workspace/project-nas-1000073/linyupeng/models/Qwen3-8B \
+    /workspace/project-nas-1000073/<your-username>/data/train_stage1_base_sft.py \
+    --model_name /workspace/project-nas-1000073/<your-username>/models/Qwen3-8B \
     --batch_size_per_gpu 4 \
     --gradient_accumulation 4 \
     --max_length 2048 \
     --num_epochs 2 \
-    --deepspeed /workspace/project-nas-1000073/linyupeng/data/ds_zero2.json
+    --deepspeed /workspace/project-nas-1000073/<your-username>/data/ds_zero2.json
 ```
 
 **超参**：

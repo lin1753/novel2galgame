@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
-BASE = '/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage1-base-sft/final'
+BASE = '/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage1-base-sft/final'
 V2_SYS = "你是一个中文小说 scene 边界检测助手。判断输入段落中哪些边界应切换 scene。只有在明显边界变化时才切。不要因情绪变化就切。只输出 boundaries，不输出原因。输出 JSON。"
 
 MODELS = {
-    "v4-590": '/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage2-v4/scene-boundary-detection/checkpoint-148',
-    "v4.1-refined": '/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage2-v4.1/scene-segmentation/checkpoint-74',
+    "v4-590": '/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage2-v4/scene-boundary-detection/checkpoint-148',
+    "v4.1-refined": '/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage2-v4.1/scene-segmentation/checkpoint-74',
 }
 TESTS = {
-    "v4-590": '/workspace/project-nas-1000073/linyupeng/data/datasets/training/v4/test.jsonl',
-    "v4.1-refined": '/workspace/project-nas-1000073/linyupeng/data/datasets/training/v4.1/test.jsonl',
+    "v4-590": '/workspace/project-nas-1000073/<your-username>/data/datasets/training/v4/test.jsonl',
+    "v4.1-refined": '/workspace/project-nas-1000073/<your-username>/data/datasets/training/v4.1/test.jsonl',
 }
 
 tok = AutoTokenizer.from_pretrained(BASE, trust_remote_code=True)
@@ -202,11 +202,11 @@ ax.set_title('Final Summary', fontsize=12, fontweight='bold', y=0.75)
 plt.suptitle('Scene Boundary Detection — Final Evaluation\nv4-590 (DeepSeek 590) vs v4.1-refined (582 Refined)',
              fontsize=14, fontweight='bold', y=0.98)
 plt.tight_layout(rect=[0, 0, 1, 0.94])
-plt.savefig('/workspace/project-nas-1000073/linyupeng/data/outputs/scene_boundary_final_viz.png', dpi=150, bbox_inches='tight')
+plt.savefig('/workspace/project-nas-1000073/<your-username>/data/outputs/scene_boundary_final_viz.png', dpi=150, bbox_inches='tight')
 print(f"\n✅ Saved to outputs/scene_boundary_final_viz.png", flush=True)
 
 # Save raw data
-with open('/workspace/project-nas-1000073/linyupeng/data/outputs/scene_boundary_final_data.json', 'w') as f:
+with open('/workspace/project-nas-1000073/<your-username>/data/outputs/scene_boundary_final_data.json', 'w') as f:
     json.dump({name: {"per_sample": data["per_sample"]} for name, data in all_results.items()},
               f, ensure_ascii=False, indent=2)
 print(f"✅ Saved to outputs/scene_boundary_final_data.json", flush=True)

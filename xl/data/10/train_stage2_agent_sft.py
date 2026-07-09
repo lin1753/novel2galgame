@@ -36,13 +36,13 @@ from transformers import (
 # 配置
 # ============================================================
 # Stage 1 产出的基座模型（三个 Agent 从这个基座分叉）
-BASE_MODEL_DIR = "/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage1-base-sft/final"
+BASE_MODEL_DIR = "/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage1-base-sft/final"
 
 # 如果 Stage 1 还没跑，可以临时从原始模型开始测试
 # BASE_MODEL_DIR = "Qwen/Qwen2.5-7B-Instruct"
 
-DATA_DIR = "/workspace/project-nas-1000073/linyupeng/data/datasets/training_opt"
-OUTPUT_BASE_DIR = "/workspace/project-nas-1000073/linyupeng/data/checkpoints/stage2"
+DATA_DIR = "/workspace/project-nas-1000073/<your-username>/data/datasets/training_opt"
+OUTPUT_BASE_DIR = "/workspace/project-nas-1000073/<your-username>/data/checkpoints/stage2"
 
 # 训练参数（数据量很小：50-80 条/任务）
 NUM_EPOCHS = 10

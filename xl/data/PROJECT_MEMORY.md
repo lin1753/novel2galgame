@@ -26,7 +26,7 @@
 **模型下载**：
 ```bash
 modelscope download --model Qwen/Qwen3-8B \
-    --local_dir /workspace/project-nas-1000073/linyupeng/models/Qwen3-8B
+    --local_dir /workspace/project-nas-1000073/<your-username>/models/Qwen3-8B
 ```
 
 ### 1.2 Stage 1：全参 SFT（学习小说叙事风格）
