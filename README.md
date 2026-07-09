@@ -102,11 +102,15 @@ cd apps/workbench && npx vite
 
 ### 首次使用
 
-1. **模型配置** → 左侧导航 → 添加 Agnes AI 或其他模型 profile
-2. **新建项目** → 上传 txt 小说文件
-3. **运行结构解析** → 自动识别章节
+1. **模型配置** → 左侧导航，三种模型独立配置：
+   - 📝 LLM 文本推理 — Agent 管线用（Agnes/OpenAI/DeepSeek/本地）
+   - 🎨 图片生成 — 背景图、角色立绘（Agnes Image/OpenAI/Zhipu）
+   - 🎬 视频生成 — 动画（Agnes Video）
+   每个模型类型可独立选择 Provider + 模型名 + 测试连接
+2. **新建项目** → 上传 txt 小说文件（自动检测 GBK/GB18030 编码）
+3. **运行结构解析** → 自动识别章节（支持 `第X章`、`Chapter X`、序号分隔等多种格式）
 4. **章节管理** → 点击"运行管线"处理单章，或项目总览点"一键处理"批量处理
-5. **资产管理** → 查看/生成/调整背景立绘 prompt
+5. **资产管理** → 查看/生成/调整背景立绘 prompt（点击放大查看立绘）
 6. **预览播放** → 点击推进 VN 剧情
 7. **导出 Ren'Py** → 生成可游玩项目
 
@@ -298,6 +302,32 @@ Pipeline 运行时:
 | 评测 | 无 RAG | 有 RAG | 提升 |
 |------|--------|--------|------|
 | Segmentation 场景数匹配率 | 67% | 73% | **+7%** |
+
+## 管线韧性（Reliability）
+
+```typescript
+// 异步执行 — 避免 HTTP 超时，SSE 实时推送进度
+POST /chapters/:id/run → { status: "started" } // 立即返回
+
+// 断点续跑 — 失败重跑自动跳过已完成 stage
+if (chapter.attributionDone) skip Attribution stage → 省 80% token
+
+// SHA256 缓存 — 同输入瞬间返回
+cacheKey = sha256(chapterId | agentType | model | textHash)
+→ 命中 → 直接返回结果，零 LLM 调用
+
+// 崩溃恢复 — API 重启后自动标记运行中任务为 crashed
+// AbortController — 前端可随时取消运行中的管线
+```
+
+## 可观测性
+
+| 维度 | 实现 |
+|------|------|
+| Agent 指标 | 每次 LLM 调用记录 `duration_ms`, `prompt_tokens`, `completion_tokens`, `retry_count` |
+| 任务状态 | `pipeline_runs` 表持久化，含 `current_stage` + `error_message` |
+| 实时进度 | SSE 广播，全局 store 持久化，切页面不丢失 |
+| 缓存命中 | `[Cache] HIT narrative_parsing for chapter_3` |
 
 ### 设计约束
 
