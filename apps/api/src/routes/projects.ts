@@ -36,7 +36,7 @@ import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 import { broadcastProgress } from "./progress.js";
 
-const upload = multer({ dest: path.join(config.dataDir, "temp") });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Track running pipelines for cancellation
 const runningPipelines = new Map<string, AbortController>();
@@ -124,24 +124,25 @@ export function createProjectRoutes(db: Awaited<ReturnType<typeof createDatabase
     const destDir = path.join(config.dataDir, "projects", param(req, "id"), "raw");
     fs.mkdirSync(destDir, { recursive: true });
     const destPath = path.join(destDir, "novel.txt");
-    fs.renameSync(req.file.path, destPath);
 
-    // Auto-detect encoding and convert to UTF-8
-    try {
-      const rawBuf = fs.readFileSync(destPath);
-      // Check: is this valid UTF-8 with CJK content?
-      const asUtf8 = rawBuf.toString("utf-8");
-      const cjkCount = (asUtf8.match(/[一-鿿]/g) ?? []).length;
-      if (cjkCount < asUtf8.length * 0.05) {
-        // Not valid CJK UTF-8 — try GB18030 conversion
-        const decoded = new TextDecoder("gb18030").decode(rawBuf);
-        const gbCjk = (decoded.match(/[一-鿿]/g) ?? []).length;
-        if (gbCjk > decoded.length * 0.05) {
-          fs.writeFileSync(destPath, decoded, "utf-8");
-          console.log(`[Import] Converted from GB18030 to UTF-8 (${cjkCount}→${gbCjk} CJK chars)`);
-        }
+    // Write raw buffer from multer memoryStorage — preserves all bytes
+    const rawBuf = req.file.buffer;
+    // Auto-detect encoding: if valid UTF-8 with CJK, save as-is; otherwise try GB18030
+    const asUtf8 = rawBuf.toString("utf-8");
+    const cjkCount = (asUtf8.match(/[一-鿿]/g) ?? []).length;
+    if (cjkCount > asUtf8.length * 0.05) {
+      fs.writeFileSync(destPath, rawBuf);  // Already UTF-8, save raw
+    } else {
+      // Try GB18030 → UTF-8 conversion
+      const decoded = new TextDecoder("gb18030").decode(rawBuf);
+      const gbCjk = (decoded.match(/[一-鿿]/g) ?? []).length;
+      if (gbCjk > decoded.length * 0.05) {
+        fs.writeFileSync(destPath, decoded, "utf-8");
+        console.log(`[Import] GB18030→UTF-8: ${gbCjk} CJK chars`);
+      } else {
+        fs.writeFileSync(destPath, rawBuf);  // Save as-is as fallback
       }
-    } catch (e) { console.warn("[Import] Encoding check failed:", (e as Error).message); }
+    }
 
     // Use displayName from form field (sent by frontend) to avoid encoding issues
     const originalName = (req.body.displayName as string) || req.file.originalname;
