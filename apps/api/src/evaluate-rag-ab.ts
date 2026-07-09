@@ -139,9 +139,9 @@ async function testAttribution(provider: LLMProvider, store: KnowledgeStore) {
         if (prev.type !== "action" && prev.type !== "narration") continue;
         const speaker = extractSpeaker(prev, units);
         if (!speaker) continue;
-        // Give more context: prev 2 + target + next 2 units
-        const ctxStart = Math.max(0, j - 2);
-        const ctxEnd = Math.min(units.length, j + 3);
+        // Use ALL units as context for proper agent behavior
+        const ctxStart = 0;
+        const ctxEnd = units.length;
         const context = units.slice(ctxStart, ctxEnd);
         cases.push({ index: i, context, targetUnit: units[j], speakerGT: speaker });
       }
