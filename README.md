@@ -1,5 +1,14 @@
 # All Novel Can Be Galgame
 
+[![GitHub stars](https://img.shields.io/github/stars/lin1753/novel2galgame?style=social)](https://github.com/lin1753/novel2galgame)
+[![GitHub forks](https://img.shields.io/github/forks/lin1753/novel2galgame?style=social)](https://github.com/lin1753/novel2galgame)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![HuggingFace](https://img.shields.io/badge/🤗-HuggingFace_Models-ffbd45)](https://huggingface.co/mikuhhn1239)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
+[![Node.js](https://img.shields.io/badge/Node.js-24-green)](https://nodejs.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/lin1753/novel2galgame/pulls)
+
 将中文恋爱向 txt 小说一键转化为可玩视觉小说 (Galgame) 的本地 AI 工作台。
 
 > 不是创意改写工具，是忠实的叙事转译器——保留原文剧情、对话、人物关系与情感基调。
