@@ -2,7 +2,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/lin1753/novel2galgame?style=social)](https://github.com/lin1753/novel2galgame)
 [![GitHub forks](https://img.shields.io/github/forks/lin1753/novel2galgame?style=social)](https://github.com/lin1753/novel2galgame)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![HuggingFace](https://img.shields.io/badge/🤗-HuggingFace_Models-ffbd45)](https://huggingface.co/mikuhhn1239)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb)](https://react.dev/)
