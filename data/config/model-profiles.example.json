@@ -4,7 +4,7 @@
       "name": "agnes-cloud",
       "type": "cloud",
       "baseUrl": "https://apihub.agnes-ai.com/v1",
-      "apiKey": "",
+      "apiKey": "YOUR_API_KEY_HERE",
       "defaultModel": "agnes-2.0-flash",
       "imageModel": "agnes-image-2.1-flash",
       "videoModel": "agnes-video-v2.0",

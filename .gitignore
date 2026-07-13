@@ -23,6 +23,9 @@ model/
 *.db-shm
 *.db-wal
 
+# Sensitive config files (use .example.json templates instead)
+data/config/model-profiles.json
+
 # Claude Code local state
 .claude/
 .omc/
