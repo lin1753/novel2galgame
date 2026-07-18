@@ -10,8 +10,6 @@ import { createVideoRoutes } from "../routes/videos.js";
 import { createExportRoutes } from "../routes/export.js";
 import { createAutoExportRoutes } from "../routes/auto-export.js";
 import { createAssetRoutes } from "../routes/assets.js";
-import { createGraphPipelineRoutes } from "../routes/graph-pipeline.js";
-import { config } from "../config/index.js";
 import type { LLMProvider } from "@novel2gal/providers";
 
 export function createServer(
@@ -67,9 +65,6 @@ export function createServer(
 
   // Asset management routes
   app.use("/", createAssetRoutes());
-
-  // Graph-based pipeline (LangGraph)
-  app.use("/graph-pipeline", createGraphPipelineRoutes({ dataDir: config.dataDir, db, getProvider, rag }));
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });

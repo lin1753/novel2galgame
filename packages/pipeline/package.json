@@ -6,19 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./graph": "./src/graph.ts",
-    "./graph-supervisor": "./src/graph-supervisor.ts",
     "./state": "./src/state.ts",
     "./nodes/*": "./src/nodes/*.ts",
-    "./routes": "./src/routes/index.ts",
-    "./supervisor": "./src/supervisor/index.ts",
-    "./subgraphs/understanding": "./src/subgraphs/understanding.ts",
-    "./subgraphs/translation": "./src/subgraphs/translation.ts",
-    "./subgraphs/review": "./src/subgraphs/review.ts",
-    "./subgraphs/consistency": "./src/subgraphs/consistency.ts",
-    "./tools/shared": "./src/tools/shared-tools.ts",
-    "./tools/rag-v2-adapter": "./src/tools/rag-v2-adapter.ts",
-    "./collaboration/debate": "./src/collaboration/debate.ts",
-    "./collaboration/difficulty-router": "./src/collaboration/difficulty-router.ts"
+    "./routes": "./src/routes/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

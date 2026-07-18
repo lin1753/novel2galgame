@@ -92,6 +92,8 @@ export class KnowledgeStoreV2 {
 export { BaseCollection } from "./collections/base.js";
 export type { VectorRecord, SearchResult, SearchOptions, WhereClause } from "./collections/base.js";
 
+export { ChromaCollection } from "./collections/chroma-base.js";
+
 export { CharacterCollection } from "./collections/characters.js";
 export type {
   CharacterRecord,
@@ -118,6 +120,12 @@ export type { RerankLLM, RerankCandidate, RerankResult } from "./retrieval/reran
 export { HybridRetriever, fuseResults } from "./retrieval/hybrid-retriever.js";
 export type { HybridRetrieverOptions } from "./retrieval/hybrid-retriever.js";
 
+export { multiPathRetrieve } from "./retrieval/multi-path.js";
+export type { MultiPathOptions } from "./retrieval/multi-path.js";
+
+export { CEReranker } from "./retrieval/ce-reranker.js";
+export type { CERerankerConfig } from "./retrieval/ce-reranker.js";
+
 // ── Chunking exports ──────────────────────────────────────
 
 export { chunkCharacterKnowledge } from "./chunking/character-chunker.js";
@@ -125,6 +133,14 @@ export type { CharacterChunk } from "./chunking/character-chunker.js";
 
 export { chunkScenePatterns } from "./chunking/scene-chunker.js";
 export type { SceneChunk } from "./chunking/scene-chunker.js";
+
+export { buildHierarchicalChunks } from "./chunking/hierarchical.js";
+export type { HierarchicalChunk } from "./chunking/hierarchical.js";
+
+// ── Evaluation exports ────────────────────────────────────
+
+export { evaluateRetrieval, formatEvalResult } from "./evaluation/metrics.js";
+export type { EvalResult, EvalSample, EvalRun } from "./evaluation/metrics.js";
 
 // Tool exports are available via @novel2gal/rag-v2/tools entry point.
 // They are NOT re-exported here to avoid pulling @langchain/core/tools

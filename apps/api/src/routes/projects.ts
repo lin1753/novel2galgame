@@ -31,7 +31,7 @@ import { runStructureAgent, runConsistencyReviewAgent } from "@novel2gal/agents"
 import type { ChapterConsistencyData } from "@novel2gal/agents";
 import { runChapterPipeline, createDefaultConfig } from "../orchestrator/index.js";
 import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
-import { buildChapterPipelineGraph, buildSupervisoryPipelineGraph } from "@novel2gal/pipeline";
+import { buildChapterPipelineGraph } from "@novel2gal/pipeline";
 import { config } from "../config/index.js";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
@@ -324,10 +324,7 @@ export function createProjectRoutes(
     res.json({ chapterId: cid, status: "started", message: "管线已启动" });
 
     // Run LangGraph pipeline asynchronously
-    const graphEngine: string = req.body.graphEngine ?? "flat";
-    const graph = graphEngine === "supervisory"
-      ? buildSupervisoryPipelineGraph()
-      : buildChapterPipelineGraph();
+    const graph = buildChapterPipelineGraph();
     const initialState = {
       projectId: pid,
       chapterId: cid,
