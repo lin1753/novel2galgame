@@ -11,7 +11,7 @@
 
 将中文恋爱向 txt 小说一键转化为可玩视觉小说 (Galgame) 的本地 AI 工作台。
 
-> 基于 LangGraph 的多 Agent 协作系统——Supervisor + 3 Subgraph + 5 Tool + Decision Memory + RAG 知识检索。
+> RAG 驱动的长文本知识管理系统——ChromaDB 向量存储 + 多路召回 + Cross-Encoder 精排 + 层次化分块。
 
 ## 多 Agent 架构
 
@@ -140,21 +140,27 @@ curl -X POST http://localhost:3002/projects/{id}/export/renpy
 
 ## RAG 知识检索
 
-4 个向量知识库（角色 / 场景 / 叙事模式 / Prompt 模板），Pipeline 运行时实时注入 Agent prompt。
+面向 90 章百万字长篇小说跨章节知识管理。Agent 既是 RAG 消费者也是生产者，知识库随管线推进增量生长。
 
 | 组件 | 选型 |
 |------|------|
+| 向量存储 | ChromaDB HNSW 索引 |
 | 嵌入 | bge-small-zh-v1.5 (512-dim) CPU 推理 |
-| 检索 | BM25 + 向量 Hybrid (vectorWeight=0.6) |
-| 重排序 | LLM relevance scoring (粗筛 top-10 → top-3) |
-| 分块 | 语义分块（外观/性格/关系独立嵌入） |
-| 过滤 | 元数据过滤（排除当前章节、confidence 阈值） |
+| 多路召回 | 稠密向量 + 稀疏 BM25 + 元数据精确匹配 → RRF 融合 |
+| 精排 | Cross-Encoder (bge-reranker-large) → LLM 终排 (top-3) |
+| 分块 | 层次化分块（6 种子块 + 父文档引用） |
+| 过滤 | 元数据过滤（$lte/$ne 时序约束防标签泄露） |
+| 知识库 | 4 个独立库（角色/场景/叙事模式/Prompt 模板） |
 
-**场景切分准确率: 73% (+7%)**
+**评测指标**（角色知识库，10 条查询，7 条 chunk）：
 
-## Agent Decision Memory
+| 指标 | 数值 |
+|------|------|
+| Hit@1 | 90.0% |
+| Hit@5 | 100% |
+| MRR | 0.9200 |
 
-跨章节归因决策复用：归因完成后提取模式指纹（代词+敬语+动作类型→speaker）写入 LangGraph Store。后续同模式查询命中时 ≥0.85 置信度跳过 LLM 直接复用，0.7-0.85 注入 prompt 辅助推理。
+场景切分准确率 73%（+7%）。唯一 Top-1 Miss："说话关心口吻"被角色关系文本误匹配，通过 Cross-Encoder 精排可解决。
 
 ## License
 
