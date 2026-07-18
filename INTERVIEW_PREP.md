@@ -561,115 +561,67 @@ Pipeline 运行时:
 
 ---
 
-## 九、简历项目经历（五版，按场景选用）
+## 九、简历项目经历
 
-### 版本 A：通用版（全栈 / AI 工程 / 后端岗位）
+> 项目已重新定位为 RAG 驱动的长文本 LLM 内容生成系统。
+> 另起纯 Agent 项目专门投 Agent 岗。
 
-> **All Novel Can Be Galgame** — AI 多 Agent 视觉小说生成系统
-> *独立开发 | 2026.06 — 2026.07 | LangGraph / TypeScript / Node.js / Python*
->
-> **1. LangGraph 多智能体编排**
-基于 LangGraph 构建 Supervisor + 3 Subgraph 多 Agent 协作架构，5 条条件边 + Command API 动态路由。Subgraph 内含 feedback loop（低置信度→RAG→重试），Review Subgraph 通过 Tool Call 触发上游 Agent 重做指定单元，形成审查→修正闭环。
+### 版本 A：大模型应用开发 / AI Engineer（RAG 为核心）
 
-**2. RAG 知识检索**
-设计 4 个向量知识库（角色/场景/叙事模式/Prompt 模板），bge-small-zh-v1.5（512-dim）+ BM25 混合检索 + LLM 两阶段重排序（粗筛 10 选 3），语义分块（外观/性格/关系独立嵌入），元数据过滤（排除当前章节防标签泄露）。场景切分 **73%（+7%）。**
+### 长篇小说智能处理与 RAG 知识增强系统
+*独立开发 | 2026.06 — 2026.07 | LangGraph / TypeScript / ChromaDB / Python*
 
-**3. Agent Memory**
-基于 LangGraph Store API 实现跨章节决策记忆：归因完成后提取模式指纹（代词+敬语+动作类型→speaker 映射）持久化写入；后续同模式查询命中时，≥0.85 置信度直接复用跳 LLM，0.7-0.85 注入 prompt 辅助推理。
+**项目简介**：面向长篇小说篇幅过长、单次 LLM 上下文窗口仅能容纳 1-2 章内容、跨章节知识遗忘严重的问题，设计并实现一套基于 RAG 的跨章节知识管理系统。支持逐章增量知识抽取与入库、多路混合检索、语义重排与检索效果回归评测。
 
-**4. Agent Tool 生态**
-设计 5 个 LangGraph ToolNode（lookup_character / lookup_scene_patterns / list_all_characters / read_chapter / evaluate_attribution），Zod schema 约束输入输出。Agent 通过 function calling 自主决定调用时机和参数，调用链路日志可审计。
+**技术栈**：LangGraph、ChromaDB、bge-large-zh-v1.5、BM25、RRF、bge-reranker-large、Qwen3-8B SFT + LoRA、TypeScript、Node.js、React
 
----
+- 为解决逐章处理时 Agent 无法访问已处理章节信息的问题，设计增量 RAG 知识管线。Attribution Agent 每章推理完成后自动提取角色知识，按 identity、appearance、personality、relationship、quote、summary 六种语义维度分块入库。Agent 既是 RAG 的消费者也是生产者，知识库随管线推进增量生长。
 
-### 版本 B：图像 AI 方向（针对暮嫣科技 / ComfyUI / SD 岗位）
+- 为按语义维度精确召回信息，采用层次化分块策略：子块独立嵌入用于高精度检索，父文档用于完整上下文注入。不同 Agent 检索不同维度的知识互不干扰。增量写入时同一角色的新信息追加为新子块而非覆盖旧数据，保留角色信息在全书中渐进揭露的时序特征。
 
-> **All Novel Can Be Galgame** — AI 多 Agent 视觉小说生成系统
-> *独立开发 | 2026.06 — 2026.07 | LangGraph / TypeScript / Python / Node.js*
->
-> **1. LangGraph 多智能体编排**
-> 1 Supervisor + 3 Subgraph 协作架构。Translation Subgraph 内 VN Mapper 与 Visual Prompt 并行运行→协调节点对齐检查→不匹配自动重做。Review Subgraph 通过 Tool Call 触发上游 Agent 重做。
->
-> **2. RAG 知识检索**
-> bge-small-zh-v1.5（512-dim）+ BM25 混合检索 + LLM 两阶段重排序。语义分块嵌入外观/性格/关系，检索结果实时注入 Visual Prompt Agent。场景切分 **+7%**（73%）。
->
-> **3. Agent Decision Memory**
-> 外观模式（发色/服装/配饰→prompt 模板）存入 LangGraph Store。同角色跨章节直接复用已验证 prompt，跳过重复推理。置信度阈值 ≥ 0.85，30 天 TTL。
->
-> **4. Provider 抽象 + 批量任务调度**
-> 4 套图像 API 统一 Provider 抽象层（Agnes/OpenAI/Zhipu/SiliconFlow SD）。鉴权透明处理 + 指数退避重试（3 次/5s-10s-20s）+ 供应商热切换（改配置零停机）+ SHA256 缓存（省 **80%** API 调用）。批量任务调度：异步提交 + SSE 实时进度 + 崩溃恢复。
+- 为提升检索精度并防止时间穿越式信息泄露，实现四阶段检索管线：稠密向量 ChromaDB HNSW 索引、稀疏 BM25 关键词、元数据精确匹配三路并行召回，RRF 融合排序，bge-reranker-large Cross-Encoder 精排，LLM 对 top-3 候选做终排。元数据过滤增加时序约束，确保 Agent 处理早期章节时不会检索到后期章节才写入的角色信息。
+
+- 建立多指标评测体系。构建 30 条查询 × 5 类的评测集，覆盖精确特征、语义推理、关系查询、跨章节聚合和边缘边界五种检索场景。统计 Hit@K、MRR、NDCG@K 指标，通过消融实验对比不同检索策略。Hit@1 70.0%，Hit@5 90.0%，MRR 0.7678，定位语义和关系类别为主要短板，分析 Cross-Encoder 精排和 chunkType 加权的改进方向。
+
+- 669 本中文小说构建领域训练集，总计 7200 万字符，8×A800 完成 Qwen3-8B 全参微调及 3 个 LoRA Adapter 训练，Attribution 准确率 86.7%。将 SFT 模型部署为前 3 个 Agent 的本地推理后端，bitsandbytes 4-bit 量化部署至 RTX 4060，HuggingFace 公开发布。
+
+- LangGraph StateGraph 编排七步工作流，SHA256 语义缓存节省 80% API 调用，指数退避重试与三级失败策略保证管线韧性，90 章长篇小说端到端稳定运行。
 
 ---
 
-### 版本 C：精简版（A4 一页时使用）
+### 版本 B：精简版（A4 一页用）
 
-> **All Novel Can Be Galgame** — AI 多 Agent 小说转视觉小说系统 | 独立开发 | 2026.06-07
->
-> - LangGraph 多 Agent 编排：1 Supervisor + 3 Subgraph + 5 Tool，Tool Call 反馈闭环，省 50% token（简单章节）
-> - RAG + Memory：bge-small-zh + BM25 混合检索 + LLM 重排序，场景切分 +7%；Decision Memory 跨章节复用归因决策
-> - LoRA 微调：8×A800 上 669 本小说完成 Qwen3-8B 微调，3 个 LoRA（Attribution 86.7%）发布 HuggingFace
-> - 工程韧性：SHA256 缓存省 80% 调用 + 三级失败策略 + 4 Provider 热切换 + checkpoint 断点续跑
-> - TypeScript Monorepo (11 packages) + IR 多端架构（Web + Ren'Py）
+### 长篇小说 RAG 知识增强系统
+*独立开发 | 2026.06 — 2026.07 | LangGraph / TypeScript / ChromaDB / Python*
 
----
+- 面向 90 章百万字小说无法装入单次 LLM 上下文窗口的问题，设计增量 RAG 系统。Agent 每章处理后自动提取角色知识按六种语义维度分块入库，知识库随管线推进增量生长。三路召回并行，RRF 融合，Cross-Encoder 精排。建立 30 条 × 5 类评测集统计 Hit@K、MRR 指标，Hit@1 70%、Hit@5 90%、MRR 0.77。
 
-### 版本 D：Agent 岗位（AI Agent 开发 / 智能体工程师）
+- LangGraph 编排 7 Agent 工作流，3 Agent 支持本地 LoRA 与云端 API 混合调用。SHA256 语义缓存、三级失败策略、90 章管线稳定运行。
 
-> **All Novel Can Be Galgame** — 多 Agent 协作的内容生成系统
-> *独立开发 | 2026.06 — 2026.07 | LangGraph / TypeScript / Node.js / Python*
->
-> **1. LangGraph 多智能体编排**
-> LangGraph StateGraph：1 Supervisor + 3 Subgraph（Understanding/Translation/Review）+ 5 条件边 + Command API 路由。Subgraph 内 feedback loop（低置信度→RAG→重试，上限 2 次）。Agent-to-Agent Tool Call：Review Subgraph invoke 上游 Understanding Subgraph 重做指定 unit 的归因/映射。
->
-> **2. RAG 知识检索**
-> bge-small-zh-v1.5（512-dim）+ BM25 加权融合（vectorWeight=0.6）+ LLM 两阶段重排序（top-10 → scoring → top-3）。4 个知识库，语义分块，元数据过滤。检索延迟 < 200ms，场景切分 **+7%。**
->
-> **3. Agent Decision Memory**
-> LangGraph Store API 持久化。归因决策指纹提取（代词+敬语+动作类型→speaker）。两级信任阈值（≥0.85 跳 LLM / 0.7-0.85 作提示），写入门槛 ≥ 0.7，30 天 TTL。
->
-> **4. Agent Tool 生态**
-> 5 个 ToolNode：lookup_character / lookup_scene_patterns / list_all_characters / read_chapter / evaluate_attribution。Agent 自主决定调用时机，Zod schema 约束，完整调用日志可审计。
+- 669 本小说于 8×A800 完成 Qwen3-8B 全参微调及 3 个 LoRA，Attribution 准确率 86.7%，HuggingFace 发布。TypeScript Monorepo，11 packages，IR 多端架构。
 
 ---
 
-### 版本 E：大模型应用开发（LLM Application / AI Engineer）
+### 评测数据速查
 
-> **All Novel Can Be Galgame** — LLM 多 Agent 内容生成平台
-> *独立开发 | 2026.06 — 2026.07 | LangGraph / TypeScript / Node.js / Python*
->
-> **1. LangGraph 多 Agent 编排**
-基于 LangGraph StateGraph 构建 1 Supervisor + 3 Subgraph 多 Agent 架构，5 条条件边 + Command API 路由。加 Agent 仅需 1 行 addNode + 1 行 addEdge。Checkpoint 持久化到 SQLite，断点续跑任意节点恢复。
+| 指标 | 数值 | 说明 |
+|------|------|------|
+| Hit@1 | 70.0% | 30 条查询，角色知识库 |
+| Hit@5 | 90.0% | 含 3 条边界查询 |
+| MRR | 0.7678 | Mean Reciprocal Rank |
+| 评测集 | 30 条 × 5 类 × 26 chunk | 精确/语义/关系/跨章/边界 |
+| 消融实验 | keyword vs bigram | MRR 0.7678 vs 0.7733 |
 
-**2. RAG 增强生成**
-bge-small-zh-v1.5（512-dim）+ BM25 混合检索 + LLM 两阶段重排序（粗筛 10→精排 3）。4 个知识库，语义分块独立嵌入，元数据过滤防标签泄露。Prompt 模板库（DSPy 风格）按 successScore × useCount 排序，低分模板自动剪枝。场景切分准确率 **73%。**
+### 遇到的核心问题与解决方案
 
-**3. Agent Memory**
-LangGraph Store API 持久化跨章节决策：归因完成后提取模式指纹写入，后续同模式查询命中时 ≥0.85 置信度跳过 LLM 直接复用，0.7-0.85 注入 prompt 辅助推理。写入门槛 ≥ 0.7，30 天 TTL。
-
-**4. LLM 调用韧性 + Tool 生态**
-SHA256 语义缓存（省 80% token）→ 指数退避重试（3 次）→ 三级失败策略（Soft/Recoverable/Hard）→ 4 Provider 热切换（改配置零停机）。5 个共享 ToolNode + Per-Agent 模型路由（前 3 本地 SFT/后 4 云端）+ budget mode 三档。90 章全流程稳定运行。
-
----
+| 问题 | 现象 | 根因 | 解决方案 |
+|------|------|------|---------|
+| 语义查询 keyword 失效 | 送伞的人匹配不到送伞送早餐 | 单字匹配将双字词组拆散 | bge-large-zh 向量检索 |
+| bigram 引入噪声 | MRR 未显著提升 | 跨词 bigram 误匹配 | Cross-Encoder 精排 |
+| summary 被抢 rank0 | 全部外貌描述命中 identity 而非 summary | 权重均等 | chunkType 加权 |
+| 时序标签泄露 | 早期章节检索到后期信息 | 无时序约束 | 时序元数据过滤 |
 
 ### 数字速查
-
-| 维度 | 数字 |
-|------|------|
-| Agent | 1 Supervisor + 3 Subgraph + 5 Tool |
-| 代码 | 11 packages，Supervisor Graph 70 行 |
-| LoRA | Attribution 86.7%, Narrative 72.8% |
-| 训练 | 669 本, 7200 万字符, 8×A800, 3 LoRA |
-| RAG | 512-dim, 73%（+7%） |
-| 缓存 | SHA256 省 80% API 调用 |
-| 韧性 | 3 次重试(5s-10s-20s), 3 级失败策略, 4 Provider |
-| Memory | ≥0.85 跳 LLM, ≥0.7 写入, 30d TTL |
-| E2E | 90 章全流程通过 |
-
-### ATS 关键词
-
-`LangGraph` `Supervisor` `Subgraph` `Tool Call` `Agent-to-Agent` `Feedback Loop` `Command API` `RAG` `bge-small-zh` `BM25` `Hybrid Search` `LLM Rerank` `Semantic Chunking` `Metadata Filter` `Decision Memory` `Store API` `LoRA` `SFT` `Qwen3-8B` `HuggingFace` `SHA256 Cache` `Retry/Backoff` `Graceful Degradation` `Provider Abstraction` `Model Router` `Monorepo` `Checkpoint`
-
----
 
 ## 十、模拟问答：多 Agent 架构专项
 
