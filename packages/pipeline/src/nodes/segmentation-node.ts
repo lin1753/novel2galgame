@@ -186,10 +186,26 @@ export async function segmentationNode(
         }
         offset += count;
       }
-      segResult.sceneUnitMap = {};
-      for (const scene of segResult.scenes) {
-        segResult.sceneUnitMap[scene.sceneId] = scene.unitIds;
+    }
+
+    // Fix scene IDs: make globally unique by prepending chapterId
+    // Only prefix if the sceneId doesn't already contain the chapterId
+    const oldToNewId = new Map<string, string>();
+    for (const scene of segResult.scenes) {
+      const oldId = scene.sceneId;
+      if (!oldId.startsWith(state.chapterId)) {
+        const newId = `${state.chapterId}_${oldId}`;
+        oldToNewId.set(oldId, newId);
+        scene.sceneId = newId;
       }
+    }
+    // Update sceneUnitMap keys if present
+    if (segResult.sceneUnitMap) {
+      const newMap: Record<string, string[]> = {};
+      for (const [oldKey, val] of Object.entries(segResult.sceneUnitMap)) {
+        newMap[oldToNewId.get(oldKey) ?? oldKey] = val;
+      }
+      segResult.sceneUnitMap = newMap;
     }
 
     writeSegmentationResult(state.dataDir, state.projectId, state.chapterId, segResult);

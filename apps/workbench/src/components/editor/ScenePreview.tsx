@@ -83,7 +83,7 @@ export function ScenePreview({ steps, currentIndex }: ScenePreviewProps) {
             className="absolute bottom-24 transition-all duration-300"
             style={{ left: positionMap[char.position ?? 'center'] ?? '45%' }}
           >
-            <div className="w-24 h-36 bg-gradient-to-b from-lavender/30 to-sakura/20 rounded-xl border border-lavender/30 flex flex-col items-center justify-center">
+            <div className="w-24 h-36 bg-gradient-to-b from-sakura/30 to-sakura/20 rounded-xl border border-sakura/30 flex flex-col items-center justify-center">
               <span className="text-[10px] text-deep-purple font-medium">{id}</span>
               {char.expression && (
                 <span className="text-[9px] text-muted-foreground">{char.expression}</span>
@@ -100,7 +100,7 @@ export function ScenePreview({ steps, currentIndex }: ScenePreviewProps) {
             )}
             <p className={`text-sm leading-relaxed ${
               textDisplay.mode === 'narration' ? 'text-gray-300 italic' :
-              textDisplay.mode === 'thought' ? 'text-purple-300 italic' :
+              textDisplay.mode === 'thought' ? 'text-rose-400 italic' :
               'text-white'
             }`}>
               {textDisplay.text}

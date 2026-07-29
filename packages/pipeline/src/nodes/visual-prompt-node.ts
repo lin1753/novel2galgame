@@ -45,6 +45,9 @@ export async function visualPromptNode(
       state.onProgress?.("visual_prompt", `Generating visual prompts for scene ${scene.sceneId}`);
 
       try {
+        // Use pre-formatted character knowledge from RAG context
+        const characterKnowledge = state.ragContext?.characterKnowledge || undefined;
+
         const vp = resolveAgent(state.modelConfig, "visualPrompt", state.provider as LLMProvider, state.defaultModel);
         const vpResult = await runVisualPromptAgent(
           {
@@ -54,6 +57,7 @@ export async function visualPromptNode(
             units: sceneUnits,
             characters: attrCharacters,
             styleTemplate: "school-romance-anime",
+            characterKnowledge,
           },
           vp.provider,
           vp.model

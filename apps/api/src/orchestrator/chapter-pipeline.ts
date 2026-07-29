@@ -1,4 +1,5 @@
 import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
+import { extractCharactersFromUnits } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,
@@ -353,14 +354,23 @@ export async function runChapterPipeline(
       fn: () => runAttributionAgent({ chapterId, units: narrativeData.units, characterKnowledge }, wAttr, attr.model),
     });
     writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
+
+    // Post-process: extract character list from units if LLM returned empty characters
+    if (attributionData && extractCharactersFromUnits(attributionData)) {
+      console.log(`[Attribution] Post-processed ${attributionData.characters.length} characters from units`);
+    }
+
     onChapterFlags?.(chapterId, { attributionDone: true });
 
     // RAG: ingest new character knowledge
-    if (rag && attributionData) {
+    if (rag && attributionData && attributionData.characters?.length > 0) {
       try {
         const chunks = rag.extractor.extractCharacterKnowledge(attributionData, chapterId, chapterTitle);
-        await rag.knowledgeStore.ingestCharacters(chunks);
-      } catch (e) { /* silent */ }
+        if (chunks.length > 0) {
+          await rag.knowledgeStore.ingestCharacters(chunks);
+          console.log(`[RAG] Ingested ${chunks.length} character chunks for ${chapterTitle}`);
+        }
+      } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
     }
   }
 
@@ -417,11 +427,25 @@ export async function runChapterPipeline(
       }
       offset += count;
     }
-    // Update sceneUnitMap
-    segResult.sceneUnitMap = {};
-    for (const scene of segResult.scenes) {
-      segResult.sceneUnitMap[scene.sceneId] = scene.unitIds;
+  }
+
+  // Fix scene IDs: make globally unique by prepending chapterId
+  // Only prefix if the sceneId doesn't already contain the chapterId
+  const oldToNewId = new Map<string, string>();
+  for (const scene of segResult.scenes) {
+    const oldId = scene.sceneId;
+    if (!oldId.startsWith(chapterId)) {
+      const newId = `${chapterId}_${oldId}`;
+      oldToNewId.set(oldId, newId);
+      scene.sceneId = newId;
     }
+  }
+  if (segResult.sceneUnitMap) {
+    const newMap: Record<string, string[]> = {};
+    for (const [oldKey, val] of Object.entries(segResult.sceneUnitMap as Record<string, string[]>)) {
+      newMap[oldToNewId.get(oldKey) ?? oldKey] = val;
+    }
+    segResult.sceneUnitMap = newMap;
   }
 
   writeSegmentationResult(dataDir, project.projectId, chapterId, segResult);
@@ -503,6 +527,30 @@ export async function runChapterPipeline(
     if (project.config.autoRunVisualPrompt) {
       onProgress?.("visual_prompt", `Generating visual prompts for scene ${scene.sceneId}`);
       try {
+        // RAG: retrieve character appearance knowledge for visual prompt consistency
+        let characterKnowledge: string | undefined;
+        if (rag) {
+          try {
+            const charNames = attrCharacters.map((c: any) => c.canonicalName).filter(Boolean);
+            const knowledgeParts: string[] = [];
+            for (const name of charNames) {
+              const results = rag.knowledgeStore.searchCharactersHybrid
+                ? await rag.knowledgeStore.searchCharactersHybrid(`${name} 外观 appearance`, 3, 0.6)
+                : await rag.knowledgeStore.searchCharacters(name, 2);
+              for (const r of results) {
+                if (r.canonicalName === name && r.appearance?.length > 0) {
+                  knowledgeParts.push(`角色"${r.canonicalName}"(首次出现: ${r.firstSeenIn}): ${r.appearance.join("; ")}`);
+                  break;
+                }
+              }
+            }
+            if (knowledgeParts.length > 0) {
+              characterKnowledge = knowledgeParts.join("\n");
+              console.log(`[RAG] Visual prompt: ${charNames.length} characters with appearance knowledge`);
+            }
+          } catch (e) { /* silent */ }
+        }
+
         const vp = resolveAgent(agentModels, "visualPrompt", provider, model);
         const vpResult = await runVisualPromptAgent(
           {
@@ -512,6 +560,7 @@ export async function runChapterPipeline(
             units: sceneUnits,
             characters: attrCharacters,
             styleTemplate: project.config.visualStyleTemplate,
+            characterKnowledge,
           },
           vp.provider,
           vp.model

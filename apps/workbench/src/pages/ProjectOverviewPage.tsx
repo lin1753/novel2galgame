@@ -55,7 +55,7 @@ export function ProjectOverviewPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent flex items-center gap-2">
+        <h2 className="text-xl font-bold text-deep-purple flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-sakura" />
           {project.title}
         </h2>
@@ -89,33 +89,33 @@ export function ProjectOverviewPage() {
             </Link>
           )}
           <Link to={`/projects/${projectId}/editor`}
-            className="flex items-center gap-2 px-4 py-2 border border-lavender/30 text-deep-purple rounded-xl hover:bg-lavender/10 transition-all">
+            className="flex items-center gap-2 px-4 py-2 border border-sakura/30 text-deep-purple rounded-xl hover:bg-sakura/10 transition-all">
             <Sparkles className="w-4 h-4" /> 场景编辑器
           </Link>
           <Link to={`/projects/${projectId}/preview`}
-            className="flex items-center gap-2 px-4 py-2 border border-lavender/30 text-deep-purple rounded-xl hover:bg-lavender/10 transition-all">
+            className="flex items-center gap-2 px-4 py-2 border border-sakura/30 text-deep-purple rounded-xl hover:bg-sakura/10 transition-all">
             <Eye className="w-4 h-4" /> 预览
           </Link>
           <Link to={`/projects/${projectId}/assets`}
-            className="flex items-center gap-2 px-4 py-2 border border-lavender/30 text-deep-purple rounded-xl hover:bg-lavender/10 transition-all">
+            className="flex items-center gap-2 px-4 py-2 border border-sakura/30 text-deep-purple rounded-xl hover:bg-sakura/10 transition-all">
             <Package className="w-4 h-4" /> 资产管理
           </Link>
 
           {/* Export Section */}
           <div className="w-full border-t border-border my-2" />
           <button onClick={() => exportRenpy.mutate()} disabled={exportRenpy.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-400 to-teal-400 text-white rounded-xl font-medium disabled:opacity-50 transition-all hover:shadow-md">
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white rounded-xl font-medium disabled:opacity-50 transition-all hover:shadow-md">
             <Download className="w-4 h-4" />
             {exportRenpy.isPending ? '导出中...' : '导出 Ren\'Py 项目'}
           </button>
           <button onClick={() => generateAssets.mutate()} disabled={generateAssets.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-xl font-medium disabled:opacity-50 transition-all hover:shadow-md">
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-rose-400 to-rose-500 text-white rounded-xl font-medium disabled:opacity-50 transition-all hover:shadow-md">
             <Package className="w-4 h-4" />
             {generateAssets.isPending ? '生成中...' : '生成背景/立绘'}
           </button>
           <div className="w-full border-t border-border my-2" />
           <button onClick={() => startAutoExport({ maxChapters: Infinity })} disabled={autoExportRunning}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-500 to-purple-600 text-white rounded-xl font-medium disabled:opacity-50 transition-all hover:shadow-lg">
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-xl font-medium disabled:opacity-50 transition-all hover:shadow-lg">
             <Zap className="w-4 h-4" />
             {autoExportRunning ? '处理中...' : '一键处理 (管线→导出)'}
           </button>
@@ -139,7 +139,7 @@ export function ProjectOverviewPage() {
               <span className="text-sm font-medium text-deep-purple">批量处理进度</span>
               <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3 text-green-500" /> {stats.completed}</span>
-                <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 text-blue-500 animate-spin" /> {stats.running}</span>
+                <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 text-amber-600 animate-spin" /> {stats.running}</span>
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-muted-foreground" /> {stats.queued}</span>
                 <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3 text-red-500" /> {stats.failed}</span>
                 <span className="flex items-center gap-1"><XCircle className="w-3 h-3 text-gray-500" /> {stats.cancelled}</span>
@@ -210,7 +210,7 @@ function ChapterProgressRow({ progress, onCancel }: { progress: ChapterProgress;
   const statusIcon = () => {
     switch (progress.status) {
       case 'completed': return <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
-      case 'running': return <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+      case 'running': return <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
       case 'failed': return <AlertCircle className="w-3.5 h-3.5 text-red-400" />
       case 'cancelled': return <XCircle className="w-3.5 h-3.5 text-gray-400" />
       case 'queued': return <Clock className="w-3.5 h-3.5 text-muted-foreground" />

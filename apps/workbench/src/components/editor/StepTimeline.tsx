@@ -8,10 +8,10 @@ const stepIcons: Record<string, typeof Image> = {
 }
 
 const stepColors: Record<string, string> = {
-  bg: 'bg-blue-100 text-blue-600', show: 'bg-green-100 text-green-600',
+  bg: 'bg-amber-100 text-amber-700', show: 'bg-emerald-100 text-emerald-700',
   hide: 'bg-gray-100 text-gray-500', narration: 'bg-slate-100 text-slate-600',
-  say: 'bg-amber-100 text-amber-600', thought: 'bg-purple-100 text-purple-600',
-  pause: 'bg-orange-100 text-orange-600', transition: 'bg-cyan-100 text-cyan-600',
+  say: 'bg-amber-100 text-amber-600', thought: 'bg-rose-100 text-rose-600',
+  pause: 'bg-orange-100 text-orange-600', transition: 'bg-stone-100 text-stone-600',
 }
 
 function getStepPreview(step: VNStep): string {
@@ -88,7 +88,7 @@ export function StepTimeline({ steps, selectedIndex, onSelect, onAdd, onDelete, 
               onClick={() => onSelect(index)}
               className={`flex items-center gap-2 px-2.5 py-2 rounded-xl cursor-pointer transition-all duration-150 group ${
                 isSelected
-                  ? 'bg-lavender/20 border border-lavender/30 shadow-sm'
+                  ? 'bg-sakura/20 border border-sakura/30 shadow-sm'
                   : isDragOver
                   ? 'bg-sakura/10 border border-dashed border-sakura/30'
                   : 'hover:bg-muted border border-transparent'

@@ -21,10 +21,12 @@ export function buildChapterPipelineGraph() {
     .addNode("narrative_parsing", narrativeNode)
     .addNode("attribution", attributionNode)
     .addNode("rag_ingest_chars", async (state: typeof ChapterPipelineState.State) => {
+      // RAG ingest is handled post-pipeline to avoid state mutation issues
       return { currentStage: "segmentation" };
     })
     .addNode("segmentation", segmentationNode)
     .addNode("rag_ingest_scenes", async (state: typeof ChapterPipelineState.State) => {
+      // RAG ingest is handled post-pipeline to avoid state mutation issues
       return { currentStage: "vn_mapping" };
     })
     .addNode("vn_mapping", vnMappingNode)

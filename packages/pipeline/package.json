@@ -19,7 +19,6 @@
     "@novel2gal/agents": "workspace:*",
     "@novel2gal/providers": "workspace:*",
     "@novel2gal/storage": "workspace:*",
-    "@novel2gal/rag": "workspace:*",
     "@langchain/langgraph": "^0.2.0",
     "@langchain/core": "^0.3.0",
     "uuid": "^10.0.0",

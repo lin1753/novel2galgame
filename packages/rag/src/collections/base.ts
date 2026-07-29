@@ -60,13 +60,13 @@ export class BaseCollection {
     } else {
       // File not found on first run is normal — only log corruption
       if (!result.error.message.includes("file not found")) {
-        console.warn(`[RAG-v2] ${this._name}: load error — ${result.error.message}, starting empty`);
+        console.warn(`[RAG] ${this._name}: load error — ${result.error.message}, starting empty`);
       }
       this.records = [];
       // Overwrite corrupt file with empty state so next load is clean
       const repairResult = writeJson(this.storePath, { records: [] });
       if (!repairResult.ok) {
-        console.error(`[RAG-v2] ${this._name}: failed to repair corrupt file — ${repairResult.error.message}`);
+        console.error(`[RAG] ${this._name}: failed to repair corrupt file — ${repairResult.error.message}`);
       }
     }
     this.rebuildIndex();
@@ -84,7 +84,7 @@ export class BaseCollection {
   protected save(): boolean {
     const result = writeJson(this.storePath, { records: this.records });
     if (!result.ok) {
-      console.error(`[RAG-v2] ${this._name}: save error — ${result.error.message}`);
+      console.error(`[RAG] ${this._name}: save error — ${result.error.message}`);
     }
     return result.ok;
   }

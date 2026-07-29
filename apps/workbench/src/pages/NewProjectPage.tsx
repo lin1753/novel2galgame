@@ -42,7 +42,7 @@ export function NewProjectPage() {
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent flex items-center gap-2 mb-6">
+      <h1 className="text-2xl font-bold text-deep-purple flex items-center gap-2 mb-6">
         <Sparkles className="w-6 h-6 text-sakura" />
         新建项目
       </h1>
@@ -51,8 +51,8 @@ export function NewProjectPage() {
         {/* File Upload */}
         <div>
           <label className="block text-sm font-medium text-deep-purple mb-2">选择小说文件</label>
-          <div className="border-2 border-dashed border-lavender/40 rounded-2xl p-10 text-center hover:border-lavender transition-colors bg-card shadow-card">
-            <Upload className="w-10 h-10 mx-auto mb-3 text-lavender" />
+          <div className="border-2 border-dashed border-sakura/40 rounded-2xl p-10 text-center hover:border-sakura transition-colors bg-card shadow-card">
+            <Upload className="w-10 h-10 mx-auto mb-3 text-sakura" />
             <p className="text-muted-foreground mb-3">选择 .txt 小说文件</p>
             <input
               type="file"

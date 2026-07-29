@@ -146,7 +146,7 @@ export class Reranker {
       }));
     } catch {
       // Rerank failed — fall back to coarse results
-      console.warn("[RAG-v2] LLM rerank failed, falling back to coarse results");
+      console.warn("[RAG] LLM rerank failed, falling back to coarse results");
       return coarse.slice(0, opts.finalK).map((c, i) => {
         const candidate = candidates[i] ?? {
           id: c.id,

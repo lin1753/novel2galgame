@@ -1,5 +1,5 @@
 /**
- * LangGraph-compatible ToolNode wrapper for RAG v2.
+ * LangGraph-compatible ToolNode wrapper for RAG.
  *
  * Each tool is a LangChain tool that can be used directly
  * in LangGraph agent definitions via ToolNode.
@@ -11,7 +11,7 @@
 
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
-import type { EmbeddingService } from "@novel2gal/rag";
+import type { EmbeddingService } from "../embedder.js";
 import type { CharacterCollection } from "../collections/characters.js";
 import type {
   CharacterRecord,

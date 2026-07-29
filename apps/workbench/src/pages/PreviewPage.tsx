@@ -275,11 +275,11 @@ export function PreviewPage() {
                 <div className="text-primary font-medium text-sm mb-1">{textDisplay.displayName}</div>
               )}
               {textDisplay.mode === 'thought' && textDisplay.displayName && (
-                <div className="text-purple-400 font-medium text-sm mb-1 italic">{textDisplay.displayName} (内心)</div>
+                <div className="text-rose-500 font-medium text-sm mb-1 italic">{textDisplay.displayName} (内心)</div>
               )}
               <p className={`text-sm leading-relaxed ${
                 textDisplay.mode === 'narration' ? 'text-slate-300 italic' :
-                textDisplay.mode === 'thought' ? 'text-purple-300 italic' :
+                textDisplay.mode === 'thought' ? 'text-rose-400 italic' :
                 'text-white'
               }`}>
                 {textDisplay.text}

@@ -122,7 +122,7 @@ export function EditorPage() {
   if (!sceneId) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent flex items-center gap-2 mb-4">
+        <h1 className="text-xl font-bold text-deep-purple flex items-center gap-2 mb-4">
           <Sparkles className="w-5 h-5 text-sakura" />
           场景编辑器
         </h1>
@@ -148,11 +148,11 @@ export function EditorPage() {
         </div>
         <div className="flex items-center gap-1 ml-4">
           <button onClick={undo} disabled={historyIndex <= 0}
-            className="p-1.5 rounded-lg hover:bg-lavender/10 disabled:opacity-30 transition-colors">
+            className="p-1.5 rounded-lg hover:bg-sakura/10 disabled:opacity-30 transition-colors">
             <Undo2 className="w-4 h-4" />
           </button>
           <button onClick={redo} disabled={historyIndex >= history.length - 1}
-            className="p-1.5 rounded-lg hover:bg-lavender/10 disabled:opacity-30 transition-colors">
+            className="p-1.5 rounded-lg hover:bg-sakura/10 disabled:opacity-30 transition-colors">
             <Redo2 className="w-4 h-4" />
           </button>
         </div>
@@ -218,7 +218,7 @@ function ScenePickerChapter({ chapter, projectId, onSelect }: { chapter: any; pr
           <button
             key={scene.sceneId}
             onClick={() => onSelect(scene.sceneId)}
-            className="text-left px-3 py-2 rounded-xl border border-border bg-card hover:border-lavender/40 hover:shadow-card transition-all text-sm"
+            className="text-left px-3 py-2 rounded-xl border border-border bg-card hover:border-sakura/40 hover:shadow-card transition-all text-sm"
           >
             <span className="text-foreground">{scene.sceneId.split('_').pop()}</span>
             <span className="text-muted-foreground ml-2 text-xs">{scene.status}</span>

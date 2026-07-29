@@ -9,6 +9,11 @@
     "test": "turbo test",
     "typecheck": "turbo typecheck"
   },
+  "pnpm": {
+    "overrides": {
+      "sharp": "0.33.5"
+    }
+  },
   "devDependencies": {
     "turbo": "^2.3.0",
     "typescript": "^5.7.0"

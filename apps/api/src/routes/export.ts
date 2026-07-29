@@ -104,7 +104,37 @@ export function createExportRoutes() {
         assets: { background: {}, character: {}, cg: {}, music: {}, voice: {} },
       };
       // Extract asset needs from VN scripts
+      // Collect visual prompts across all scenes for character consistency
+      const characterPrompts = new Map<string, string>(); // canonicalName → finalPrompt
+      const charIdToName = new Map<string, string>(); // characterId → canonicalName
+
       for (const sceneId of fs.readdirSync(scenesDir)) {
+        // Read visual prompt result for this scene (if exists)
+        const vpPath = path.join(scenesDir, sceneId, "visual_prompt.json");
+        if (fs.existsSync(vpPath)) {
+          try {
+            const vpData = JSON.parse(fs.readFileSync(vpPath, "utf-8"));
+            for (const cp of vpData.characterPrompts ?? []) {
+              if (cp.canonicalName && cp.finalPrompt && !characterPrompts.has(cp.canonicalName)) {
+                characterPrompts.set(cp.canonicalName, cp.finalPrompt);
+              }
+            }
+          } catch {}
+        }
+
+        // Read attribution data to build characterId → canonicalName mapping
+        const attrPath = path.join(scenesDir, sceneId, "attributed_units.json");
+        if (fs.existsSync(attrPath) && charIdToName.size === 0) {
+          try {
+            const attrData = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
+            for (const ch of attrData.characters ?? []) {
+              if (ch.characterId && ch.canonicalName) {
+                charIdToName.set(ch.characterId, ch.canonicalName);
+              }
+            }
+          } catch {}
+        }
+
         const scriptPath = path.join(scenesDir, sceneId, "vn_script.json");
         if (!fs.existsSync(scriptPath)) continue;
         try {
@@ -128,11 +158,15 @@ export function createExportRoutes() {
               }
               const expr = (step as any).expression || "default";
               if (!manifest.assets.character[charId].expressions[expr]) {
+                // Look up visual prompt finalPrompt via characterId → canonicalName mapping
+                const canonicalName = charIdToName.get(charId);
+                const vpPrompt = canonicalName ? characterPrompts.get(canonicalName) : undefined;
                 manifest.assets.character[charId].expressions[expr] = {
                   type: "character",
                   label: expr,
                   file: `char/${charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}/${expr.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}.png`,
                   status: "placeholder",
+                  ...(vpPrompt ? { prompt: vpPrompt } : {}),
                 };
               }
             }

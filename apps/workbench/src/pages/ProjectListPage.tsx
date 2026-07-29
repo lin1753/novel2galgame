@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { Plus, Trash2, BookOpen, Sparkles } from 'lucide-react'
 import { useProjects, useDeleteProject } from '@/hooks/useProjects'
 import { StatusBadge } from '@/components/common/StatusBadge'
+import { GlassCard } from '@/components/common/GlassCard'
 
 export function ProjectListPage() {
   const { data: projects, isLoading } = useProjects()
@@ -12,7 +13,7 @@ export function ProjectListPage() {
       {/* Header with gradient accent */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-deep-purple flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-sakura" />
             项目列表
           </h1>
@@ -29,26 +30,26 @@ export function ProjectListPage() {
 
       {isLoading && (
         <div className="text-center py-20">
-          <div className="w-8 h-8 border-2 border-lavender border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-8 h-8 border-2 border-sakura border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="text-muted-foreground mt-3">加载中...</p>
         </div>
       )}
 
       {projects && projects.length === 0 && (
-        <div className="text-center py-20">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-sakura/20 to-lavender/20 flex items-center justify-center mx-auto mb-4">
-            <BookOpen className="w-10 h-10 text-lavender" />
+        <GlassCard hover={false} className="text-center py-20">
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-sakura/20 to-sakura/20 flex items-center justify-center mx-auto mb-4">
+            <BookOpen className="w-10 h-10 text-sakura" />
           </div>
           <p className="text-lg font-medium text-deep-purple mb-1">还没有项目</p>
           <p className="text-sm text-muted-foreground">点击"新建项目"开始导入你的第一部小说</p>
-        </div>
+        </GlassCard>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {projects?.map((p) => (
-          <div
+          <GlassCard
             key={p.projectId}
-            className="border border-border rounded-2xl p-5 bg-card shadow-card hover:shadow-card-hover transition-all duration-200 group hover:border-lavender/40"
+            className="p-5 group"
           >
             <Link to={`/projects/${p.projectId}/overview`} className="block">
               <div className="flex items-start justify-between mb-3">
@@ -67,12 +68,12 @@ export function ProjectListPage() {
                   e.preventDefault()
                   if (confirm('确认删除该项目?')) deleteProject.mutate(p.projectId)
                 }}
-                className="p-1.5 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity rounded-lg hover:bg-destructive/10"
+                className="p-1.5 text-muted-foreground/50 hover:text-destructive transition-colors rounded-lg hover:bg-destructive/10"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
-          </div>
+          </GlassCard>
         ))}
       </div>
     </div>

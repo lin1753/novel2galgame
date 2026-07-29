@@ -140,7 +140,7 @@ export function chunkCharacterKnowledge(
   }
 
   console.log(
-    `[RAG-v2] Chunked ${allChunks.length} character knowledge chunks from chapter "${chapterTitle}"`,
+    `[RAG] Chunked ${allChunks.length} character knowledge chunks from chapter "${chapterTitle}"`,
   );
   return allChunks;
 }

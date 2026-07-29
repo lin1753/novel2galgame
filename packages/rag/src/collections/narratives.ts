@@ -56,7 +56,7 @@ export class NarrativeCollection extends BaseCollection {
 
     this.upsert(records);
     console.log(
-      `[RAG-v2] Ingested ${patterns.length} narrative patterns (total: ${this.count})`,
+      `[RAG] Ingested ${patterns.length} narrative patterns (total: ${this.count})`,
     );
   }
 

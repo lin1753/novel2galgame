@@ -52,7 +52,7 @@ export function ProjectSettingsPage() {
   return (
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent">
+        <h1 className="text-xl font-bold text-deep-purple">
           项目设置
         </h1>
         <button onClick={handleSave} disabled={saving}

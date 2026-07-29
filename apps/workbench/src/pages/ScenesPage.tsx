@@ -94,7 +94,7 @@ export function ScenesPage() {
               onClick={() => { setSelectedChapterId(ch.chapterId); resetTab() }}
               className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 selectedChapterId === ch.chapterId
-                  ? 'bg-lavender/20 text-deep-purple'
+                  ? 'bg-sakura/20 text-deep-purple'
                   : 'text-muted-foreground hover:bg-muted'
               }`}
             >
@@ -139,7 +139,7 @@ export function ScenesPage() {
               {(['script', 'parsed', 'attribution', 'fidelity'] as const).map((tab) => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   className={`px-4 py-2 text-sm border-b-2 transition-colors ${
-                    activeTab === tab ? 'border-lavender text-deep-purple font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'
+                    activeTab === tab ? 'border-sakura text-deep-purple font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}>
                   {tab === 'script' ? 'VN 脚本' : tab === 'parsed' ? '叙事解析' : tab === 'attribution' ? '归因' : '忠实性'}
                 </button>
@@ -223,10 +223,10 @@ function TabContent({
   selectedScene: SceneState
 }) {
   const typeColors: Record<string, string> = {
-    bg: 'bg-blue-100 text-blue-600', show: 'bg-green-100 text-green-600',
+    bg: 'bg-amber-100 text-amber-700', show: 'bg-emerald-100 text-emerald-700',
     hide: 'bg-gray-100 text-gray-500', narration: 'bg-slate-100 text-slate-600',
-    say: 'bg-amber-100 text-amber-600', thought: 'bg-purple-100 text-purple-600',
-    pause: 'bg-orange-100 text-orange-600', transition: 'bg-cyan-100 text-cyan-600',
+    say: 'bg-amber-100 text-amber-600', thought: 'bg-rose-100 text-rose-600',
+    pause: 'bg-orange-100 text-orange-600', transition: 'bg-stone-100 text-stone-600',
   }
 
   switch (tab) {
@@ -267,9 +267,9 @@ function TabContent({
               <span className={`px-1.5 py-0.5 rounded font-medium shrink-0 ${
                 unit.type === 'dialogue' ? 'bg-amber-100 text-amber-700' :
                 unit.type === 'narration' ? 'bg-slate-100 text-slate-600' :
-                unit.type === 'thought' ? 'bg-purple-100 text-purple-600' :
-                unit.type === 'action' ? 'bg-green-100 text-green-600' :
-                'bg-blue-100 text-blue-600'
+                unit.type === 'thought' ? 'bg-rose-100 text-rose-600' :
+                unit.type === 'action' ? 'bg-emerald-100 text-emerald-700' :
+                'bg-amber-100 text-amber-700'
               }`}>{unit.type}</span>
               <span className="text-foreground">{(unit as any).originalText ?? (unit as any).text ?? '(无文本)'}</span>
             </div>
@@ -286,7 +286,7 @@ function TabContent({
               <p className="text-xs text-muted-foreground mb-1 font-medium">角色列表</p>
               <div className="flex flex-wrap gap-1 mb-3">
                 {attribution.characters.map((c) => (
-                  <span key={c.characterId} className="px-2 py-0.5 bg-lavender/10 rounded text-xs">{c.canonicalName || c.characterId}</span>
+                  <span key={c.characterId} className="px-2 py-0.5 bg-sakura/10 rounded text-xs">{c.canonicalName || c.characterId}</span>
                 ))}
               </div>
             </div>
@@ -294,7 +294,7 @@ function TabContent({
           {attribution.units.map((unit, i) => (
             <div key={unit.unitId} className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-muted text-xs">
               <span className="text-muted-foreground w-5 text-right shrink-0">{i + 1}</span>
-              <span className="px-1.5 py-0.5 rounded bg-lavender/10 text-deep-purple font-medium shrink-0">
+              <span className="px-1.5 py-0.5 rounded bg-sakura/10 text-deep-purple font-medium shrink-0">
                 {(unit as any).speaker ?? (unit as any).characterId ?? '未知'}
               </span>
               <span className="text-foreground">{(unit as any).originalText ?? (unit as any).text ?? ''}</span>

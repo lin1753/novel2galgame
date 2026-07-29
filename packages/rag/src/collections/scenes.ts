@@ -7,7 +7,7 @@
 
 import { BaseCollection, type VectorRecord, type SearchResult, type WhereClause } from "./base.js";
 import type { SceneChunk } from "../chunking/scene-chunker.js";
-import type { EmbeddingService } from "@novel2gal/rag";
+import type { EmbeddingService } from "../embedder.js";
 import { HybridRetriever } from "../retrieval/hybrid-retriever.js";
 
 export interface SceneRecord {
@@ -56,7 +56,7 @@ export class SceneCollection extends BaseCollection {
 
     this.upsert(records);
     console.log(
-      `[RAG-v2] Ingested ${chunks.length} scene patterns (total: ${this.count})`,
+      `[RAG] Ingested ${chunks.length} scene patterns (total: ${this.count})`,
     );
   }
 

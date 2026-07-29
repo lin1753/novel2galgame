@@ -353,8 +353,42 @@ export function createProjectRoutes(
     graph.invoke(initialState, {
       configurable: { thread_id: `${pid}_${cid}`, rag },
       signal: ac.signal,
-    }).then((finalState: any) => {
+    }).then(async (finalState: any) => {
       const sceneCount = finalState?.segmentationResult?.scenes?.length ?? 0;
+
+      // RAG ingest: post-pipeline, using finalState data (no mutation)
+      const chTitle = finalState?.chapterTitle ?? chapter.title;
+      if (rag && finalState?.attributionResult) {
+        try {
+          // 1. Extract characters from units if empty
+          const { extractCharactersFromUnits } = await import("@novel2gal/core");
+          const attrCopy = { ...finalState.attributionResult, characters: [...(finalState.attributionResult.characters ?? [])] };
+          if (attrCopy.characters.length === 0) {
+            extractCharactersFromUnits(attrCopy);
+          }
+
+          // 2. Ingest character knowledge
+          if (attrCopy.characters.length > 0) {
+            const { extractCharacterKnowledge } = await import("@novel2gal/rag");
+            const charChunks = extractCharacterKnowledge(attrCopy, cid, chTitle);
+            if (charChunks.length > 0) {
+              await rag.knowledgeStore.ingestCharacters(charChunks);
+              console.log(`[RAG] Ingested ${charChunks.length} character chunks for ${chTitle}`);
+            }
+          }
+
+          // 3. Ingest scene patterns
+          if (finalState?.segmentationResult) {
+            const { extractScenePatterns } = await import("@novel2gal/rag");
+            const sceneChunk = extractScenePatterns(finalState.segmentationResult, finalState.attributionResult, cid, chTitle);
+            if (sceneChunk) {
+              await rag.knowledgeStore.ingestScenePatterns([sceneChunk]);
+              console.log(`[RAG] Ingested scene patterns for ${chTitle}`);
+            }
+          }
+        } catch (e) { console.log(`[RAG] Post-pipeline ingest failed:`, (e as Error).message?.slice(0, 100)); }
+      }
+
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
       chapterRepo.updateStatus(cid, "chapter_ready");
       db.prepare("UPDATE pipeline_runs SET status='completed', finished_at=? WHERE run_id=?")

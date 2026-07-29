@@ -6,7 +6,7 @@
 
 import { BaseCollection, type VectorRecord, type SearchResult, type WhereClause } from "./base.js";
 import type { CharacterChunk } from "../chunking/character-chunker.js";
-import type { EmbeddingService } from "@novel2gal/rag";
+import type { EmbeddingService } from "../embedder.js";
 import { HybridRetriever } from "../retrieval/hybrid-retriever.js";
 import { Reranker, type RerankLLM } from "../retrieval/reranker.js";
 
@@ -99,7 +99,7 @@ export class CharacterCollection extends BaseCollection {
 
     this.upsert(records);
     console.log(
-      `[RAG-v2] Ingested ${chunks.length} character chunks (total: ${this.count})`,
+      `[RAG] Ingested ${chunks.length} character chunks (total: ${this.count})`,
     );
   }
 

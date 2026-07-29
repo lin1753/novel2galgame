@@ -3,36 +3,36 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  /* ACG Dreamy Palette */
-  --color-background: #FFFBF5;
-  --color-foreground: #1E1B2E;
+  /* Warm Rose Palette */
+  --color-background: #FFFAF6;
+  --color-foreground: #3D2B1F;
   --color-card: #FFFFFF;
-  --color-card-foreground: #1E1B2E;
+  --color-card-foreground: #3D2B1F;
   --color-popover: #FFFFFF;
-  --color-popover-foreground: #1E1B2E;
-  --color-primary: #C084FC;
+  --color-popover-foreground: #3D2B1F;
+  --color-primary: #C4787A;
   --color-primary-foreground: #FFFFFF;
-  --color-secondary: #F5B7D1;
-  --color-secondary-foreground: #5B21B6;
-  --color-muted: #F3F0FF;
-  --color-muted-foreground: #6B7280;
-  --color-accent: #DDD6FE;
-  --color-accent-foreground: #5B21B6;
-  --color-destructive: #EF4444;
+  --color-secondary: #E8B4B8;
+  --color-secondary-foreground: #6B3A3A;
+  --color-muted: #FFF5EE;
+  --color-muted-foreground: #8B7D74;
+  --color-accent: #F5D5CC;
+  --color-accent-foreground: #6B3A3A;
+  --color-destructive: #C75050;
   --color-destructive-foreground: #FFFFFF;
-  --color-border: #E9D5FF;
-  --color-input: #F5F3FF;
-  --color-ring: #C084FC;
-  --color-sidebar: #FAF5FF;
-  --color-sidebar-foreground: #1E1B2E;
-  --color-sidebar-accent: #F3E8FF;
+  --color-border: #F0D5CC;
+  --color-input: #FFF8F3;
+  --color-ring: #C4787A;
+  --color-sidebar: #FFF8F5;
+  --color-sidebar-foreground: #3D2B1F;
+  --color-sidebar-accent: #FDE8E0;
 
-  /* ACG Accent Colors */
-  --color-sakura: #F5B7D1;
-  --color-lavender: #C4B5FD;
-  --color-deep-purple: #5B21B6;
+  /* Accent Colors */
+  --color-sakura: #E8B4B8;
+  --color-lavender: #D4A89C;
+  --color-deep-purple: #6B3A3A;
   --color-cream: #FFF7ED;
-  --color-star: #FBBF24;
+  --color-star: #E8A84C;
 
   --radius: 0.75rem;
 }
@@ -43,18 +43,18 @@ body {
   font-family: "Noto Sans SC", system-ui, -apple-system, sans-serif;
 }
 
-/* Soft card shadows */
+/* Soft card shadows — warm tinted */
 .shadow-card {
-  box-shadow: 0 2px 12px rgba(192, 132, 252, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 12px rgba(196, 120, 122, 0.06), 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .shadow-card-hover {
-  box-shadow: 0 4px 20px rgba(192, 132, 252, 0.15), 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(196, 120, 122, 0.12), 0 2px 6px rgba(0, 0, 0, 0.05);
 }
 
-/* Sakura gradient accent */
+/* Warm gradient accent */
 .gradient-sakura {
-  background: linear-gradient(135deg, #F5B7D1 0%, #C4B5FD 50%, #A78BFA 100%);
+  background: linear-gradient(135deg, #E8B4B8 0%, #D4A89C 50%, #C4787A 100%);
 }
 
 /* Star sparkle animation */
@@ -75,4 +75,24 @@ body {
 
 .animate-float {
   animation: float 3s ease-in-out infinite;
+}
+
+/* Glassmorphism utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.glass-subtle {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Subtle glow effect */
+.glow-sakura {
+  box-shadow: 0 0 20px rgba(232, 180, 184, 0.25), 0 0 40px rgba(212, 168, 156, 0.1);
 }

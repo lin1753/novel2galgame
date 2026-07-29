@@ -67,7 +67,7 @@ export function ChaptersPage() {
                 <div className="flex items-center justify-between">
                   <span className="truncate">第{ch.index + 1}章 {ch.title}</span>
                   {chProg?.status === 'running' ? (
-                    <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
+                    <Loader2 className="w-3 h-3 animate-spin text-amber-600" />
                   ) : chProg?.status === 'completed' ? (
                     <span className="w-2 h-2 rounded-full bg-green-500" />
                   ) : chProg?.status === 'failed' ? (
@@ -77,7 +77,7 @@ export function ChaptersPage() {
                   )}
                 </div>
                 {chProg && chProg.status === 'running' && (
-                  <span className="text-[10px] text-blue-500">{chProg.stage}</span>
+                  <span className="text-[10px] text-amber-600">{chProg.stage}</span>
                 )}
                 {ch.sceneIds.length > 0 && (
                   <span className="text-xs text-muted-foreground">{ch.sceneIds.length} 场景</span>
@@ -106,8 +106,8 @@ export function ChaptersPage() {
 
             {/* Real-time progress */}
             {currentProgress && currentProgress.status === 'running' && (
-              <div className="p-3 rounded-xl bg-blue-500/5 border border-blue-500/20 text-sm">
-                <span className="text-blue-500 font-medium">当前: </span>
+              <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 text-sm">
+                <span className="text-amber-600 font-medium">当前: </span>
                 <span>{currentProgress.stage}</span>
                 {currentProgress.message && (
                   <span className="text-muted-foreground ml-1">— {currentProgress.message}</span>

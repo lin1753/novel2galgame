@@ -40,7 +40,7 @@ export function AssetsPage() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-2">
         <Image className="w-5 h-5 text-sakura" />
-        <h2 className="text-xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent">
+        <h2 className="text-xl font-bold text-deep-purple">
           资产管理
         </h2>
         <span className="text-xs text-muted-foreground ml-auto">共 {bgCount + charCount} 个资源</span>
@@ -49,7 +49,7 @@ export function AssetsPage() {
       <div className="flex gap-1 border-b border-border">
         {(['bg', 'character'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm border-b-2 transition-colors ${activeTab === tab ? 'border-lavender text-deep-purple font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+            className={`px-4 py-2 text-sm border-b-2 transition-colors ${activeTab === tab ? 'border-sakura text-deep-purple font-medium' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
             {tab === 'bg' ? `背景 (${bgCount})` : `角色立绘 (${charCount})`}
           </button>
         ))}
@@ -206,7 +206,7 @@ function AssetCard({ label, status, prompt, imageUrl, isGenerating, onGenerate, 
         )}
 
         <button onClick={onGenerate} disabled={isGenerating}
-          className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-lavender/10 text-deep-purple rounded-lg text-[10px] font-medium hover:bg-lavender/20 disabled:opacity-50 transition-colors">
+          className="w-full flex items-center justify-center gap-1 px-2 py-1 bg-sakura/10 text-deep-purple rounded-lg text-[10px] font-medium hover:bg-sakura/20 disabled:opacity-50 transition-colors">
           {isGenerating ? <><Loader2 className="w-3 h-3 animate-spin" /> 生成中...</> : <><RefreshCw className="w-3 h-3" /> {status === 'generated' ? '重新生成' : '生成'}</>}
         </button>
       </div>

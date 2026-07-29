@@ -52,6 +52,10 @@ export class AgnesImageProducer implements AssetProducer {
       case "background":
         return `${entry.label}, Japanese anime background art, visual novel scene, painted style, wide angle establishing shot, atmospheric lighting, detailed environment, no characters, ${acgStyle.split(",").slice(0, 3).join(",")}`;
       case "character": {
+        // If a visual prompt finalPrompt is available, use it directly for character consistency
+        if (entry.prompt) {
+          return entry.prompt;
+        }
         const charBase = `solo character, full body standing pose, plain white solid background, no scenery no environment, character sprite sheet style, ${acgStyle}`;
         if (!entry.expression || entry.expression === "default") {
           return `${entry.label}, ${charBase}`;

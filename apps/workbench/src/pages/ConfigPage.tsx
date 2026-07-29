@@ -242,7 +242,7 @@ export function ConfigPage() {
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold bg-gradient-to-r from-deep-purple to-[#9333EA] bg-clip-text text-transparent">
+        <h1 className="text-xl font-bold text-deep-purple">
           模型配置
         </h1>
         <button onClick={saveAssignments}
@@ -252,7 +252,7 @@ export function ConfigPage() {
       </div>
 
       {/* Active profile banner */}
-      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-lavender/5 border border-lavender/30">
+      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-sakura/5 border border-sakura/30">
         <span className="text-xs text-muted-foreground">当前 Provider:</span>
         <span className="font-medium text-deep-purple text-sm">{profilesCfg.activeProfile || '未配置'}</span>
         {profilesCfg.profiles.find(p => p.name === profilesCfg.activeProfile) && (
@@ -292,7 +292,7 @@ export function ConfigPage() {
                   <label className="block text-[11px] font-medium mb-1 text-muted-foreground">Provider</label>
                   <select value={a.profile}
                     onChange={(e) => updateAssignment(type, 'profile', e.target.value)}
-                    className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-lavender/50">
+                    className="w-full px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-sakura/50">
                     {profiles.length === 0 && <option value="">-- 请先添加 Provider --</option>}
                     {profiles.map(p => (
                       <option key={p.name} value={p.name}>{p.name} ({p.type === 'cloud' ? 'Cloud' : 'Local'})</option>
@@ -306,7 +306,7 @@ export function ConfigPage() {
                   <div className="flex gap-2">
                     <input value={a.model}
                       onChange={(e) => updateAssignment(type, 'model', e.target.value)}
-                      className="flex-1 px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-lavender/50"
+                      className="flex-1 px-3 py-2 bg-secondary border border-border rounded-lg text-sm focus:outline-none focus:border-sakura/50"
                       placeholder="输入模型名称..." />
                   </div>
                   {presets.length > 0 && (
@@ -356,7 +356,7 @@ export function ConfigPage() {
             <div className="flex flex-wrap gap-1.5">
               {Object.keys(PROVIDER_PRESETS).map(name => (
                 <button key={name} onClick={() => addNewProfile(name)}
-                  className="px-2.5 py-1 text-[10px] border border-lavender/30 rounded-lg hover:bg-lavender/10 transition-colors">
+                  className="px-2.5 py-1 text-[10px] border border-sakura/30 rounded-lg hover:bg-sakura/10 transition-colors">
                   + {name}
                 </button>
               ))}
@@ -368,14 +368,14 @@ export function ConfigPage() {
                 <div key={profile.name}
                   className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${
                     profile.name === profilesCfg.activeProfile
-                      ? 'border-lavender/50 bg-lavender/5'
+                      ? 'border-sakura/50 bg-sakura/5'
                       : 'border-border bg-card hover:bg-muted/20'
                   }`}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-xs truncate">{profile.name}</span>
                       <span className={`px-1 py-0.5 text-[9px] rounded ${
-                        profile.type === 'cloud' ? 'bg-blue-100 text-blue-600' : 'bg-green-100 text-green-600'
+                        profile.type === 'cloud' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-600'
                       }`}>{profile.type}</span>
                       {profile.name === profilesCfg.activeProfile && (
                         <span className="px-1 py-0.5 text-[9px] rounded bg-sakura/20 text-sakura">active</span>
@@ -390,7 +390,7 @@ export function ConfigPage() {
                   <div className="flex items-center gap-1 shrink-0">
                     {profile.name !== profilesCfg.activeProfile && (
                       <button onClick={() => handleActivate(profile.name)}
-                        className="px-2 py-1 text-[10px] bg-lavender/10 text-deep-purple rounded hover:bg-lavender/20 transition-colors">
+                        className="px-2 py-1 text-[10px] bg-sakura/10 text-deep-purple rounded hover:bg-sakura/20 transition-colors">
                         切换
                       </button>
                     )}
@@ -412,7 +412,7 @@ export function ConfigPage() {
 
             {/* Profile editor panel */}
             {editingProfile && (
-              <div className="border border-lavender/40 rounded-xl p-4 bg-muted/10 space-y-3">
+              <div className="border border-sakura/40 rounded-xl p-4 bg-muted/10 space-y-3">
                 <h4 className="font-medium text-deep-purple text-xs">
                   {isNewProfile ? '新建 Provider' : `编辑: ${editingProfile.name}`}
                 </h4>

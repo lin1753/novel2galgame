@@ -59,7 +59,7 @@ export class PromptCollection extends BaseCollection {
 
     this.upsert(records);
     console.log(
-      `[RAG-v2] Ingested ${templates.length} prompt templates (total: ${this.count})`,
+      `[RAG] Ingested ${templates.length} prompt templates (total: ${this.count})`,
     );
   }
 

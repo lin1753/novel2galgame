@@ -3,6 +3,7 @@ export * from "./structure.js";
 export * from "./chapter.js";
 export * from "./narrative.js";
 export * from "./attribution.js";
+export * from "./attribution-utils.js";
 export * from "./scene.js";
 export * from "./vn-script.js";
 export * from "./fidelity.js";

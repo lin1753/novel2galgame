@@ -128,6 +128,8 @@ export class ProjectRepository {
   }
 
   delete(projectId: string): void {
+    // Delete pipeline_runs first (no ON DELETE CASCADE on its FK)
+    this.db.prepare("DELETE FROM pipeline_runs WHERE chapter_id IN (SELECT chapter_id FROM chapters WHERE project_id = ?)").run(projectId);
     this.db.prepare("DELETE FROM projects WHERE project_id = ?").run(projectId);
   }
 }

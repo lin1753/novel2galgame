@@ -17,6 +17,8 @@ export interface VisualPromptInput {
   units: AttributedNarrativeUnit[];
   characters: CharacterRef[];
   styleTemplate: string;
+  /** RAG 查询结果：角色历史外观知识（从 RAG 检索的跨章角色外观描述） */
+  characterKnowledge?: string;
 }
 
 const STYLE_TEMPLATES: Record<string, string> = {
@@ -89,7 +91,7 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
 - 只输出 JSON, 不要添加额外解释`;
 
 function buildUserPrompt(input: VisualPromptInput): string {
-  const { sceneId, chapterId, scene, units, characters, styleTemplate } = input;
+  const { sceneId, chapterId, scene, units, characters, styleTemplate, characterKnowledge } = input;
   const styleDesc = STYLE_TEMPLATES[styleTemplate] ?? styleTemplate;
 
   const characterList = characters
@@ -115,6 +117,11 @@ function buildUserPrompt(input: VisualPromptInput): string {
 场景位置: ${scene.summary?.locationHint ?? "未知"}
 场景时间: ${scene.summary?.timeHint ?? "未知"}
 场景氛围: ${scene.summary?.moodHint ?? "未知"}
+${characterKnowledge ? `
+[已知角色历史外观 — 基于前几章的累积知识]
+${characterKnowledge}
+
+重要: 请基于以上已知外观信息，结合当前场景文本，生成一致的角色提示词。如果当前场景没有外貌变化描述，请沿用已知外观。不要编造与已知外观矛盾的细节。` : ""}
 
 角色列表:
 ${characterList}
