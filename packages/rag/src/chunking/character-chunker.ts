@@ -33,15 +33,21 @@ function chunkOneCharacter(
   chapterId: string,
   chapterTitle: string,
   units: AttributionResult["units"],
+  speakerIdToCharId?: Record<string, string>,
 ): CharacterChunk[] {
   const name = char.canonicalName ?? char.characterId;
   const chunks: CharacterChunk[] = [];
 
   // Collect text attributed to this character
+  // Use speakerIdToCharId mapping to match units when speakerId differs from characterId
   const attributedTexts: string[] = [];
   for (const unit of units) {
-    const speaker = (unit as any).speaker ?? (unit as any).characterId;
-    if (speaker === char.characterId) {
+    const speaker = (unit as any).speaker ?? (unit as any).characterId ?? (unit as any).attribution?.speakerId;
+    if (!speaker) continue;
+
+    // Try direct match first, then mapping lookup
+    const matchedCharId = speakerIdToCharId?.[speaker] ?? speaker;
+    if (matchedCharId === char.characterId || speaker === char.characterId) {
       const text = (unit as any).originalText ?? (unit as any).text ?? "";
       if (text) attributedTexts.push(text);
     }
@@ -135,6 +141,7 @@ export function chunkCharacterKnowledge(
       chapterId,
       chapterTitle,
       attributionData.units,
+      attributionData.speakerIdToCharId,
     );
     allChunks.push(...charChunks);
   }
