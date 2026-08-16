@@ -24,12 +24,37 @@ export function fanOutToScenes(state: typeof ChapterPipelineState.State): string
   return count > 0 ? Array(count).fill("vn_mapping") : ["extract_assets"];
 }
 
+export const MAX_FIDELITY_REPAIR_ATTEMPTS = 2;
+
+/**
+ * A scene is eligible for fidelity-driven re-mapping when its review failed
+ * with critical severity and it hasn't exceeded the repair attempt budget.
+ */
+export function isCriticalUnrepaired(r: {
+  fidelityReport?: { passed: boolean; severity: string };
+  repairCount?: number;
+}): boolean {
+  return !!(
+    r.fidelityReport &&
+    !r.fidelityReport.passed &&
+    r.fidelityReport.severity === "critical" &&
+    (r.repairCount ?? 0) < MAX_FIDELITY_REPAIR_ATTEMPTS
+  );
+}
+
 export function afterFidelityReview(state: typeof ChapterPipelineState.State): string {
   if (state.error) return "handle_error";
   const seg = state.segmentationResult;
   if (!seg) return "handle_error";
   const allReviewed = state.sceneResults.length >= seg.scenes.length;
-  return allReviewed ? "rag_query" : "vn_mapping";
+  if (!allReviewed) return "vn_mapping";
+
+  if (state.sceneResults.some(isCriticalUnrepaired)) {
+    console.log("[afterFidelityReview] Critical fidelity failures detected, routing back to vn_mapping for repair");
+    return "vn_mapping";
+  }
+
+  return "rag_query";
 }
 
 export function afterVisualPrompt(state: typeof ChapterPipelineState.State): string {

@@ -7,6 +7,7 @@ import { runVNMappingAgent } from "@novel2gal/agents";
 import type { AgentResult } from "@novel2gal/agents";
 import { writeVNScript } from "@novel2gal/storage";
 import type { ChapterPipelineState, ScenePipelineResult, AgentModelConfig } from "../state.js";
+import { isCriticalUnrepaired } from "../routes/index.js";
 
 const now = () => new Date().toISOString();
 
@@ -120,9 +121,24 @@ export async function vnMappingNode(
     const newResults: ScenePipelineResult[] = [...state.sceneResults];
     let targetSceneIdx = newResults.length; // index of the next scene to process
 
-    if (targetSceneIdx >= seg.scenes.length) {
-      // All scenes processed
-      return { currentStage: "visual_prompt" };
+    // [REPAIR MODE] Once all scenes are mapped and reviewed, re-map scenes whose
+    // fidelity review failed with critical severity, feeding review issues back
+    // to the LLM so omitted content gets restored
+    const allMapped = targetSceneIdx >= seg.scenes.length;
+    let repairMode = false;
+    if (allMapped) {
+      const repairIdx = newResults.findIndex(isCriticalUnrepaired);
+      if (repairIdx !== -1) {
+        repairMode = true;
+        targetSceneIdx = repairIdx;
+        console.log(
+          `[vnMappingNode] REPAIR mode: re-mapping scene ${seg.scenes[repairIdx]!.sceneId} ` +
+          `(attempt ${(newResults[repairIdx]!.repairCount ?? 0) + 1})`
+        );
+      } else {
+        // All scenes processed, no critical repairs pending
+        return { currentStage: "visual_prompt" };
+      }
     }
 
     const scene = seg.scenes[targetSceneIdx]!;
@@ -134,9 +150,9 @@ export async function vnMappingNode(
       sceneUnits = attrUnits.slice(startIdx, startIdx + chunkSize);
     }
 
-    // Check if scene already mapped (via sceneRepo)
+    // Check if scene already mapped (via sceneRepo) — not applicable in repair mode
     const sceneState = state.sceneRepo?.getById(scene.sceneId);
-    if (sceneState?.mappingStatus === "done") {
+    if (!repairMode && sceneState?.mappingStatus === "done") {
       state.onProgress?.("vn_mapping", `Skipped ${scene.sceneId} (already mapped)`);
       newResults.push({ sceneId: scene.sceneId, fidelityPassed: true });
       return {
@@ -154,9 +170,10 @@ export async function vnMappingNode(
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
 
-    // Cache check
+    // Cache check — repair attempts get a salted key so they never reuse the failed script
+    const repairSalt = repairMode ? `|repair${(newResults[targetSceneIdx]!.repairCount ?? 0) + 1}` : "";
     const cacheKey = crypto.createHash("sha256")
-      .update(`${scene.sceneId}|vn_mapping|${vn.model}|${state.chapterText.slice(0, 200)}`)
+      .update(`${scene.sceneId}|vn_mapping${repairSalt}|${vn.model}|${state.chapterText.slice(0, 200)}`)
       .digest("hex");
 
     if (state.db) {
@@ -193,9 +210,20 @@ export async function vnMappingNode(
     }
 
     let retryCount = 0;
+    // [REPAIR MODE] Feed fidelity review issues back to the LLM as fix directives
+    let repairContext: string | undefined;
+    if (repairMode) {
+      const prevResult = newResults[targetSceneIdx]!;
+      const issues = prevResult.fidelityReport?.issues ?? [];
+      repairContext = issues
+        .map((iss) => `[${iss.severity}] ${iss.message}${iss.suggestion ? ` (建议: ${iss.suggestion})` : ""}`)
+        .join("\n")
+        .slice(0, 2000);
+      state.onProgress?.("vn_mapping", `Repairing scene ${scene.sceneId} with ${issues.length} fidelity issues`);
+    }
     const vnData = await withRetry(
       retryable(() => { retryCount++; return runVNMappingAgent(
-        { sceneId: scene.sceneId, chapterId: state.chapterId, scene, units: sceneUnits, mappingMode: "standard" },
+        { sceneId: scene.sceneId, chapterId: state.chapterId, scene, units: sceneUnits, mappingMode: "standard", repairContext },
         wVn,
         vn.model
       ); }),
@@ -217,7 +245,17 @@ export async function vnMappingNode(
         .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, cacheKey, outputPath, taskId);
     }
 
-    newResults.push({ sceneId: scene.sceneId, fidelityPassed: true, vnScript: vnData });
+    if (repairMode) {
+      // Clear fidelityReport so fidelity_review re-reviews the regenerated script
+      newResults[targetSceneIdx] = {
+        sceneId: scene.sceneId,
+        fidelityPassed: true,
+        vnScript: vnData,
+        repairCount: (newResults[targetSceneIdx]!.repairCount ?? 0) + 1,
+      };
+    } else {
+      newResults.push({ sceneId: scene.sceneId, fidelityPassed: true, vnScript: vnData });
+    }
 
     return {
       sceneResults: newResults,

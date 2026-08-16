@@ -9,7 +9,7 @@ const defaultConfig: ProjectConfig = {
   segmentationMode: 'standard',
   visualStyleTemplate: 'school-romance-anime',
   budgetMode: 'balanced',
-  autoRunVisualPrompt: false,
+  autoRunVisualPrompt: true,
   autoRunConsistencyReview: false,
   defaultTextModel: 'agnes-2.0-flash',
   language: 'zh-CN',

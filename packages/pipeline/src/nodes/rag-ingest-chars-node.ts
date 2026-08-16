@@ -18,7 +18,7 @@ export async function ragIngestCharsNode(
     };
 
     if (attrCopy.characters.length === 0) {
-      extractCharactersFromUnits(attrCopy);
+      extractCharactersFromUnits(attrCopy, state.knownCharacters);
     }
 
     if (attrCopy.characters.length > 0) {

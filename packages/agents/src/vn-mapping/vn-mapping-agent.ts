@@ -9,6 +9,8 @@ export interface VNMappingInput {
   scene: Scene;
   units: AttributedNarrativeUnit[];
   mappingMode: "standard" | "conservative";
+  /** [REPAIR MODE] Issues from a failed fidelity review; instructs the LLM to fix omissions */
+  repairContext?: string;
 }
 
 const SYSTEM_PROMPT = `你是一个中文小说转视觉小说脚本专家。你的任务是将一个场景的叙事单元转换为 VN 脚本步骤。
@@ -89,7 +91,7 @@ export async function runVNMappingAgent(
 场景摘要: ${scene.summary?.shortSummary ?? "无"}
 场景位置: ${scene.summary?.locationHint ?? "未知"}
 ${unitBatches.length > 1 ? `[批次 ${bIdx + 1}/${unitBatches.length}]` : ""}
-
+${input.repairContext ? `\n[REPAIR MODE] 上一次生成的 VN 脚本未通过保真度审核，请务必修复以下问题，补全所有被遗漏的叙事单元:\n${input.repairContext}\n` : ""}
 叙事单元:
 ${unitsText}
 

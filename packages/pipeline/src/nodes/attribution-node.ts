@@ -169,8 +169,14 @@ export async function attributionNode(
       for (const rec of state.rag.knowledgeStore.characters.records) {
         const cname = rec.metadata?.canonicalName as string;
         const cid = (rec.metadata?.characterId as string) || `char_${cname}`;
-        if (cname && !knownMap.has(cname)) {
-          knownMap.set(cname, { characterId: cid, canonicalName: cname, aliases: [] });
+        // Only Chinese canonicalNames are useful as known characters; when several
+        // chunk records share a name, prefer the plain (shortest) characterId so
+        // suffixed IDs like "char_x_appearance" don't win
+        if (cname && /[\u4e00-\u9fff]/.test(cname)) {
+          const existing = knownMap.get(cname);
+          if (!existing || cid.length < existing.characterId.length) {
+            knownMap.set(cname, { characterId: cid, canonicalName: cname, aliases: [] });
+          }
         }
       }
     }
@@ -192,7 +198,7 @@ export async function attributionNode(
     );
 
     if (!attributionData.characters || attributionData.characters.length === 0) {
-      extractCharactersFromUnits(attributionData);
+      extractCharactersFromUnits(attributionData, effectiveKnownChars);
     }
 
     writeAttributionResult(state.dataDir, state.projectId, state.chapterId, attributionData);

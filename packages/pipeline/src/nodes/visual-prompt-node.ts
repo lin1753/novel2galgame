@@ -65,8 +65,10 @@ export async function visualPromptNode(
         if (vpResult.success && vpResult.data) {
           writeVisualPromptResult(state.dataDir, state.projectId, scene.sceneId, vpResult.data);
         }
-      } catch {
-        state.onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);
+      } catch (vpErr) {
+        const errMsg = vpErr instanceof Error ? vpErr.message : String(vpErr);
+        console.error(`[visualPromptNode] FAILED for ${scene.sceneId}: ${errMsg}`);
+        state.onProgress?.("visual_prompt", `Visual prompt ERROR for ${scene.sceneId}: ${errMsg.slice(0, 120)}`);
       }
     }
 

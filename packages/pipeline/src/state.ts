@@ -23,6 +23,8 @@ export interface ScenePipelineResult {
   fidelityPassed: boolean;
   vnScript?: VNScript;
   fidelityReport?: FidelityReport;
+  /** Number of fidelity-driven repair attempts for this scene (max 2) */
+  repairCount?: number;
 }
 
 export const ChapterPipelineState = Annotation.Root({
