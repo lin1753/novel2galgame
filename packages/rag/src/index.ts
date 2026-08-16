@@ -182,15 +182,28 @@ export class KnowledgeStore {
 
   async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
     for (const chunk of chunks) {
+      // Accept both v1 chunk shape (top-level trait arrays) and v2 CharacterChunk
+      // shape ({ type, text, metadata: { appearance, personality, relationships } })
+      const meta = chunk.metadata ?? {};
+      const appearance: string[] = chunk.appearance ?? meta.appearance ?? [];
+      const personality: string[] = chunk.personality ?? meta.personality ?? [];
+      const relationships: string[] = chunk.relationships ?? meta.relationships ?? [];
+      const chunkType = chunk.type
+        ?? (chunk.characterId?.endsWith("_appearance") ? "appearance"
+          : chunk.characterId?.endsWith("_relationship") ? "relationship"
+          : "identity");
       const pid = chunk.projectId ?? projectId ?? (chunk.chapterId?.includes("_") ? chunk.chapterId.split("_chapter_")[0] : undefined);
-      const embedText = chunk.embedText ?? `角色: ${chunk.canonicalName} | ${chunk.appearance?.join("; ") ?? ""}`;
+      const embedText = chunk.embedText ?? chunk.text ?? `角色: ${chunk.canonicalName} | ${appearance.join("; ")}`;
       const vector = await this._v2.getEmbedding(embedText);
-      const chunkType = chunk.characterId?.endsWith("_appearance") ? "appearance"
-        : chunk.characterId?.endsWith("_relationship") ? "relationship"
-        : "identity";
-      const recordId = pid && !chunk.characterId?.startsWith(pid)
-        ? `${pid}_${chunk.characterId}`
-        : chunk.characterId;
+      // Content-hash suffix keeps ids unique per trait chunk (a character can have
+      // several relationship chunks) while staying idempotent across re-runs
+      let contentHash = 0;
+      for (let i = 0; i < embedText.length; i++) {
+        contentHash = (contentHash * 31 + embedText.charCodeAt(i)) | 0;
+      }
+      const contentHashStr = (contentHash >>> 0).toString(36);
+      const chapterId = chunk.chapterId ?? meta.chapterId ?? pid ?? "";
+      const recordId = `${chapterId}_${chunk.characterId}_${chunkType}_${contentHashStr}`;
       await this._v2.collections.characters.upsert([{
         id: recordId,
         vector,
@@ -200,11 +213,13 @@ export class KnowledgeStore {
           projectId: pid,
           characterId: chunk.characterId,
           canonicalName: chunk.canonicalName,
-          chapterId: chunk.chapterId,
-          firstSeenIn: chunk.firstSeenIn,
-          text: embedText,
-          appearance: chunk.appearance ?? [],
-          relationships: chunk.relationships ?? [],
+          chapterId,
+          firstSeenIn: chunk.firstSeenIn ?? meta.firstSeenIn,
+          embedText,
+          text: chunk.text ?? embedText,
+          appearance,
+          personality,
+          relationships,
         },
       }]);
     }

@@ -116,11 +116,21 @@ ${unitsText}
             { role: "user", content: userPrompt },
           ],
           temperature: 0.2,
-          maxTokens: 4096,
+          maxTokens: 8192,
           jsonMode: true,
         });
 
         const normalizedSteps = normalizeVNSteps(result.steps ?? [], charMap);
+        if (normalizedSteps.length === 0) {
+          // Some providers occasionally return an empty steps array on a 200 —
+          // retry, and let the per-unit fallback kick in if it persists
+          console.warn(`[vn-mapping-agent] Batch ${bIdx + 1}/${unitBatches.length} returned empty steps (attempt ${attempt + 1})`);
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+            continue;
+          }
+          break;
+        }
         allSteps.push(...normalizedSteps);
         success = true;
         break;

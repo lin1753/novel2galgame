@@ -181,9 +181,14 @@ export async function fidelityReviewNode(
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
 
-    // Cache check
+    // Cache key includes the reviewed script's content hash so a repaired script
+    // gets a fresh review instead of hitting the stale failed report
+    const vnScriptHash = crypto.createHash("sha256")
+      .update(JSON.stringify(sceneResult.vnScript ?? {}))
+      .digest("hex")
+      .slice(0, 16);
     const cacheKey = crypto.createHash("sha256")
-      .update(`${scene.sceneId}|fidelity_review|${fr.model}|${state.chapterText.slice(0, 200)}`)
+      .update(`${scene.sceneId}|fidelity_review|${fr.model}|${vnScriptHash}`)
       .digest("hex");
 
     if (state.db) {
