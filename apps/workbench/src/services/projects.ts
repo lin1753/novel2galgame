@@ -73,4 +73,22 @@ export const projectService = {
 
   cancelAllAutoExport: (id: string) =>
     request<void>(`/projects/${id}/auto-export/cancel`, { method: 'POST' }),
+
+  getRagCharacters: (id: string) =>
+    request<{
+      projectId: string;
+      totalCharacters: number;
+      totalChunks?: number;
+      engine?: string;
+      characters: Array<{
+        canonicalName: string;
+        characterId?: string;
+        appearances: string[];
+        personalities: string[];
+        chapters: string[];
+        chunkCount: number;
+        timeline?: Array<{ chapterTitle: string; chapterId: string; traitKind?: string; text: string }>;
+        chunks: Array<{ id: string; chapterId: string; chunkType: string; text: string }>;
+      }>;
+    }>(`/projects/${id}/rag/characters`),
 }

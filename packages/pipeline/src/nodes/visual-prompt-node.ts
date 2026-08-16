@@ -63,10 +63,22 @@ export async function visualPromptNode(
           vp.model
         );
         if (vpResult.success && vpResult.data) {
-          writeVisualPromptResult(state.dataDir, state.projectId, scene.sceneId, vpResult.data);
+          const data = vpResult.data as any;
+          const hasContent = (data.characterPrompts?.length ?? 0) > 0 || !!data.backgroundPrompt;
+          if (hasContent) {
+            writeVisualPromptResult(state.dataDir, state.projectId, scene.sceneId, vpResult.data);
+          } else {
+            console.warn(`[visualPromptNode] Empty visual prompt content for ${scene.sceneId}, not writing file`);
+          }
+        } else {
+          const reason = (vpResult as any).errorMessage ?? "no data returned";
+          console.warn(`[visualPromptNode] Agent returned unsuccessful result for ${scene.sceneId}: ${reason}`);
+          state.onProgress?.("visual_prompt", `Visual prompt not generated for ${scene.sceneId}: ${String(reason).slice(0, 120)}`);
         }
-      } catch {
-        state.onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);
+      } catch (vpErr) {
+        const errMsg = vpErr instanceof Error ? vpErr.message : String(vpErr);
+        console.error(`[visualPromptNode] FAILED for ${scene.sceneId}: ${errMsg}`);
+        state.onProgress?.("visual_prompt", `Visual prompt ERROR for ${scene.sceneId}: ${errMsg.slice(0, 120)}`);
       }
     }
 

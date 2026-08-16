@@ -158,7 +158,13 @@ export function compareEvalResults(
 
       const diff = m.value - base.value;
       // Check direction based on metric name
-      const lowerIsBetter = m.name.includes("rate") || m.name.includes("failure") || m.name.includes("error");
+      // Explicit lower-is-better list — a blanket "includes(rate)" inverted
+      // core metrics like dialogue_retention_rate (target >= 0.95)
+      const LOWER_IS_BETTER = [
+        "non_original_text_rate", "uncertain_rate", "failure", "error", "invalid_step_type_rate",
+        "over_segmentation", "under_segmentation", "_difference", "omission", "rewrite",
+      ];
+      const lowerIsBetter = LOWER_IS_BETTER.some((p) => m.name.includes(p));
       const isBetter = lowerIsBetter ? diff < -0.001 : diff > 0.001;
       const isWorse = lowerIsBetter ? diff > 0.001 : diff < -0.001;
 

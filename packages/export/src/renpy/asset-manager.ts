@@ -1,6 +1,67 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import type { VNScript, CharacterRef } from "@novel2gal/core";
+
+// PNG CRC table (ISO 3309 / ITU-T V.42)
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, "ascii");
+  data.copy(out, 8);
+  let crc = 0xffffffff;
+  const typeBytes = Buffer.from(type, "ascii");
+  for (const byte of Buffer.concat([typeBytes, data])) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  }
+  out.writeInt32BE((crc ^ 0xffffffff) | 0, 8 + data.length);
+  return out;
+}
+
+/**
+ * Minimal solid-color PNG (8-bit RGB). Ren'Py cannot load SVG, and the script
+ * references .png files — a fresh export without generated assets must still
+ * launch with these placeholders.
+ */
+function createPlaceholderPng(width: number, height: number, rgb: [number, number, number]): Buffer {
+  const bpp = 3;
+  const raw = Buffer.alloc((width * bpp + 1) * height);
+  let off = 0;
+  for (let y = 0; y < height; y++) {
+    raw[off++] = 0; // filter: none
+    for (let x = 0; x < width; x++) {
+      raw[off++] = rgb[0]!;
+      raw[off++] = rgb[1]!;
+      raw[off++] = rgb[2]!;
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: truecolor RGB
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", zlib.deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const m = hex.replace("#", "");
+  return [parseInt(m.slice(0, 2), 16) || 0, parseInt(m.slice(2, 4), 16) || 0, parseInt(m.slice(4, 6), 16) || 0];
+}
 
 /** Generate placeholder background images as simple SVG → PNG-free HTML placeholders */
 export function generatePlaceholders(
@@ -34,14 +95,17 @@ export function generatePlaceholders(
       files.push(pngPath);
       continue;
     }
+    // Ren'Py can't load SVG — write a real (solid-color) PNG so a fresh export
+    // still launches, plus a labelled SVG for the web workbench preview
+    fs.writeFileSync(pngPath, createPlaceholderPng(1920, 1080, hexToRgb("#1a1a2e")));
     const svg = createPlaceholderSvg(label, "#1a1a2e", "#e0e0e0");
     fs.writeFileSync(svgPath, svg, "utf-8");
-    files.push(svgPath);
+    files.push(pngPath);
   }
 
   // Generate placeholder character images
   for (const char of characters) {
-    const charDir = path.join(outputDir, "game", "images", sanitizeId(char.characterId));
+    const charDir = path.join(outputDir, "game", "images", "char", sanitizeId(char.characterId));
     fs.mkdirSync(charDir, { recursive: true });
 
     const label = char.canonicalName || char.characterId;
@@ -51,10 +115,11 @@ export function generatePlaceholders(
       files.push(defaultPng);
       continue;
     }
+    fs.writeFileSync(defaultPng, createPlaceholderPng(300, 500, hexToRgb(charColor(char.characterId))));
     const svg = createPlaceholderSvg(label, charColor(char.characterId), "#ffffff");
     const filePath = path.join(charDir, "default.svg");
     fs.writeFileSync(filePath, svg, "utf-8");
-    files.push(filePath);
+    files.push(defaultPng);
   }
 
   return files;

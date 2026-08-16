@@ -188,17 +188,36 @@ export class BaseCollection {
 
   // ── BM25 Keyword Search ──────────────────────────────
 
-  keywordSearch(query: string, limit: number = 10): SearchResult[] {
+  /**
+   * BM25 keyword search.
+   * @param limitOrOpts a plain number limit, or options with optional
+   *        `limit` and `where` metadata filter. Passing an options object
+   *        as the second arg used to be silently coerced to limit 0 —
+   *        both shapes are now handled explicitly.
+   */
+  keywordSearch(
+    query: string,
+    limitOrOpts: number | { limit?: number; where?: WhereClause } = 10,
+  ): SearchResult[] {
+    const limit = typeof limitOrOpts === "number" ? limitOrOpts : (limitOrOpts.limit ?? 10);
+    const where = typeof limitOrOpts === "number" ? undefined : limitOrOpts.where;
+
     const queryTerms = this.tokenize(query);
     if (queryTerms.length === 0) return [];
 
-    const docTokens = this.records.map((r) =>
+    let candidates = this.records.map((r, i) => ({ r, i }));
+    if (where) {
+      candidates = candidates.filter(({ r }) => this.matchesFilter(r.metadata, where));
+    }
+    if (candidates.length === 0) return [];
+
+    const docTokens = candidates.map(({ r }) =>
       this.tokenize(this.getDocText(r)),
     );
     const docLengths = docTokens.map((t) => t.length);
     const avgDL =
       docLengths.reduce((a, b) => a + b, 0) /
-      Math.max(this.records.length, 1);
+      Math.max(candidates.length, 1);
 
     const k1 = 1.2;
     const b = 0.75;
@@ -210,8 +229,8 @@ export class BaseCollection {
       idf[term] = Math.log((N - df + 0.5) / (df + 0.5) + 1);
     }
 
-    const results = this.records.map((_r, i) => {
-      const terms = docTokens[i]!;
+    const scored = candidates.map(({ r }, idx) => {
+      const terms = docTokens[idx]!;
       const docLen = terms.length;
       let score = 0;
       for (const term of queryTerms) {
@@ -223,11 +242,11 @@ export class BaseCollection {
       }
       const normScore =
         1 - Math.exp(-score / Math.max(queryTerms.length, 1));
-      return { record: this.records[i]!, score: normScore };
+      return { record: r, score: normScore };
     });
 
-    results.sort((a, b) => b.score - a.score);
-    return results.slice(0, limit);
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
   }
 
   // ── Helpers ──────────────────────────────────────────
@@ -280,17 +299,22 @@ export class BaseCollection {
   }
 
   private tokenize(text: string): string[] {
-    const cleaned = text.replace(/[^一-鿿\w]/g, " ").toLowerCase();
+    const strText = typeof text === "string" ? text : Array.isArray(text) ? (text as string[]).join(" ") : String(text ?? "");
+    const cleaned = strText.replace(/[^一-鿿\w]/g, " ").toLowerCase();
     const words = cleaned.split(/\s+/).filter(Boolean);
 
-    // Chinese bigrams for BM25 matching
+    // Chinese unigrams & bigrams for BM25 matching
+    const unigrams: string[] = [];
     const bigrams: string[] = [];
-    const chineseOnly = text.replace(/[^一-鿿]/g, "");
-    for (let i = 0; i < chineseOnly.length - 1; i++) {
-      bigrams.push(chineseOnly.slice(i, i + 2));
+    const chineseOnly = strText.replace(/[^一-鿿]/g, "");
+    for (let i = 0; i < chineseOnly.length; i++) {
+      unigrams.push(chineseOnly.charAt(i));
+      if (i < chineseOnly.length - 1) {
+        bigrams.push(chineseOnly.slice(i, i + 2));
+      }
     }
 
-    return [...words, ...bigrams].filter((w) => w.length >= 2);
+    return Array.from(new Set([...words, ...unigrams, ...bigrams])).filter((w) => w.length >= 1);
   }
 
   /** Extract searchable text for BM25 keyword matching.

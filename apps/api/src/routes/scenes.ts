@@ -3,11 +3,11 @@ import type { Request, Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import type { createDatabase } from "@novel2gal/storage";
-import { SceneRepository, readSceneJson, readChapterJson, writeVisualPromptResult } from "@novel2gal/storage";
+import { SceneRepository, ProjectRepository, readSceneJson, readChapterJson, writeVisualPromptResult } from "@novel2gal/storage";
 import type { VNScript, FidelityReport, NarrativeParsingResult, AttributionResult, SegmentationResult, VisualPromptResult, Scene } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import { runVisualPromptAgent } from "@novel2gal/agents";
-import { config } from "../config/index.js";
+import { config, getActiveProfile } from "../config/index.js";
 
 function param(req: Request, key: string): string {
   const val = req.params[key];
@@ -17,6 +17,7 @@ function param(req: Request, key: string): string {
 export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProvider: () => LLMProvider | null) {
   const router = Router();
   const sceneRepo = new SceneRepository(db);
+  const projectRepo = new ProjectRepository(db);
 
   // GET /projects/:id/chapters/:chapterId/scenes - List scenes for chapter
   router.get("/projects/:id/chapters/:chapterId/scenes", (req: Request, res: Response) => {
@@ -139,8 +140,8 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
     }
   });
 
-  // POST /projects/:id/scenes/:sceneId/visual-prompt/run - Run Visual Prompt Agent
-  router.post("/projects/:id/scenes/:sceneId/visual-prompt/run", async (req: Request, res: Response) => {
+  // POST /projects/:id/scenes/:sceneId/visual-prompt/run or /visual-prompt - Run Visual Prompt Agent
+  const handleRunVisualPrompt = async (req: Request, res: Response) => {
     const provider = getProvider();
     if (!provider) {
       return res.status(503).json({ error: "LLM provider not configured" });
@@ -153,7 +154,7 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
     try {
       // Load attribution and segmentation results
       const attrResult = readChapterJson<AttributionResult>(
-        config.dataDir, projectId, scene.chapterId, "attributed-units.json"
+        config.dataDir, projectId, scene.chapterId, "attributed_units.json"
       );
       if (!attrResult) return res.status(400).json({ error: "Attribution result not found for this chapter" });
 
@@ -166,7 +167,9 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
       if (sceneUnits.length === 0) return res.status(400).json({ error: "No units found for this scene" });
 
       const styleTemplate = req.body.styleTemplate ?? "school-romance-anime";
-      const model = req.body.model ?? "gpt-4o";
+      const project = projectRepo.getById(projectId);
+      const activeProfile = getActiveProfile();
+      const model = req.body.model ?? project?.config?.defaultTextModel ?? activeProfile?.defaultModel ?? "agnes-2.0-flash";
 
       const result = await runVisualPromptAgent(
         {
@@ -187,6 +190,43 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
 
       writeVisualPromptResult(config.dataDir, projectId, sceneId, result.data);
       res.json(result.data);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  router.post("/projects/:id/scenes/:sceneId/visual-prompt/run", handleRunVisualPrompt);
+  router.post("/projects/:id/scenes/:sceneId/visual-prompt", handleRunVisualPrompt);
+
+  // PATCH /projects/:id/scenes/:sceneId/visual-prompt - Update Visual Prompt result
+  router.patch("/projects/:id/scenes/:sceneId/visual-prompt", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const sceneId = param(req, "sceneId");
+
+    try {
+      const existing = readSceneJson<VisualPromptResult>(config.dataDir, projectId, sceneId, "visual_prompt.json");
+      if (!existing) return res.status(404).json({ error: "Visual prompt result not found" });
+
+      const { characterId, finalPrompt, backgroundFinalPrompt } = req.body;
+
+      if (characterId && finalPrompt !== undefined) {
+        const cp = existing.characterPrompts.find((c) => c.characterId === characterId);
+        if (cp) {
+          cp.finalPrompt = finalPrompt;
+          if ((cp as any).promptPack) {
+            (cp as any).promptPack.finalPrompt = finalPrompt;
+            (cp as any).promptPack.appearancePrompt = finalPrompt;
+          }
+        }
+      }
+
+      if (backgroundFinalPrompt !== undefined && existing.backgroundPrompt) {
+        existing.backgroundPrompt.finalPrompt = backgroundFinalPrompt;
+        (existing.backgroundPrompt as any).description = backgroundFinalPrompt;
+      }
+
+      writeVisualPromptResult(config.dataDir, projectId, sceneId, existing);
+      res.json(existing);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }

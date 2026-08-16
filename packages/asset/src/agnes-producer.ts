@@ -47,25 +47,33 @@ export class AgnesImageProducer implements AssetProducer {
   }
 
   private buildPrompt(entry: AssetEntry): string {
-    const acgStyle = "Japanese visual novel game art, galgame character design, bishoujo anime style, moe aesthetic, modern 2020s anime, soft cel shading, detailed hair with highlights, large expressive eyes, cute youthful face, slim body proportions, vibrant colors, high quality illustration";
+    const neutralQuality = "Japanese visual novel game art, 2D anime illustration, soft cel shading, clean lineart, rich colors, high quality, masterpiece";
     switch (entry.type) {
-      case "background":
-        return `${entry.label}, Japanese anime background art, visual novel scene, painted style, wide angle establishing shot, atmospheric lighting, detailed environment, no characters, ${acgStyle.split(",").slice(0, 3).join(",")}`;
-      case "character": {
-        // If a visual prompt finalPrompt is available, use it directly for character consistency
+      case "background": {
+        // If a visual prompt finalPrompt is available, use it directly
         if (entry.prompt) {
-          return entry.prompt;
+          return `${entry.prompt}, (no humans:1.4), empty scenery`;
         }
-        const charBase = `solo character, full body standing pose, plain white solid background, no scenery no environment, character sprite sheet style, ${acgStyle}`;
+        return `${entry.label}, Japanese anime background art, visual novel scene, painted scenery, wide angle shot, atmospheric lighting, detailed environment, (no humans:1.4), scenery only, high quality`;
+      }
+      case "character": {
+        // If a visual prompt finalPrompt is available, use it directly
+        if (entry.prompt) {
+          if (!entry.expression || entry.expression === "default") {
+            return entry.prompt;
+          }
+          return `${entry.prompt}, expression: ${entry.expression}`;
+        }
+        const charBase = `solo character, full body standing pose, plain white solid background, clean cutout, 2D visual novel character sprite, ${neutralQuality}`;
         if (!entry.expression || entry.expression === "default") {
           return `${entry.label}, ${charBase}`;
         }
-        return `${entry.label}, same character identical appearance as default portrait, only different expression and outfit, keep face body hair exactly the same, ${charBase}`;
+        return `${entry.label}, expression: ${entry.expression}, ${charBase}`;
       }
       case "cg":
-        return `${entry.label}, ${acgStyle}, cinematic visual novel CG, dramatic composition, emotional scene, beautiful lighting`;
+        return `${entry.label}, ${neutralQuality}, cinematic visual novel CG, dramatic composition, emotional scene, beautiful cinematic lighting`;
       default:
-        return `${entry.label}, ${acgStyle}`;
+        return `${entry.label}, ${neutralQuality}`;
     }
   }
 
@@ -107,7 +115,16 @@ export class AgnesImageProducer implements AssetProducer {
           res.on("end", () => {
             console.log(`[AgnesImage] Response: ${res.statusCode}, ${responseBody.length} bytes`);
             if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-              const data = JSON.parse(responseBody);
+              // A 200 with a non-JSON body (e.g. an HTML error page from a
+              // gateway) must reject, not throw inside the event callback —
+              // uncaught exceptions here crash the whole API process
+              let data: any;
+              try {
+                data = JSON.parse(responseBody);
+              } catch {
+                reject(new Error(`Agnes Image API returned non-JSON body: ${responseBody.slice(0, 120)}`));
+                return;
+              }
               const img = data.data?.[0];
               if (img?.b64_json) {
                 console.log(`[AgnesImage] Got b64: ${img.b64_json.length} chars`);
@@ -150,11 +167,23 @@ export class AgnesImageProducer implements AssetProducer {
                 headers: { "User-Agent": "Mozilla/5.0", "Accept": "image/*" },
               }, (res2) => {
                 const timeout2 = setTimeout(() => { res2.destroy(); reject(new Error("Download redirect timeout")); }, 30_000);
+                if (!(res2.statusCode && res2.statusCode >= 200 && res2.statusCode < 300)) {
+                  clearTimeout(timeout2);
+                  res2.resume();
+                  reject(new Error(`Image download failed after redirect: ${res2.statusCode}`));
+                  return;
+                }
                 const chunks: Buffer[] = [];
                 res2.on("data", (c) => chunks.push(c));
                 res2.on("end", () => { clearTimeout(timeout2); fs.writeFileSync(filePath, Buffer.concat(chunks)); resolve(); });
               });
               req2.on("error", (e) => { clearTimeout(timeout); reject(e); });
+              return;
+            }
+            if (!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300)) {
+              clearTimeout(timeout);
+              res.resume();
+              reject(new Error(`Image download failed: ${res.statusCode}`));
               return;
             }
             const chunks: Buffer[] = [];

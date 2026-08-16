@@ -15,6 +15,10 @@ const CHAPTER_PATTERNS: Array<{ pattern: RegExp; confidence: number }> = [
   { pattern: /^[（(]?\s*(楔子|序章|序言|前言|引子|番外|番外篇|特别篇|剧场版|后记|尾声|终章|完结感言|完结感想|完本感言|作者的话|作者说)\s*[）)]?.*$/m, confidence: 0.85 },
   // 带序号: 一、二、三、
   { pattern: /^[一二三四五六七八九十]+[、.．]\s*.+$/m, confidence: 0.8 },
+  // 两位及以上纯数字后直接接中文标题 (如 "01质量最好", "02酒吧再遇")
+  { pattern: /^\d{2,3}\s*[\u4e00-\u9fa5].{1,25}$/m, confidence: 0.75 },
+  // 数字 + 特殊符号/emoji + 标题 (如 "1 ☪ 穿越", "2 ◇ 相遇")
+  { pattern: /^\d{1,3}\s+[^\w\s\d\u4e00-\u9fa5]+\s*.+$/m, confidence: 0.75 },
   // 数字编号: 1. 2. 3. 或 01 02 03
   { pattern: /^\d{1,3}[.、．]\s*.+$/m, confidence: 0.7 },
   // Chapter X / CHAPTER X
@@ -83,9 +87,9 @@ export function detectChapters(text: string): DetectResult {
         })
       : allMatches;
 
-  // 至少需要2个匹配, 且不超过文本行数的15%
+  // 至少需要2个匹配, 且不超过文本行数的25%
   const bestMatches =
-    filteredMatches.length >= 2 && filteredMatches.length <= lines.length * 0.15
+    filteredMatches.length >= 2 && filteredMatches.length <= lines.length * 0.25
       ? filteredMatches
       : [];
 

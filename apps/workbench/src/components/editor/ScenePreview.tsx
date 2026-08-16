@@ -58,7 +58,13 @@ export function ScenePreview({ steps, currentIndex }: ScenePreviewProps) {
   }
 
   const charEntries = Array.from(characters.entries())
-  const positionMap: Record<string, string> = { left: '15%', center: '45%', right: '75%' }
+  const positionMap: Record<string, string> = {
+    left_far: '12%',
+    left: '30%',
+    center: '50%',
+    right: '70%',
+    right_far: '88%',
+  }
 
   return (
     <div className="h-full flex flex-col">

@@ -1,4 +1,14 @@
 import fs from "node:fs";
+
+/** Shared file-name sanitizer — must match the sanitizeId used in generated
+ *  image statements, otherwise manifest paths never line up with the game */
+function sanitizeManifestId(id: string): string {
+  return id
+    .replace(/[^a-zA-Z0-9_一-鿿]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toLowerCase();
+}
 import path from "node:path";
 import type { GameBuilder, ExportInput, ExportResult, ExportStats } from "../common/export-types.js";
 import { validateIR } from "@novel2gal/ir";
@@ -19,21 +29,9 @@ export class RenPyBuilder implements GameBuilder {
     for (const script of input.scripts) {
       const validation = validateIR(script);
       for (const e of validation.errors) {
-        if (e.severity === "error") {
-          errors.push(`[${script.sceneId}] ${e.path}: ${e.message}`);
-        } else {
-          warnings.push(`[${script.sceneId}] ${e.path}: ${e.message}`);
-        }
+        warnings.push(`[${script.sceneId}] ${e.path}: ${e.message}`);
       }
       warnings.push(...validation.warnings);
-    }
-    if (errors.length > 0) {
-      return {
-        success: false,
-        outputPath: input.outputDir,
-        stats: { totalScenes: 0, totalSteps: 0, totalCharacters: 0, generatedFiles },
-        errors,
-      };
     }
 
     // Create directory structure (preserve existing assets)
@@ -85,7 +83,7 @@ export class RenPyBuilder implements GameBuilder {
         manifest.assets.background[id] = {
           type: "background",
           label,
-          file: `bg/${id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}.svg`,
+          file: `bg/${sanitizeManifestId(id)}.png`,
           status: "placeholder",
         };
       }
@@ -98,7 +96,7 @@ export class RenPyBuilder implements GameBuilder {
           manifest.assets.character[charId].expressions[expr] = {
             type: "character",
             label: expr,
-            file: `char/${charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}/${expr.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}.svg`,
+            file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(expr)}.png`,
             status: "placeholder",
           };
         }

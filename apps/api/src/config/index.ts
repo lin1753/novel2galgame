@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 export const config = {
   port: parseInt(process.env.PORT ?? "3002", 10),
-  dataDir: process.env.DATA_DIR ?? path.resolve("../../../data"),
+  dataDir: process.env.DATA_DIR ?? (fs.existsSync("D:\\Project\\novel2glagame\\data") ? "D:\\Project\\novel2glagame\\data" : path.resolve("../../../data")),
 };
 
 export interface ModelProfile {
@@ -93,13 +93,13 @@ export function resolveModelConfig(
   if (type === "text") {
     return {
       profile: assignment?.profile ?? c.activeProfile,
-      model: assignment?.model ?? active?.defaultModel ?? "gpt-4o",
+      model: assignment?.model ?? active?.defaultModel ?? "agnes-2.0-flash",
     };
   }
   if (type === "image") {
     return {
       profile: assignment?.profile ?? c.activeProfile,
-      model: assignment?.model ?? active?.imageModel ?? "gpt-image-1",
+      model: assignment?.model ?? active?.imageModel ?? "agnes-image-2.1-flash",
     };
   }
   // video

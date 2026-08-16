@@ -136,16 +136,22 @@ export async function segmentationNode(
       ).get(cacheKey, "scene_segmentation", state.chapterId) as { output_path: string } | undefined;
 
       if (cached?.output_path && fs.existsSync(cached.output_path)) {
-        console.log(`[Cache] HIT scene_segmentation for ${state.chapterId}`);
-        const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
-        state.db.prepare(
-          `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-           VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-        ).run(taskId, state.projectId, state.chapterId, "scene_segmentation", seg.provider.name, seg.model, 2, now(), now(), cacheKey, cached.output_path);
-        const segResult = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-        state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
-        const durationMs = Date.now() - t0;
-        return { segmentationResult: segResult, currentStage: "rag_ingest_scenes", stageTimings: { segmentation: durationMs } };
+        try {
+          const segResult = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
+          if (Array.isArray(segResult.scenes) && segResult.scenes.length > 0) {
+            console.log(`[Cache] HIT scene_segmentation for ${state.chapterId} (${segResult.scenes.length} scenes)`);
+            const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
+            state.db.prepare(
+              `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
+               VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+            ).run(taskId, state.projectId, state.chapterId, "scene_segmentation", seg.provider.name, seg.model, 2, now(), now(), cacheKey, cached.output_path);
+            state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
+            const durationMs = Date.now() - t0;
+            return { segmentationResult: segResult, currentStage: "rag_ingest_scenes", stageTimings: { segmentation: durationMs } };
+          } else {
+            console.warn(`[Cache] Invalidate empty scene_segmentation cache for ${state.chapterId}`);
+          }
+        } catch {}
       }
     }
 
@@ -167,6 +173,25 @@ export async function segmentationNode(
       { label: `segmentation:${state.chapterId}` }
     );
 
+    // Fallback: Ensure at least one valid scene exists
+    if ((!segResult.scenes || segResult.scenes.length === 0) && state.attributionResult!.units.length > 0) {
+      const allIds = state.attributionResult!.units.map((u: any) => u.unitId);
+      segResult.scenes = [
+        {
+          sceneId: `${state.chapterId}_scene_0001`,
+          chapterId: state.chapterId,
+          indexInChapter: 0,
+          unitIds: allIds,
+          startUnitId: allIds[0] ?? "",
+          endUnitId: allIds[allIds.length - 1] ?? "",
+          boundaryReason: "location_change",
+          summary: { shortSummary: "本章核心情节场景", locationHint: "主场景", moodHint: "常规" },
+          confidence: 0.85,
+        }
+      ];
+      segResult.sceneUnitMap = { [`${state.chapterId}_scene_0001`]: allIds };
+    }
+
     // Fix scene unitIds: LLM may generate inconsistent IDs, remap by order
     const allUnitIds = new Set(state.attributionResult!.units.map((u: any) => u.unitId));
     const needsRemap = segResult.scenes.some(
@@ -175,8 +200,11 @@ export async function segmentationNode(
     if (needsRemap) {
       const units = state.attributionResult!.units;
       let offset = 0;
-      for (const scene of segResult.scenes) {
-        const count = scene.unitIds.length;
+      for (let i = 0; i < segResult.scenes.length; i++) {
+        const scene = segResult.scenes[i];
+        if (!scene) continue;
+        const isLast = i === segResult.scenes.length - 1;
+        const count = isLast ? units.length - offset : (scene.unitIds?.length ?? 0);
         scene.unitIds = units.slice(offset, offset + count).map((u: any) => u.unitId);
         if (scene.unitIds.length > 0) {
           const firstId = scene.unitIds[0];
@@ -188,25 +216,51 @@ export async function segmentationNode(
       }
     }
 
+    // Enforce full unit coverage: any unit not claimed by any scene (LLM
+    // omission or remap shortfall) is appended to the last scene so no source
+    // content is silently dropped; units claimed by multiple scenes keep only
+    // their first occurrence
+    {
+      const claimed = new Set<string>();
+      for (const scene of segResult.scenes) {
+        if (!Array.isArray(scene.unitIds)) scene.unitIds = [];
+        scene.unitIds = scene.unitIds.filter((id: string) => {
+          if (claimed.has(id)) return false;
+          claimed.add(id);
+          return true;
+        });
+        if (scene.unitIds.length > 0) {
+          scene.startUnitId = scene.unitIds[0]!;
+          scene.endUnitId = scene.unitIds[scene.unitIds.length - 1]!;
+        } else {
+          scene.startUnitId = "";
+          scene.endUnitId = "";
+        }
+      }
+      const missing = state.attributionResult!.units.filter((u: any) => !claimed.has(u.unitId));
+      if (missing.length > 0 && segResult.scenes.length > 0) {
+        const lastScene = segResult.scenes[segResult.scenes.length - 1]!;
+        lastScene.unitIds.push(...missing.map((u: any) => u.unitId));
+        if (!lastScene.startUnitId) lastScene.startUnitId = lastScene.unitIds[0] ?? "";
+        lastScene.endUnitId = lastScene.unitIds[lastScene.unitIds.length - 1] ?? "";
+        console.warn(`[segmentationNode] Appended ${missing.length} unclaimed units to last scene to guarantee coverage`);
+      }
+    }
+
     // Fix scene IDs: make globally unique by prepending chapterId
     // Only prefix if the sceneId doesn't already contain the chapterId
-    const oldToNewId = new Map<string, string>();
     for (const scene of segResult.scenes) {
       const oldId = scene.sceneId;
       if (!oldId.startsWith(state.chapterId)) {
-        const newId = `${state.chapterId}_${oldId}`;
-        oldToNewId.set(oldId, newId);
-        scene.sceneId = newId;
+        scene.sceneId = `${state.chapterId}_${oldId}`;
       }
     }
-    // Update sceneUnitMap keys if present
-    if (segResult.sceneUnitMap) {
-      const newMap: Record<string, string[]> = {};
-      for (const [oldKey, val] of Object.entries(segResult.sceneUnitMap)) {
-        newMap[oldToNewId.get(oldKey) ?? oldKey] = val;
-      }
-      segResult.sceneUnitMap = newMap;
-    }
+    // Rebuild sceneUnitMap from the final scenes — unitIds were deduped and
+    // coverage-appended above, and sceneIds may have been prefixed, so the
+    // LLM's original map is stale
+    segResult.sceneUnitMap = Object.fromEntries(
+      segResult.scenes.map((s: any) => [s.sceneId, s.unitIds]),
+    );
 
     writeSegmentationResult(state.dataDir, state.projectId, state.chapterId, segResult);
     state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
@@ -245,6 +299,10 @@ export async function segmentationNode(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[segmentationNode] Error: ${msg}`);
+    try {
+      state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
+        .run(now(), msg.slice(0, 500), state.chapterId);
+    } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { segmentation: Date.now() - t0 } };
   }
 }

@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import type {
   ProjectState,
@@ -20,8 +20,8 @@ const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   segmentationMode: "standard",
   visualStyleTemplate: "school-romance-anime",
   budgetMode: "balanced",
-  autoRunVisualPrompt: false,
-  autoRunConsistencyReview: false,
+  autoRunVisualPrompt: true,
+  autoRunConsistencyReview: true,
   defaultTextModel: "agnes-2.0-flash",
   language: "zh-CN",
 };
@@ -93,12 +93,13 @@ export function getProjectManifest(dataDir: string, projectId: string): ProjectM
   if (!project) throw new Error(`Project not found: ${projectId}`);
   const paths = getProjectPaths(dataDir, projectId);
 
+  // Chapter dirs are named "<projectId>_chapter_XXXX" (not "chapter-XXX")
   const chapterIds = fs.existsSync(paths.chaptersDir)
-    ? fs.readdirSync(paths.chaptersDir).filter((d) => d.startsWith("chapter-"))
+    ? fs.readdirSync(paths.chaptersDir).filter((d) => d.includes("chapter"))
     : [];
 
   const sceneIds = fs.existsSync(paths.scenesDir)
-    ? fs.readdirSync(paths.scenesDir).filter((d) => d.startsWith("scene-"))
+    ? fs.readdirSync(paths.scenesDir).filter((d) => d.includes("scene"))
     : [];
 
   return { project, chapterIds, sceneIds, paths };

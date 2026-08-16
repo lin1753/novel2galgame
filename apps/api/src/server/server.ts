@@ -58,7 +58,7 @@ export function createServer(
   app.use("/", createExportRoutes());
 
   // Auto-export routes (one-click full pipeline)
-  app.use("/", createAutoExportRoutes(db, getProvider));
+  app.use("/", createAutoExportRoutes(db, getProvider, rag));
 
   // SSE progress routes
   app.use("/", createProgressRoutes());

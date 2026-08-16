@@ -111,9 +111,13 @@ export function createExportRoutes() {
       for (const sceneId of fs.readdirSync(scenesDir)) {
         // Read visual prompt result for this scene (if exists)
         const vpPath = path.join(scenesDir, sceneId, "visual_prompt.json");
+        let sceneBgPrompt: string | undefined;
         if (fs.existsSync(vpPath)) {
           try {
             const vpData = JSON.parse(fs.readFileSync(vpPath, "utf-8"));
+            if (vpData.backgroundPrompt?.finalPrompt) {
+              sceneBgPrompt = vpData.backgroundPrompt.finalPrompt;
+            }
             for (const cp of vpData.characterPrompts ?? []) {
               if (cp.canonicalName && cp.finalPrompt && !characterPrompts.has(cp.canonicalName)) {
                 characterPrompts.set(cp.canonicalName, cp.finalPrompt);
@@ -123,16 +127,21 @@ export function createExportRoutes() {
         }
 
         // Read attribution data to build characterId → canonicalName mapping
-        const attrPath = path.join(scenesDir, sceneId, "attributed_units.json");
-        if (fs.existsSync(attrPath) && charIdToName.size === 0) {
-          try {
-            const attrData = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
-            for (const ch of attrData.characters ?? []) {
-              if (ch.characterId && ch.canonicalName) {
-                charIdToName.set(ch.characterId, ch.canonicalName);
-              }
+        const chaptersDir = path.join(projectDir, "chapters");
+        if (fs.existsSync(chaptersDir) && charIdToName.size === 0) {
+          for (const chDir of fs.readdirSync(chaptersDir)) {
+            const attrPath = path.join(chaptersDir, chDir, "attributed_units.json");
+            if (fs.existsSync(attrPath)) {
+              try {
+                const attrData = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
+                for (const ch of attrData.characters ?? []) {
+                  if (ch.characterId && ch.canonicalName) {
+                    charIdToName.set(ch.characterId, ch.canonicalName);
+                  }
+                }
+              } catch {}
             }
-          } catch {}
+          }
         }
 
         const scriptPath = path.join(scenesDir, sceneId, "vn_script.json");
@@ -148,10 +157,11 @@ export function createExportRoutes() {
                   label: step.backgroundLabel || id,
                   file: `bg/${id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}.png`,
                   status: "placeholder",
+                  ...(sceneBgPrompt ? { prompt: sceneBgPrompt } : {}),
                 };
               }
             }
-            if ((step.type === "say" || step.type === "thought") && step.characterId) {
+            if ((step.type === "say" || step.type === "thought" || step.type === "show") && step.characterId) {
               const charId = step.characterId;
               if (!manifest.assets.character[charId]) {
                 manifest.assets.character[charId] = { characterId: charId, expressions: {} };
@@ -159,7 +169,7 @@ export function createExportRoutes() {
               const expr = (step as any).expression || "default";
               if (!manifest.assets.character[charId].expressions[expr]) {
                 // Look up visual prompt finalPrompt via characterId → canonicalName mapping
-                const canonicalName = charIdToName.get(charId);
+                const canonicalName = charIdToName.get(charId) || step.displayName;
                 const vpPrompt = canonicalName ? characterPrompts.get(canonicalName) : undefined;
                 manifest.assets.character[charId].expressions[expr] = {
                   type: "character",
@@ -190,11 +200,17 @@ export function createExportRoutes() {
     try {
       if (type === "bg") {
         const bgDir = path.join(assetsDir, "bg");
-        console.log(`[AssetGen] bgDir: ${bgDir}, assetsDir: ${assetsDir}`);
         fs.mkdirSync(bgDir, { recursive: true });
         const safeId = sanitizeId(assetId);
-        console.log(`[AssetGen] Background: ${assetId}`);
-        await producer.generate({ type: "background" as any, label: label ?? safeId, file: `${safeId}.png`, status: "placeholder" }, bgDir);
+        const bgPrompt = manifest?.assets?.background?.[assetId]?.prompt;
+        console.log(`[AssetGen] Background: ${assetId}, prompt: ${bgPrompt?.slice(0, 40) ?? "none"}`);
+        await producer.generate({
+          type: "background" as any,
+          label: label ?? safeId,
+          file: `${safeId}.png`,
+          status: "placeholder",
+          prompt: bgPrompt ?? undefined,
+        }, bgDir);
         markAssetGenerated(manifest as any, "background", assetId, undefined, `bg/${safeId}.png`, "agnes-image");
         generated.push(`bg/${safeId}.png`);
       } else if (type === "character") {
@@ -202,8 +218,16 @@ export function createExportRoutes() {
         const safeExpr = sanitizeId(expression ?? "default");
         const charDir = path.join(assetsDir, "char", safeCharId);
         fs.mkdirSync(charDir, { recursive: true });
-        console.log(`[AssetGen] Character: ${assetId}/${expression}`);
-        await producer.generate({ type: "character" as any, label: label ?? `${safeCharId}_${safeExpr}`, file: `${safeExpr}.png`, status: "placeholder" }, charDir);
+        const charPrompt = manifest?.assets?.character?.[assetId]?.expressions?.[expression ?? "default"]?.prompt;
+        console.log(`[AssetGen] Character: ${assetId}/${expression}, prompt: ${charPrompt?.slice(0, 40) ?? "none"}`);
+        await producer.generate({
+          type: "character" as any,
+          label: label ?? `${safeCharId}_${safeExpr}`,
+          file: `${safeExpr}.png`,
+          status: "placeholder",
+          prompt: charPrompt ?? undefined,
+          expression: expression ?? "default",
+        }, charDir);
         markAssetGenerated(manifest as any, "character", assetId, expression ?? "default", `char/${safeCharId}/${safeExpr}.png`, "agnes-image");
         generated.push(`char/${safeCharId}/${safeExpr}.png`);
       }

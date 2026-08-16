@@ -5,6 +5,7 @@
  */
 
 import { BaseCollection, type VectorRecord, type SearchResult, type WhereClause } from "./base.js";
+import { ChromaCollection } from "./chroma-base.js";
 import type { CharacterChunk } from "../chunking/character-chunker.js";
 import type { EmbeddingService } from "../embedder.js";
 import { HybridRetriever } from "../retrieval/hybrid-retriever.js";
@@ -52,8 +53,15 @@ export type CharacterRecord =
   | RelationshipChunkRecord;
 
 export class CharacterCollection extends BaseCollection {
+  protected chroma?: ChromaCollection;
+
   constructor(dataDir: string) {
     super(dataDir, "characters");
+    try {
+      this.chroma = new ChromaCollection(dataDir, "characters");
+    } catch (e) {
+      console.warn("[RAG] ChromaCollection init warning:", e);
+    }
   }
 
   /** Ingest character chunks into the store. */
@@ -154,7 +162,22 @@ export class CharacterCollection extends BaseCollection {
           } satisfies RelationshipChunkRecord;
       }
     });
+
     this.ingest(records, vectors);
+
+    if (this.chroma) {
+      try {
+        const vectorRecords: VectorRecord[] = records.map((r, i) => ({
+          id: `char_rec_${r.characterId}_${i}_${Date.now()}`,
+          vector: vectors[i] ?? [],
+          metadata: r as any,
+          updatedAt: new Date().toISOString(),
+        }));
+        await this.chroma.upsert(vectorRecords);
+      } catch (err) {
+        console.warn("[RAG] ChromaDB upsert failed, operating on BaseCollection only:", err);
+      }
+    }
   }
 
   /** Override: character BM25 text includes all rich fields. */
@@ -351,8 +374,8 @@ export class CharacterCollection extends BaseCollection {
     return Array.from(seen);
   }
 
-  /** List character details for prompt injection. */
-  listCharacterDetails(): Array<{
+  /** List character details for prompt injection, optionally scoped to one project. */
+  listCharacterDetails(projectId?: string): Array<{
     characterId: string;
     canonicalName: string;
     firstSeenIn: string;
@@ -368,6 +391,7 @@ export class CharacterCollection extends BaseCollection {
       }
     >();
     for (const r of this.records) {
+      if (projectId && r.metadata.projectId !== projectId) continue;
       const id = r.metadata.characterId as string;
       if (!seen.has(id)) {
         seen.set(id, {

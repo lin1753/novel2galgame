@@ -50,7 +50,7 @@ export async function runNarrativeParsingAgent(
   }
 
   // 章节过长时分段处理
-  const MAX_CHARS = 8000;
+  const MAX_CHARS = 1500;
   const textChunks = splitText(chapterText, MAX_CHARS);
   const allUnits: NarrativeUnit[] = [];
 
@@ -77,16 +77,31 @@ ${chunk}`;
         jsonMode: true,
       });
 
-      if (!result.units || !Array.isArray(result.units)) {
-        return {
-          success: false,
-          failureLevel: "recoverable",
-          errorMessage: "LLM returned invalid structure: missing units array",
-        };
+      const rawUnits = Array.isArray(result)
+        ? result
+        : (result?.units ?? (result as any)?.narrative_units ?? (result as any)?.data ?? []);
+
+      let chunkUnits: NarrativeUnit[] = Array.isArray(rawUnits) ? rawUnits : [];
+
+      // 智能保底：若 LLM 未返回有效单元，按段落切分规则保底
+      if (chunkUnits.length === 0 && chunk.trim().length > 0) {
+        console.warn(`[narrativeParsingAgent] Chunk ${chunkIdx + 1} empty units from LLM, using fallback line segmentation`);
+        const lines = chunk.split(/\n+/).filter(l => l.trim().length > 0);
+        chunkUnits = lines.map((line, lIdx) => {
+          const isDialogue = line.includes("“") || line.includes("”") || line.includes("\"");
+          return {
+            unitId: `unit_${chapterId.replace("chapter_", "")}_${String(allUnits.length + lIdx).padStart(4, "0")}`,
+            chapterId,
+            order: allUnits.length + lIdx,
+            type: isDialogue ? "dialogue" : "narration",
+            originalText: line.trim(),
+            confidence: 0.8,
+          } as NarrativeUnit;
+        });
       }
 
       // 修正 unitId 和 chapterId
-      for (const unit of result.units) {
+      for (const unit of chunkUnits) {
         unit.chapterId = chapterId;
         unit.order = allUnits.length;
         if (!unit.unitId) {
@@ -101,6 +116,18 @@ ${chunk}`;
         errorMessage: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
+  }
+
+  // LLM 可能跨分段重复使用同一个 unitId（每段都从 unit_xxx_0000 重新编号），
+  // 这里强制全局唯一：重复或缺失的 id 按全局顺序重新生成
+  const seenUnitIds = new Set<string>();
+  for (let i = 0; i < allUnits.length; i++) {
+    const unit = allUnits[i]!;
+    unit.order = i;
+    if (!unit.unitId || seenUnitIds.has(unit.unitId)) {
+      unit.unitId = `unit_${chapterId.replace("chapter_", "")}_${String(i).padStart(4, "0")}`;
+    }
+    seenUnitIds.add(unit.unitId);
   }
 
   const overallConfidence =
@@ -119,14 +146,14 @@ ${chunk}`;
 function splitText(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text];
   const chunks: string[] = [];
-  const paragraphs = text.split(/\n{2,}/);
+  const paragraphs = text.split(/\n/);
   let current = "";
   for (const para of paragraphs) {
-    if (current.length + para.length + 2 > maxChars && current.length > 0) {
+    if (current.length + para.length + 1 > maxChars && current.length > 0) {
       chunks.push(current.trim());
       current = "";
     }
-    current += para + "\n\n";
+    current += para + "\n";
   }
   if (current.trim()) chunks.push(current.trim());
   return chunks;

@@ -22,9 +22,9 @@ export interface VisualPromptInput {
 }
 
 const STYLE_TEMPLATES: Record<string, string> = {
-  "school-romance-anime": "Japanese visual novel style (galgame art), bishoujo anime character design, moe aesthetic, large expressive kawaii eyes, soft cel shading with subtle gradients, vibrant school uniform, cherry blossom spring atmosphere, warm golden hour lighting, detailed flowing hair with shine highlights, slim youthful character proportions, cute face, clean lineart, modern anime 2020s style",
-  "urban-romance": "Japanese visual novel style, modern urban anime aesthetic, stylish character design, sophisticated city atmosphere, soft bokeh lighting, warm evening tones, fashion-conscious outfits, clean modern art style",
-  "fresh-japanese": "Japanese illustration style,清新治愈系, watercolor texture, soft pastel palette, dreamy lighting, clean flowing lines, gentle expression, iyashikei aesthetic, natural outdoor settings",
+  "school-romance-anime": "Japanese visual novel style, high quality 2D anime illustration, soft cel shading, detailed character design, clean lineart, rich color palette",
+  "urban-romance": "Japanese visual novel style, modern urban anime aesthetic, sophisticated character design, soft cinematic lighting, warm atmospheric tones, crisp lineart",
+  "fresh-japanese": "Japanese illustration style, watercolor anime texture, soft pastel palette, gentle ambient lighting, clean flowing lines, iyashikei aesthetic",
 };
 
 const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是从叙事单元中提取角色外观和场景背景的视觉信息，并生成适合 AI 图像生成模型的结构化提示词包。
@@ -32,63 +32,55 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
 ## 任务说明
 
 1. **提取视觉证据**: 仔细阅读每个叙事单元, 提取以下类别的视觉信息:
-   - appearance: 角色外貌特征（发型、眼睛、体型、年龄等）
+   - appearance: 角色外貌特征（发型、眼睛、体型、年龄、性别等）
    - clothing: 角色服装描述
-   - location: 场景地点描述
+   - location: 场景发生的核心单一物理地点描述
    - time: 时间信息（白天、傍晚、深夜等）
    - weather: 天气信息
    - mood: 氛围、情绪基调
-   - object: 重要物品或道具
 
-2. **生成角色提示词包**: 对于场景中出现的每个角色:
-   - 收集所有与该角色相关的视觉证据
-   - 证据引用必须是原文的精确摘录, 绝不可编造
-   - 基于证据提供保守补全 (conservativeCompletion), 填补原文未明确描述的细节
-   - 生成最终英文提示词 (finalPrompt), 适合图像生成模型使用
+2. **生成角色提示词包 (Character Sprite Prompt)**:
+   - 收集该角色的真实视觉证据，引用必须是原文的精确摘录
+   - **严格忠实角色设定**: 根据角色的真实性别、年龄段（青年/中年/少年）、身份、气质构建英文提示词:
+     * 男性角色: 使用 \`handsome young man / mature man, sharp features, calm/tired/composed expression, [specific outfit]\`，**严禁使用 bishoujo / kawaii / cute 等少女词**！
+     * 女性角色: 准确描述发色、发型长度、瞳色、服装与气质
+     * 基础结构: \`Japanese visual novel character sprite, 2D anime game art, solo character, full body standing pose, plain white solid background, clean cutout, cel shading, crisp lineart, [character details], high quality\`
 
-3. **生成背景提示词包**: 提取场景背景信息:
-   - 收集地点、时间、天气、氛围等证据
-   - 提供保守补全
-   - 生成最终英文背景提示词
+3. **生成背景提示词包 (Background Prompt)**:
+   - **单一核心地点锚定 (CRITICAL)**: 每个场景的背景图必须聚焦于**当前场景发生的最主要单一物理地点**（如"茶楼雅间"、"学校走廊"、"办公室"、"医院门口"）！
+   - **绝对禁止拼合多地点**: 若叙事中提到回忆、闪回或转场提及的多个地点，**只保留当前场景真实发生的核心地点，严禁输出多个地点**！
+   - 基础结构: \`Japanese anime background art, visual novel scene, painted scenery, no humans, empty scenery, wide angle shot, [location details], [time/weather lighting], [mood atmosphere], highly detailed environment\`
 
-4. **所有 finalPrompt 必须为英文**, 适合 AI 图像生成模型使用
-5. **角色 finalPrompt 要求**:
-   - 加入 "Japanese visual novel character sprite, galgame art style, bishoujo anime, solo character, plain white background, no background scenery, character only, clean cutout, standing pose, full body"
-   - 包含具体的角色外貌细节（发型颜色长度、眼睛、体型、服装款式颜色）
-   - 使用现代日系ACG术语: moe style, kawaii, cel shading, soft gradient hair
-6. **背景 finalPrompt 要求**:
-   - 加入 "Japanese anime background art, visual novel scene, painted style, no characters"
-   - 包含地点、时间、天气、氛围的具体描述
+4. **所有 finalPrompt 必须为精炼精准的英文**，适合 AI 图像生成模型使用。
 
 ## 输出 JSON 格式
 
 {
   "characterPrompts": [
     {
-      "characterId": "char_001",
-      "canonicalName": "林晓",
+      "characterId": "char_jiangyu",
+      "canonicalName": "江屿",
       "evidence": [
-        { "sourceUnitId": "unit_0001_05", "quote": "她穿着白色的连衣裙", "category": "clothing" }
+        { "sourceUnitId": "unit_0001_05", "quote": "江屿垂眸静立一旁，娴熟地烫杯", "category": "appearance" }
       ],
-      "conservativeCompletion": ["long black hair", "young woman"],
-      "finalPrompt": "A young woman with long black hair, wearing a white dress, anime style, school romance"
+      "conservativeCompletion": ["handsome young man in his 20s", "neat dark hair", "formal business attire", "composed quiet expression"],
+      "finalPrompt": "Japanese visual novel character sprite, 2D anime game art, solo character, full body standing pose, plain white solid background, clean cutout, handsome young man in his 20s, neat dark hair, sharp calm eyes, composed quiet expression, wearing formal business attire, cel shading, crisp lineart, high quality"
     }
   ],
   "backgroundPrompt": {
-    "sceneId": "scene_0001_0003",
+    "sceneId": "scene_0001_0001",
     "evidence": [
-      { "sourceUnitId": "unit_0001_10", "quote": "夕阳洒在操场上", "category": "time" }
+      { "sourceUnitId": "unit_0001_10", "quote": "茶楼雅间里，茶香氤氲", "category": "location" }
     ],
-    "conservativeCompletion": ["schoolyard", "golden hour"],
-    "finalPrompt": "A schoolyard during sunset, golden hour lighting, anime style background"
+    "conservativeCompletion": ["traditional Chinese tea house private room", "wooden tea table and chairs", "soft warm lighting"],
+    "finalPrompt": "Japanese anime background art, visual novel scene, painted scenery, no humans, empty scenery, wide angle shot, elegant traditional tea house private room, polished wooden furniture, delicate tea set on table, soft warm ambient lighting, peaceful tense atmosphere, highly detailed interior"
   }
 }
 
 ## 关键规则
-- evidence 中的 quote 必须是原文精确引用, 不可修改或编造
-- finalPrompt 为英文, 包含风格模板描述
-- 如果原文未提及某个视觉细节, 使用 conservativeCompletion 补充合理的默认值
-- 只输出 JSON, 不要添加额外解释`;
+- quote 必须是原文精确引用，绝不编造
+- 背景图提示词必须单一聚焦，不可包含多地点
+- 角色立绘提示词必须准确反映性别与真实年龄气质，去除千篇一律的通用模版词`;
 
 function buildUserPrompt(input: VisualPromptInput): string {
   const { sceneId, chapterId, scene, units, characters, styleTemplate, characterKnowledge } = input;
@@ -175,13 +167,31 @@ export async function runVisualPromptAgent(
         return ev;
       });
 
-    const characterPrompts = (result.characterPrompts ?? []).map((cp) => ({
-      ...cp,
-      evidence: validateEvidence(cp.evidence),
-    }));
+    const characterPrompts = (result.characterPrompts ?? []).map((cp: any) => {
+      const rawPromptPack = cp.promptPack ?? {};
+      const finalPrompt = cp.finalPrompt || rawPromptPack.finalPrompt || rawPromptPack.appearancePrompt || rawPromptPack.appearance || "";
+      const promptPack = {
+        appearancePrompt: finalPrompt,
+        appearance: finalPrompt,
+        finalPrompt: finalPrompt,
+        ...rawPromptPack,
+      };
+      return {
+        ...cp,
+        promptPack,
+        finalPrompt,
+        evidence: validateEvidence(cp.evidence ?? []),
+      };
+    });
 
     const backgroundPrompt = result.backgroundPrompt
-      ? { ...result.backgroundPrompt, sceneId, evidence: validateEvidence(result.backgroundPrompt.evidence) }
+      ? {
+          ...result.backgroundPrompt,
+          sceneId,
+          finalPrompt: (result.backgroundPrompt as any).finalPrompt || (result.backgroundPrompt as any).description || "",
+          description: (result.backgroundPrompt as any).description || (result.backgroundPrompt as any).finalPrompt || "",
+          evidence: validateEvidence(result.backgroundPrompt.evidence ?? []),
+        }
       : undefined;
 
     return {

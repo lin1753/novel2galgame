@@ -4,7 +4,9 @@ import type { AssetManifest } from "./types.js";
 
 /** Simple file-based cache: checks if asset file already exists */
 export function isAssetCached(projectDir: string, filePath: string): boolean {
-  return fs.existsSync(path.join(projectDir, "assets", filePath));
+  // Generation routes write under <project>/assets/images/... — checking
+  // <project>/assets/... made every asset look missing (repeat generation)
+  return fs.existsSync(path.join(projectDir, "assets", "images", filePath));
 }
 
 /** Get all missing assets from manifest */

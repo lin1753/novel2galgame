@@ -255,7 +255,7 @@ export function ConfigPage() {
       <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-sakura/5 border border-sakura/30">
         <span className="text-xs text-muted-foreground">当前 Provider:</span>
         <span className="font-medium text-deep-purple text-sm">{profilesCfg.activeProfile || '未配置'}</span>
-        {profilesCfg.profiles.find(p => p.name === profilesCfg.activeProfile) && (
+        {(profilesCfg.profiles ?? []).find(p => p.name === profilesCfg.activeProfile) && (
           <span className="px-1.5 py-0.5 text-[10px] rounded bg-sakura/20 text-sakura">active</span>
         )}
       </div>
@@ -364,7 +364,7 @@ export function ConfigPage() {
 
             {/* Profile list */}
             <div className="space-y-1.5">
-              {profilesCfg.profiles.map(profile => (
+              {(profilesCfg.profiles ?? []).map(profile => (
                 <div key={profile.name}
                   className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${
                     profile.name === profilesCfg.activeProfile

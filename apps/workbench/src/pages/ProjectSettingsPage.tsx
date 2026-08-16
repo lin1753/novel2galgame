@@ -9,7 +9,7 @@ const defaultConfig: ProjectConfig = {
   segmentationMode: 'standard',
   visualStyleTemplate: 'school-romance-anime',
   budgetMode: 'balanced',
-  autoRunVisualPrompt: false,
+  autoRunVisualPrompt: true,
   autoRunConsistencyReview: false,
   defaultTextModel: 'agnes-2.0-flash',
   language: 'zh-CN',
@@ -35,13 +35,19 @@ export function ProjectSettingsPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await fetch(`/api/projects/${projectId}/config`, {
+      const res = await fetch(`/api/projects/${projectId}/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       })
-      qc.invalidateQueries({ queryKey: ['project', projectId] })
-      setMsg('配置已保存')
+      // fetch resolves on 4xx/5xx too — reporting success on a failed save
+      // (then refetching old data) silently discarded the user's edits
+      if (!res.ok) {
+        setMsg(`保存失败 (HTTP ${res.status})`)
+      } else {
+        qc.invalidateQueries({ queryKey: ['project', projectId] })
+        setMsg('配置已保存')
+      }
     } catch { setMsg('保存失败') }
     setSaving(false)
     setTimeout(() => setMsg(null), 3000)

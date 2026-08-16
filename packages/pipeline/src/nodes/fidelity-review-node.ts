@@ -181,9 +181,14 @@ export async function fidelityReviewNode(
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
 
-    // Cache check
+    // Cache key includes the reviewed script's content hash so a repaired script
+    // gets a fresh review instead of hitting the stale failed report
+    const vnScriptHash = crypto.createHash("sha256")
+      .update(JSON.stringify(sceneResult.vnScript ?? {}))
+      .digest("hex")
+      .slice(0, 16);
     const cacheKey = crypto.createHash("sha256")
-      .update(`${scene.sceneId}|fidelity_review|${fr.model}|${state.chapterText.slice(0, 200)}`)
+      .update(`${scene.sceneId}|fidelity_review|${fr.model}|${vnScriptHash}`)
       .digest("hex");
 
     if (state.db) {
@@ -236,6 +241,7 @@ export async function fidelityReviewNode(
       fidelityPassed = fidelityData.passed;
       sceneResult.fidelityPassed = fidelityPassed;
       sceneResult.fidelityReport = fidelityData;
+      try { state.sceneRepo?.updateStatus(scene.sceneId, { reviewStatus: fidelityPassed ? "passed" : "failed" }); } catch {}
     } catch (err) {
       console.log(`[Fidelity] ${scene.sceneId} failed after retries, continuing: ${err instanceof Error ? err.message.slice(0, 80) : err}`);
       sceneResult.fidelityPassed = false;
@@ -264,6 +270,10 @@ export async function fidelityReviewNode(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[fidelityReviewNode] Error: ${msg}`);
+    try {
+      state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
+        .run(now(), msg.slice(0, 500), state.chapterId);
+    } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { fidelity_review: Date.now() - t0 } };
   }
 }

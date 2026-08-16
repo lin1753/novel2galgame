@@ -12,9 +12,7 @@ function param(req: Request, key: string): string {
 
 function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase();
-}
-
-/** Scan all VN scripts to discover backgrounds, characters, and their scene usage */
+}/** Scan all VN scripts to discover backgrounds, characters, and their scene usage */
 function scanProjectAssets(projectDir: string) {
   const bgMap = new Map<string, { id: string; label: string }>();
   const charMap = new Map<string, { id: string; name: string; expressions: Set<string> }>();
@@ -23,6 +21,9 @@ function scanProjectAssets(projectDir: string) {
 
   const scenesDir = path.join(projectDir, "scenes");
   if (!fs.existsSync(scenesDir)) return { backgrounds: bgMap, characters: charMap, sceneUsage: { backgrounds: bgScenes, characters: charScenes } };
+
+  // 按 displayName / canonicalName 建立底层映射，消灭重复 ID 卡片
+  const nameToCanonicalId = new Map<string, string>();
 
   for (const sceneId of fs.readdirSync(scenesDir)) {
     const scriptPath = path.join(scenesDir, sceneId, "vn_script.json");
@@ -43,17 +44,21 @@ function scanProjectAssets(projectDir: string) {
           if (!bgScenes.get(step.backgroundId)!.includes(sceneId)) bgScenes.get(step.backgroundId)!.push(sceneId);
         }
         if ((step.type === "show" || step.type === "say" || step.type === "thought") && step.characterId) {
-          if (!charMap.has(step.characterId)) {
-            charMap.set(step.characterId, { id: step.characterId, name: step.displayName || step.characterId, expressions: new Set() });
+          const charName = step.displayName || step.characterId;
+          // 过滤次要龙套角色或纯形容词（如"女孩"）如果已经有具名角色
+          if (!nameToCanonicalId.has(charName)) {
+            nameToCanonicalId.set(charName, step.characterId);
           }
-          if ((step.type === "say" || step.type === "thought") && step.displayName) {
-            charMap.get(step.characterId)!.name = step.displayName;
+          const canonicalId = nameToCanonicalId.get(charName) ?? step.characterId;
+
+          if (!charMap.has(canonicalId)) {
+            charMap.set(canonicalId, { id: canonicalId, name: charName, expressions: new Set() });
           }
           if (step.type === "show" && step.expression) {
-            charMap.get(step.characterId)!.expressions.add(step.expression);
+            charMap.get(canonicalId)!.expressions.add(step.expression);
           }
-          if (!charScenes.has(step.characterId)) charScenes.set(step.characterId, []);
-          if (!charScenes.get(step.characterId)!.includes(sceneId)) charScenes.get(step.characterId)!.push(sceneId);
+          if (!charScenes.has(canonicalId)) charScenes.set(canonicalId, []);
+          if (!charScenes.get(canonicalId)!.includes(sceneId)) charScenes.get(canonicalId)!.push(sceneId);
         }
       }
     } catch (e) {
@@ -161,6 +166,66 @@ export function createAssetRoutes() {
     const producer = new AgnesImageProducer({ apiKey });
     const safeId = sanitizeId(assetId);
 
+    // 精准寻找该场景/角色的 visual_prompt.json 的 finalPrompt
+    let effectivePrompt = prompt ?? null;
+
+    if (!effectivePrompt) {
+      const scenesDir = path.join(projectDir, "scenes");
+      if (fs.existsSync(scenesDir)) {
+        const sceneIds = fs.readdirSync(scenesDir);
+        
+        if (type === "bg") {
+          // 优先寻找使用了该 backgroundId 的具体场景
+          let matchedSceneId: string | null = null;
+          for (const scId of sceneIds) {
+            const scriptFile = path.join(scenesDir, scId, "vn_script.json");
+            if (fs.existsSync(scriptFile)) {
+              try {
+                const scr = JSON.parse(fs.readFileSync(scriptFile, "utf-8"));
+                const hasBg = (scr.steps || []).some((s: any) => 
+                  s.type === "bg" && (s.backgroundId === assetId || s.backgroundLabel === label || s.backgroundId === safeId)
+                );
+                if (hasBg) {
+                  matchedSceneId = scId;
+                  break;
+                }
+              } catch {}
+            }
+          }
+          if (matchedSceneId) {
+            const vpFile = path.join(scenesDir, matchedSceneId, "visual_prompt.json");
+            if (fs.existsSync(vpFile)) {
+              try {
+                const vpData = JSON.parse(fs.readFileSync(vpFile, "utf-8"));
+                if (vpData.backgroundPrompt?.finalPrompt) {
+                  effectivePrompt = vpData.backgroundPrompt.finalPrompt;
+                }
+              } catch {}
+            }
+          }
+        } else if (type === "character") {
+          // 寻找包含该角色的 visual_prompt
+          for (const scId of sceneIds) {
+            const vpFile = path.join(scenesDir, scId, "visual_prompt.json");
+            if (fs.existsSync(vpFile)) {
+              try {
+                const vpData = JSON.parse(fs.readFileSync(vpFile, "utf-8"));
+                if (vpData.characterPrompts) {
+                  const cp = vpData.characterPrompts.find((c: any) => 
+                    c.characterId === assetId || c.canonicalName === label || c.characterId === safeId || c.canonicalName === assetId
+                  );
+                  if (cp?.finalPrompt) {
+                    effectivePrompt = cp.finalPrompt;
+                    break;
+                  }
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+    }
+
     try {
       if (type === "bg") {
         const bgDir = path.join(assetDir, "bg");
@@ -170,7 +235,7 @@ export function createAssetRoutes() {
           label: label ?? safeId,
           file: `${safeId}.png`,
           status: "generated",
-          prompt: prompt ?? undefined,
+          prompt: effectivePrompt ?? undefined,
         }, bgDir);
         res.json({ success: true, type: "bg", id: assetId, file: `bg/${safeId}.png` });
       } else if (type === "character") {
@@ -179,10 +244,10 @@ export function createAssetRoutes() {
         fs.mkdirSync(charExprDir, { recursive: true });
         await producer.generate({
           type: "character" as const,
-          label: prompt ?? label ?? `${safeId}_${exprId}`,
+          label: effectivePrompt ?? label ?? `${safeId}_${exprId}`,
           file: `${exprId}.png`,
           status: "generated",
-          prompt: prompt ?? undefined,
+          prompt: effectivePrompt ?? undefined,
           expression: expression ?? "default",
         } as any, charExprDir);
         res.json({ success: true, type: "character", id: assetId, expression: expression ?? "default", file: `char/${safeId}/${exprId}.png` });
@@ -236,14 +301,26 @@ export function createAssetRoutes() {
 
     const resolved = path.resolve(filePath);
     const allowed = path.resolve(config.dataDir, "projects", projectId, "assets", "images");
-    if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+    // Containment check via path.relative — a plain startsWith would also allow
+    // sibling dirs sharing a prefix (e.g. .../images_evil)
+    const rel = path.relative(allowed, resolved);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return res.status(403).json({ error: "Forbidden" });
 
-    if (!fs.existsSync(resolved)) return res.status(404).json({ error: "Image not found" });
+    let actualFile = resolved;
+    if (!fs.existsSync(actualFile)) {
+      // 智能回退: 如果请求的 .png 还没有生成，检查是否存在对应的 .svg 占位图
+      const svgFallback = resolved.replace(/\.png$/i, ".svg");
+      if (fs.existsSync(svgFallback)) {
+        actualFile = svgFallback;
+      } else {
+        return res.status(404).json({ error: "Image not found" });
+      }
+    }
 
-    const ext = path.extname(resolved).toLowerCase();
+    const ext = path.extname(actualFile).toLowerCase();
     const mime: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".webp": "image/webp" };
     res.type(mime[ext] ?? "application/octet-stream");
-    res.sendFile(resolved);
+    res.sendFile(actualFile);
   });
 
   return router;

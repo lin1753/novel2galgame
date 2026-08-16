@@ -20,15 +20,19 @@ export class ChromaCollection {
   constructor(dataDir: string, name: string) {
     this.collectionName = name;
     this.persistDir = path.join(dataDir, "chroma");
-    this.client = new ChromaClient({ path: this.persistDir });
+    const chromaUrl = process.env.CHROMA_URL || "http://localhost:8000";
+    this.client = new ChromaClient({ path: chromaUrl });
   }
 
   async ensureCollection() {
     if (this._initialized) return;
+    const dummyEmbeddingFunction = {
+      generate: async (texts: string[]) => texts.map(() => new Array(512).fill(0)),
+    };
     try {
-      await this.client.getCollection({ name: this.collectionName });
+      await this.client.getCollection({ name: this.collectionName, embeddingFunction: dummyEmbeddingFunction });
     } catch {
-      await this.client.createCollection({ name: this.collectionName });
+      await this.client.createCollection({ name: this.collectionName, embeddingFunction: dummyEmbeddingFunction });
     }
     this._initialized = true;
   }

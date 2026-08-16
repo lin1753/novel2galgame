@@ -118,15 +118,6 @@ export async function narrativeNode(
 
     state.onProgress?.("narrative_parsing", `Parsing chapter ${state.chapterTitle}`);
 
-    // RAG: inject known character names
-    let knownCharacters: string[] = [];
-    try {
-      const ragCtx = state.ragContext;
-      if (ragCtx && ragCtx.knownCharacters.length === 0) {
-        // knownCharacters are pre-populated by the caller; keep existing if set
-      }
-    } catch { /* silent */ }
-
     const narr = resolveAgent(state.modelConfig, "narrative", state.provider as LLMProvider, state.defaultModel);
     const tokens = { prompt: 0, completion: 0 };
     const wNarr = instrumentProvider(narr.provider, (r: any) => {
@@ -196,6 +187,10 @@ export async function narrativeNode(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[narrativeNode] Error: ${msg}`);
+    try {
+      state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
+        .run(now(), msg.slice(0, 500), state.chapterId);
+    } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { narrative_parsing: Date.now() - t0 } };
   }
 }

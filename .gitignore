@@ -29,3 +29,6 @@ data/config/model-profiles.json
 # Claude Code local state
 .claude/
 .omc/
+
+# Local test artifacts (eval DBs, e2e output, RenPy export trials)
+scratch/

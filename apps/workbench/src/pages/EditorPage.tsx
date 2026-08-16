@@ -82,7 +82,9 @@ export function EditorPage() {
     const newSteps = [...steps]
     newSteps.splice(afterIndex + 1, 0, newStep)
     // Re-index orders
-    newSteps.forEach((s, i) => (s as any).order = i)
+    // Immutable re-index — mutating in place corrupts undo history snapshots
+    // and the React Query cache entries they share
+    for (let i = 0; i < newSteps.length; i++) newSteps[i] = { ...newSteps[i]!, order: i } as VNStep
     setSteps(newSteps)
     setSelectedIndex(afterIndex + 1)
     pushHistory(newSteps)
@@ -90,7 +92,9 @@ export function EditorPage() {
 
   const deleteStep = useCallback((index: number) => {
     const newSteps = steps.filter((_, i) => i !== index)
-    newSteps.forEach((s, i) => (s as any).order = i)
+    // Immutable re-index — mutating in place corrupts undo history snapshots
+    // and the React Query cache entries they share
+    for (let i = 0; i < newSteps.length; i++) newSteps[i] = { ...newSteps[i]!, order: i } as VNStep
     setSteps(newSteps)
     setSelectedIndex(Math.min(index, newSteps.length - 1))
     pushHistory(newSteps)
@@ -100,7 +104,9 @@ export function EditorPage() {
     const newSteps = [...steps]
     const [moved] = newSteps.splice(fromIndex, 1)
     newSteps.splice(toIndex, 0, moved)
-    newSteps.forEach((s, i) => (s as any).order = i)
+    // Immutable re-index — mutating in place corrupts undo history snapshots
+    // and the React Query cache entries they share
+    for (let i = 0; i < newSteps.length; i++) newSteps[i] = { ...newSteps[i]!, order: i } as VNStep
     setSteps(newSteps)
     setSelectedIndex(toIndex)
     pushHistory(newSteps)

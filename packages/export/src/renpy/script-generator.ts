@@ -1,5 +1,20 @@
 import type { VNScript, VNStep, SayStep, ThoughtStep, BgStep, ShowStep, HideStep, NarrationStep, PauseStep, TransitionStep } from "@novel2gal/core";
 
+const VALID_POSITIONS = new Set(["left_far", "left", "center", "right", "right_far"]);
+
+/**
+ * Map a free-form transition name to a Ren'Py built-in transition.
+ * "cut" means an immediate change — expressed by omitting the with clause.
+ * Unknown names fall back to fade instead of generating `with <invalid>`.
+ */
+function mapTransition(name?: string): string | null {
+  if (!name) return null;
+  const n = name.toLowerCase().trim();
+  if (n === "cut") return null;
+  if (n === "fade" || n === "dissolve") return n;
+  return "fade";
+}
+
 /** Convert VNScript steps to Ren'Py script lines */
 export function generateScript(scripts: VNScript[]): string {
   const lines: string[] = [];
@@ -25,69 +40,155 @@ export function generateScript(scripts: VNScript[]): string {
     lines.push("");
   }
 
+  // Pre-compute scene labels with collision dedup — Ren'Py refuses to load a
+  // script that defines the same label twice (e.g. sceneIds differing only in
+  // case or punctuation collapse to the same sanitized label)
+  const usedLabels = new Set<string>();
+  const sceneLabels = scripts.map((script, sIdx) => {
+    let base = sanitizeId(script.sceneId || `part_${sIdx + 1}`);
+    if (!base) base = `part_${sIdx + 1}`;
+    let label = base;
+    let n = 2;
+    while (usedLabels.has(label)) {
+      label = `${base}_${n}`;
+      n += 1;
+    }
+    usedLabels.add(label);
+    return label;
+  });
+
   lines.push("label start:");
+  // Jump to the FIRST actual label — a hardcoded target breaks every export
+  // whose sceneId isn't literally "0001"
+  if (sceneLabels.length > 0) {
+    lines.push(`    jump ${sceneLabels[0]}`);
+  } else {
+    lines.push("    return");
+  }
   lines.push("");
 
   let lastTransition: string | null = null;
+  /** Emit the pending transition as a standalone `with` statement */
+  const flushTransitionAsStatement = () => {
+    if (lastTransition) {
+      lines.push(`    with ${lastTransition}`);
+      lastTransition = null;
+    }
+  };
 
-  for (const script of scripts) {
+  // Remember each character's last explicit position so an expression-only
+  // re-show doesn't teleport them back to center
+  const lastPosition = new Map<string, string>();
+
+  for (let sIdx = 0; sIdx < scripts.length; sIdx++) {
+    const script = scripts[sIdx];
+    const sceneLabel = sceneLabels[sIdx];
+    lines.push(`label ${sceneLabel}:`);
     lines.push(`    # --- Scene: ${script.sceneId} ---`);
     lines.push("");
 
     for (const step of script.steps) {
       const withClause = lastTransition ? ` with ${lastTransition}` : "";
-      lastTransition = null;
 
       switch (step.type) {
-        case "bg":
-          lines.push(`    scene bg ${sanitizeId((step as BgStep).backgroundId)}${withClause || " with fade"}`);
-          break;
-
-        case "show": {
-          const s = step as ShowStep;
-          const pos = s.position ? ` at ${s.position}` : "";
-          const expr = s.expression ? ` ${sanitizeId(s.expression)}` : "";
-          lines.push(`    show ${sanitizeId(s.characterId)}${expr} at center, character_display with dissolve`);
+        case "bg": {
+          const t = lastTransition ?? "fade";
+          lastTransition = null;
+          lines.push(`    scene bg ${sanitizeId((step as BgStep).backgroundId)} with ${t}`);
           break;
         }
 
-        case "hide":
-          lines.push(`    hide ${sanitizeId((step as HideStep).characterId)} with dissolve`);
+        case "show": {
+          const s = step as ShowStep;
+          const id = sanitizeId(s.characterId);
+          let pos: string | undefined;
+          if (s.position && VALID_POSITIONS.has(s.position)) {
+            pos = s.position;
+            lastPosition.set(id, pos);
+          } else {
+            pos = lastPosition.get(id);
+          }
+          const expr = s.expression ? ` ${sanitizeId(s.expression)}` : "";
+          const atClause = pos ? ` at ${pos}, character_display` : " at character_display";
+          lines.push(`    show ${id}${expr}${atClause} with dissolve`);
+          flushTransitionAsStatement();
           break;
+        }
 
-        case "narration":
-          lines.push(`    "${(step as NarrationStep).text}"${withClause}`);
+        case "hide": {
+          lines.push(`    hide ${sanitizeId((step as HideStep).characterId)} with dissolve`);
+          flushTransitionAsStatement();
           break;
+        }
+
+        case "narration": {
+          lastTransition = null;
+          const text = escapeRenpyString((step as NarrationStep).text || "");
+          lines.push(`    "${text}"${withClause}`);
+          break;
+        }
 
         case "say": {
+          lastTransition = null;
           const s = step as SayStep;
           const char = s.characterId ? sanitizeId(s.characterId) : "narrator";
-          lines.push(`    ${char} "${s.text}"${withClause}`);
+          const text = escapeRenpyString(s.text || "");
+          lines.push(`    ${char} "${text}"${withClause}`);
           break;
         }
 
         case "thought": {
+          lastTransition = null;
           const s = step as ThoughtStep;
           const char = s.characterId ? sanitizeId(s.characterId) : "narrator";
-          lines.push(`    ${char} "${s.text}" (what_prefix="«" what_suffix="»")${withClause}`);
+          const text = escapeRenpyString(s.text || "");
+          lines.push(`    ${char} "（${text}）"${withClause}`);
           break;
         }
 
-        case "pause":
-          lines.push(`    pause ${(step as PauseStep).durationMs ? (step as PauseStep).durationMs! / 1000 : 1.0}`);
+        case "pause": {
+          const ms = (step as PauseStep).durationMs ?? 1000;
+          lines.push(`    pause ${ms / 1000}`);
+          flushTransitionAsStatement();
           break;
+        }
 
         case "transition": {
-          const name = (step as TransitionStep).name || "fade";
-          lastTransition = name;
+          lastTransition = mapTransition((step as TransitionStep).name);
           break;
         }
       }
+    }
+
+    // A trailing transition step with nothing after it still applies to the jump
+    flushTransitionAsStatement();
+
+    // 场景结束自动衔接下一个 Scene 或返回
+    if (sIdx < scripts.length - 1) {
+      lines.push(`    jump ${sceneLabels[sIdx + 1]}`);
+    } else {
+      lines.push(`    return`);
     }
     lines.push("");
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Escape text for a Ren'Py double-quoted string literal. Ren'Py say/narration
+ * text performs %-interpolation, [] substitution and {} text tags by default,
+ * so all of those must be doubled/escaped; \r must not leak into literals.
+ */
+function escapeRenpyString(str: string): string {
+  return str
+    .replace(/\r\n?/g, "\n")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/%/g, "%%")
+    .replace(/\[/g, "[[")
+    .replace(/\{/g, "{{")
+    .replace(/\n/g, "\\n");
 }
 
 /** Sanitize an ID for use in Ren'Py (no special chars, underscore-separated) */
