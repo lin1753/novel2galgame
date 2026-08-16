@@ -30,7 +30,7 @@ function scanProjectAssets(projectDir: string) {
     if (!fs.existsSync(scriptPath)) continue;
     try {
       let raw = fs.readFileSync(scriptPath, "utf-8");
-      if (raw.includes("") || raw.charCodeAt(0) === 0xFEFF) {
+      if (raw.includes("�") || raw.charCodeAt(0) === 0xFEFF) {
         const buf = fs.readFileSync(scriptPath);
         try { raw = new TextDecoder("utf-8").decode(buf); } catch { raw = buf.toString("latin1"); }
       }
@@ -301,7 +301,10 @@ export function createAssetRoutes() {
 
     const resolved = path.resolve(filePath);
     const allowed = path.resolve(config.dataDir, "projects", projectId, "assets", "images");
-    if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+    // Containment check via path.relative — a plain startsWith would also allow
+    // sibling dirs sharing a prefix (e.g. .../images_evil)
+    const rel = path.relative(allowed, resolved);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return res.status(403).json({ error: "Forbidden" });
 
     let actualFile = resolved;
     if (!fs.existsSync(actualFile)) {

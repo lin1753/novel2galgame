@@ -1,4 +1,14 @@
 import fs from "node:fs";
+
+/** Shared file-name sanitizer — must match the sanitizeId used in generated
+ *  image statements, otherwise manifest paths never line up with the game */
+function sanitizeManifestId(id: string): string {
+  return id
+    .replace(/[^a-zA-Z0-9_一-鿿]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toLowerCase();
+}
 import path from "node:path";
 import type { GameBuilder, ExportInput, ExportResult, ExportStats } from "../common/export-types.js";
 import { validateIR } from "@novel2gal/ir";
@@ -73,7 +83,7 @@ export class RenPyBuilder implements GameBuilder {
         manifest.assets.background[id] = {
           type: "background",
           label,
-          file: `bg/${id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}.png`,
+          file: `bg/${sanitizeManifestId(id)}.png`,
           status: "placeholder",
         };
       }
@@ -86,7 +96,7 @@ export class RenPyBuilder implements GameBuilder {
           manifest.assets.character[charId].expressions[expr] = {
             type: "character",
             label: expr,
-            file: `char/${charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}/${expr.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}.png`,
+            file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(expr)}.png`,
             status: "placeholder",
           };
         }

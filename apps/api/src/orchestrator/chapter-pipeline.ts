@@ -280,6 +280,25 @@ export async function runChapterPipeline(
   });
 
   // Stage 1: Narrative Parsing
+  // Known characters for this project (scoped — the RAG store is global across
+  // projects), reused by the attribution fallback extractor
+  let knownCharacters: any[] | undefined;
+  if (rag) {
+    try {
+      const recs: any[] = (rag.knowledgeStore as any)?.characters?.records ?? [];
+      const names = new Set<string>();
+      for (const rec of recs) {
+        if (rec.metadata?.projectId !== project.projectId) continue;
+        const cname = rec.metadata?.canonicalName as string | undefined;
+        if (cname && /[\u4e00-\u9fff]/.test(cname)) names.add(cname);
+      }
+      if (names.size > 0) {
+        knownCharacters = Array.from(names).map((name) => ({ canonicalName: name }));
+        console.log(`[RAG] Known characters for ${project.projectId}: ${names.size}`);
+      }
+    } catch (e) { /* silent */ }
+  }
+
   let narrativeData: any;
   if (flagsDone?.parsingDone) {
     narrativeData = readChapterJson(dataDir, project.projectId, chapterId, "narrative_units.json");
@@ -288,18 +307,6 @@ export async function runChapterPipeline(
     checkAbort();
     onProgress?.("narrative_parsing", `Parsing chapter ${chapterTitle}`);
     onStageUpdate?.("narrative_parsing");
-
-    // RAG: inject known character names for narrative agent
-    let knownCharacters: any[] | undefined;
-    if (rag) {
-      try {
-        const details = rag.knowledgeStore.listKnownCharacters();
-        if (details.length > 0) {
-          knownCharacters = details.map((name: string) => ({ canonicalName: name }));
-          console.log(`[RAG] Narrative agent: ${details.length} known characters`);
-        }
-      } catch (e) { /* silent */ }
-    }
 
     const narr = resolveAgent(agentModels, "narrative", provider, model);
     const t0 = { prompt: 0, completion: 0 };
@@ -356,7 +363,7 @@ export async function runChapterPipeline(
     writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
 
     // Post-process: extract character list from units if LLM returned empty characters
-    if (attributionData && extractCharactersFromUnits(attributionData)) {
+    if (attributionData && extractCharactersFromUnits(attributionData, knownCharacters)) {
       console.log(`[Attribution] Post-processed ${attributionData.characters.length} characters from units`);
     }
 
@@ -493,11 +500,13 @@ export async function runChapterPipeline(
       const wVn = instrumentProvider(vn.provider, (r: any) => { tv.prompt += r.usage?.promptTokens ?? 0; tv.completion += r.usage?.completionTokens ?? 0; });
       vnData = await runAgentWithMetrics({
         type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
-        provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir, cacheHint: chapterText.slice(0, 200),
+        provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir,
+        cacheHint: `${scene.sceneId}|${chapterText.slice(0, 200)}`,
         label: `vn_mapping:${scene.sceneId}`,
         fn: () => runVNMappingAgent({ sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" }, wVn, vn.model),
       });
       writeVNScript(dataDir, project.projectId, scene.sceneId, vnData);
+      try { (sceneRepo as any)?.updateStatus(scene.sceneId, { mappingStatus: "done" }); } catch {}
     }
 
     // Fidelity — skip if already passed
@@ -510,16 +519,23 @@ export async function runChapterPipeline(
       const tf = { prompt: 0, completion: 0 };
       const wFr = instrumentProvider(fr.provider, (r: any) => { tf.prompt += r.usage?.promptTokens ?? 0; tf.completion += r.usage?.completionTokens ?? 0; });
       try {
+        // Cache key includes the reviewed script's content hash so a different
+        // script (or another scene — scenes used to collide on the same key)
+        // never reuses this review
+        const vnScriptHash = crypto.createHash("sha256").update(JSON.stringify(vnData)).digest("hex").slice(0, 16);
         const fidelityData = await runAgentWithMetrics({
           type: "fidelity_review", projectId: project.projectId, chapterId, stageOrder: 4 + sceneIdx * 2,
-          provider: fr.provider, model: fr.model, signal, db: d, tokenAcc: tf, dataDir, cacheHint: chapterText.slice(0, 200),
+          provider: fr.provider, model: fr.model, signal, db: d, tokenAcc: tf, dataDir,
+          cacheHint: `${scene.sceneId}|${vnScriptHash}`,
           label: `fidelity:${scene.sceneId}`,
           fn: () => runFidelityReviewAgent({ sceneId: scene.sceneId, chapterId, vnScript: vnData, originalUnits: sceneUnits }, wFr, fr.model),
         });
         writeFidelityReport(dataDir, project.projectId, scene.sceneId, fidelityData);
         fidelityPassed = fidelityData.passed;
+        try { (sceneRepo as any)?.updateStatus(scene.sceneId, { reviewStatus: fidelityPassed ? "passed" : "failed" }); } catch {}
       } catch (err) {
         console.log(`[Fidelity] ${scene.sceneId} failed after retries, continuing: ${err instanceof Error ? err.message.slice(0, 80) : err}`);
+        fidelityPassed = false;
       }
     }
 

@@ -118,6 +118,18 @@ ${chunk}`;
     }
   }
 
+  // LLM 可能跨分段重复使用同一个 unitId（每段都从 unit_xxx_0000 重新编号），
+  // 这里强制全局唯一：重复或缺失的 id 按全局顺序重新生成
+  const seenUnitIds = new Set<string>();
+  for (let i = 0; i < allUnits.length; i++) {
+    const unit = allUnits[i]!;
+    unit.order = i;
+    if (!unit.unitId || seenUnitIds.has(unit.unitId)) {
+      unit.unitId = `unit_${chapterId.replace("chapter_", "")}_${String(i).padStart(4, "0")}`;
+    }
+    seenUnitIds.add(unit.unitId);
+  }
+
   const overallConfidence =
     allUnits.reduce((sum, u) => sum + (u.confidence ?? 0.5), 0) / (allUnits.length || 1);
 

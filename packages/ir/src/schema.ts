@@ -21,7 +21,7 @@ export const ShowStepSchema = z.object({
   type: z.literal("show"),
   characterId: z.string(),
   expression: z.string().optional(),
-  position: z.enum(["left", "center", "right"]).optional(),
+  position: z.enum(["left_far", "left", "center", "right", "right_far"]).optional(),
 });
 
 export const HideStepSchema = z.object({

@@ -117,6 +117,16 @@ export function createProjectRoutes(
   // DELETE /projects/:id - Delete project
   router.delete("/:id", (req: Request, res: Response) => {
     const projectId = param(req, "id");
+
+    // Abort any running pipelines for this project first — otherwise background
+    // nodes keep writing files and DB rows for a project that's being deleted
+    try {
+      for (const ch of chapterRepo.listByProject(projectId)) {
+        runningPipelines.get(ch.chapterId)?.abort();
+        runningPipelines.delete(ch.chapterId);
+      }
+    } catch {}
+
     projectRepo.delete(projectId);
 
     // Clean RAG records for this deleted project
@@ -360,7 +370,8 @@ export function createProjectRoutes(
     let knownCharacters: any[] = [];
     if (rag) {
       try {
-        const charDetails = await rag.knowledgeStore.characters.listCharacterDetails();
+        // Scope to this project — the RAG store is shared across all novels
+        const charDetails = await rag.knowledgeStore.characters.listCharacterDetails(pid);
         knownCharacters = charDetails.map((c: any) => ({
           characterId: c.characterId,
           canonicalName: c.canonicalName,
@@ -403,6 +414,19 @@ export function createProjectRoutes(
       configurable: { thread_id: `${pid}_${cid}`, rag },
       signal: ac.signal,
     }).then(async (finalState: any) => {
+      // Pipeline nodes report failures via state.error instead of throwing, so
+      // invoke() resolves normally — a failed/cancelled run must NOT be marked ready
+      const errMsg = finalState?.error ?? null;
+      if (errMsg) {
+        const isCancelled = String(errMsg).includes("ABORTED");
+        broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: String(errMsg).slice(0, 300) });
+        chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
+        db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
+          .run(isCancelled ? "cancelled" : "failed", now(), String(errMsg).slice(0, 500), runId);
+        console.error(`[LangGraph] ${cid} ended with error: ${String(errMsg).slice(0, 200)}`);
+        return;
+      }
+
       const sceneCount = finalState?.segmentationResult?.scenes?.length ?? 0;
 
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
@@ -417,9 +441,10 @@ export function createProjectRoutes(
       chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
       db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
         .run(isCancelled ? "cancelled" : "failed", now(), msg.slice(0, 500), runId);
-      console.error(`[LangGraph] ${cid} ${isCancelled ? "cancelled" : "failed"}:`, msg);
+      console.error(`[LangGraph] ${cid} ${isCancelled ? "cancelled" : 'failed'}:`, msg);
     }).finally(() => {
-      runningPipelines.delete(cid);
+      // Only remove our own controller — a concurrent re-run may have replaced it
+      if (runningPipelines.get(cid) === ac) runningPipelines.delete(cid);
     });
   });
 
@@ -530,18 +555,15 @@ export function createProjectRoutes(
     const projectRecords = records.filter((r: any) => {
       const meta = r.metadata ?? {};
       if (meta.projectId === projectId) return true;
+      // Legacy records without projectId are only adopted when their chapterId
+      // or record id actually belongs to this project — a blanket adoption
+      // would steal other projects' records on first GET
       if (typeof meta.chapterId === "string" && meta.chapterId.startsWith(projectId)) {
         meta.projectId = projectId;
         migrated = true;
         return true;
       }
       if (typeof r.id === "string" && r.id.startsWith(projectId)) {
-        meta.projectId = projectId;
-        migrated = true;
-        return true;
-      }
-      // If legacy record with no projectId, adopt into current active project if it matches character name
-      if (!meta.projectId) {
         meta.projectId = projectId;
         migrated = true;
         return true;

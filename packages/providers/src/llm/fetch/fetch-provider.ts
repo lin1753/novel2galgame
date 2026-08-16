@@ -183,6 +183,13 @@ export class FetchLLMProvider implements LLMProvider {
         await new Promise((r) => setTimeout(r, delay));
       }
       const response = await this.chat({ ...options, jsonMode: true });
+      // finish_reason=length means the JSON is cut off by max_tokens — repair
+      // would silently close it into partial/empty data, so retry instead
+      if (response.finishReason === "length") {
+        console.log(`[FetchLLM] Completion truncated by max_tokens (${response.content.length} chars), retrying...`);
+        lastError = new Error("LLM completion truncated by max_tokens");
+        continue;
+      }
       let content = response.content.trim();
       content = content.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "");
       try {

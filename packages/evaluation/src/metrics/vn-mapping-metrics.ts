@@ -16,6 +16,9 @@ export function evaluateVNMapping(
     const duText = du.originalText.trim();
     const found = saySteps.some((ss) => {
       const stepText = (ss as { text?: string }).text?.trim() ?? "";
+      // Empty or single-char texts match almost anything via substring checks,
+      // inflating retention to 1.0 — require meaningful overlap
+      if (stepText.length < 2 || duText.length < 2) return stepText === duText;
       // Exact match or contains
       return stepText === duText || stepText.includes(duText) || duText.includes(stepText);
     });

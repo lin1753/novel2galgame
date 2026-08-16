@@ -42,7 +42,11 @@ export function PreviewPage() {
   const [stepIndex, setStepIndex] = useState(0)
   const [totalSteps, setTotalSteps] = useState(0)
   const [status, setStatus] = useState<string>('idle')
-  const controllerRef = useRef<PlayerController | null>(null)
+  // Mirror of the backend sanitizeId — asset files are written under this name
+const sanitizeAssetId = (id: string): string =>
+  id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase();
+
+const controllerRef = useRef<PlayerController | null>(null)
   const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Fetch scenes for selected chapter
@@ -180,7 +184,7 @@ export function PreviewPage() {
       <aside className="w-52 border-r border-border overflow-auto shrink-0 p-4">
         <h3 className="font-medium mb-3 text-sm text-muted-foreground">章节/场景</h3>
         <div className="space-y-1">
-          {chapters?.slice(0, 20).map((ch) => (
+          {chapters?.map((ch) => (
             <div key={ch.chapterId}>
               <button
                 onClick={() => {
@@ -231,7 +235,7 @@ export function PreviewPage() {
             {bgId !== 'default' ? (
               <img
                 key={bgId}
-                src={assetImageUrl(projectId!, 'bg', `${bgId}.png`)}
+                src={assetImageUrl(projectId!, 'bg', `${sanitizeAssetId(bgId)}.png`)}
                 alt={bgLabel}
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -254,7 +258,7 @@ export function PreviewPage() {
               style={{ width: '22%', maxWidth: '260px', height: '70%' }}
             >
               <img
-                src={assetImageUrl(projectId!, 'char', `${id}/${char.expression ?? 'default'}.png`)}
+                src={assetImageUrl(projectId!, 'char', `${sanitizeAssetId(id)}/${sanitizeAssetId(char.expression ?? 'default')}.png`)}
                 alt={id}
                 className="w-full h-full object-contain"
                 onError={(e) => {

@@ -130,7 +130,7 @@ async function runAttribution(
   candidates: string[],
   narrativeLabels: any[] | null,
   provider: LLMProvider,
-): Promise<{ speakerId: string; uncertain: boolean } | null> {
+): Promise<{ speakerId: string; predictedName: string; uncertain: boolean } | null> {
   // Build attributed units from narrative labels or fallback
   const units: any[] = [];
 
@@ -190,8 +190,15 @@ async function runAttribution(
     const targetUnit = result.data.units?.find((u: any) => u.unitId === "unit_eval_target");
     if (!targetUnit?.attribution) return null;
 
+    // Resolve speakerId (a char_N code) to its canonical name — ground truth
+    // stores character names, comparing raw IDs made accuracy always 0
+    const charMap = new Map(
+      (result.data.characters ?? []).map((c: any) => [c.characterId, c.canonicalName]),
+    );
+    const sid = targetUnit.attribution.speakerId ?? "";
     return {
-      speakerId: targetUnit.attribution.speakerId ?? "",
+      speakerId: sid,
+      predictedName: charMap.get(sid) ?? sid,
       uncertain: targetUnit.attribution.uncertain ?? false,
     };
   } catch (e) {
@@ -240,7 +247,7 @@ async function main() {
     }
 
     // Compare with ground truth
-    const predicted = attrResult.speakerId;
+    const predicted = attrResult.predictedName ?? attrResult.speakerId;
     const correct = predicted === e.groundTruth.best_candidate;
 
     results.push({

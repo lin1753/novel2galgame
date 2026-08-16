@@ -5,6 +5,8 @@ import type { AgentResult } from "../shared/agent-types.js";
 export interface SegmentationInput {
   chapterId: string;
   units: AttributedNarrativeUnit[];
+  /** Optional cross-chapter scene pattern hints retrieved from RAG */
+  sceneHints?: string;
 }
 
 const SYSTEM_PROMPT = `你是一个中文小说场景分割专家。你的任务是将章节的叙事单元序列分割为不同的场景 (Scene)。
@@ -69,7 +71,7 @@ export async function runSceneSegmentationAgent(
 单元数量: ${units.length}
 合法 unitId 列表 (必须且只能使用这些 ID):
 ${units.map((u) => u.unitId).join(", ")}
-
+${input.sceneHints ? `\n[前几章的场景结构参考 — 可结合参考但以本章内容为准]:\n${input.sceneHints}\n` : ""}
 叙事单元序列:
 ${unitsText}
 

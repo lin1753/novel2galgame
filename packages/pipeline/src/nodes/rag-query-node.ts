@@ -20,15 +20,17 @@ export async function ragQueryNode(
         (r: any) => r.metadata?.canonicalName === char.canonicalName && r.metadata?.chapterId !== state.chapterId
       );
 
-      // 2. 结合 BM25 关键词检索跨章外貌/性格切片
+      // 2. 结合 BM25 关键词检索跨章外貌/性格切片（排除本章，防止信息泄漏）
       const searchMatches = rag.knowledgeStore?.characters?.keywordSearch
         ? rag.knowledgeStore.characters.keywordSearch(char.canonicalName, {
-            excludeChapterId: state.chapterId,
-            topK: 5,
+            limit: 5,
+            where: { chapterId: { $ne: state.chapterId } },
           })
         : [];
 
-      const combinedRecords = [...directMatches, ...searchMatches];
+      // 去重：directMatches 与 searchMatches 可能命中同一条记录
+      const seenIds = new Set(directMatches.map((r: any) => r.id));
+      const combinedRecords = [...directMatches, ...searchMatches.filter((r: any) => !seenIds.has(r.id))];
       const appearances = new Set<string>();
       const personalities = new Set<string>();
 
@@ -39,11 +41,15 @@ export async function ragQueryNode(
         } else if (typeof meta.appearance === "string") {
           appearances.add(meta.appearance);
         }
-        if (meta.embedText) {
+        // 只把 appearance 切片的全文当外观线索；identity 切片的 embedText
+        // 只是 "角色: X" 之类的标签文本，混入会污染外观档案
+        if (meta.embedText && (meta.chunkType === "appearance" || meta.type === "appearance")) {
           appearances.add(meta.embedText);
         }
         if (Array.isArray(meta.personality)) {
           meta.personality.forEach((p: string) => personalities.add(p));
+        } else if (typeof meta.personality === "string") {
+          personalities.add(meta.personality);
         }
       }
 

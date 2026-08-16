@@ -19,5 +19,9 @@ export function executeStep(step: VNStep): RenderAction {
       return { type: "wait", durationMs: step.durationMs ?? 1000 };
     case "transition":
       return { type: "transition", name: step.name };
+    default:
+      // Unknown step types are tolerated by validation (warning-level) —
+      // a no-op action keeps the player from crashing on action.type
+      return { type: "wait", durationMs: 0 };
   }
 }

@@ -271,7 +271,7 @@ export class PipelineTaskQueue {
         clearTimeout(timeoutTimer);
         this.active.delete(chapter.chapterId);
         
-        const isUserCancel = err instanceof Error && err.name === "AbortError" && !isTimedOut;
+        const isUserCancel = !isTimedOut && err instanceof Error && (err.name === "AbortError" || err.message.startsWith("ABORTED"));
         if (isUserCancel) {
           // Cancelled by user — already handled
           return;

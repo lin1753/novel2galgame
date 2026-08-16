@@ -231,6 +231,7 @@ export async function vnMappingNode(
     );
 
     writeVNScript(state.dataDir, state.projectId, scene.sceneId, vnData);
+    try { state.sceneRepo?.updateStatus(scene.sceneId, { mappingStatus: "done" }); } catch {}
 
     const durationMs = Date.now() - t0;
 
@@ -238,7 +239,7 @@ export async function vnMappingNode(
     if (state.db && state.dataDir) {
       const cacheDir = path.join(state.dataDir, "cache", state.projectId);
       fs.mkdirSync(cacheDir, { recursive: true });
-      const outputPath = path.join(cacheDir, `vn_mapping_${state.chapterId}_${stageOrder}.json`);
+      const outputPath = path.join(cacheDir, `vn_mapping_${state.chapterId}_${stageOrder}${repairMode ? `_repair${(newResults[targetSceneIdx]!.repairCount ?? 0) + 1}` : ""}.json`);
       fs.writeFileSync(outputPath, JSON.stringify(vnData), "utf-8");
       const actualRetries = Math.max(0, retryCount - 1);
       state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
@@ -265,6 +266,12 @@ export async function vnMappingNode(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[vnMappingNode] Error: ${msg}`);
+    // Mark this chapter's still-running task rows as failed (nodes are
+    // sequential, so any running row at failure time belongs to this node)
+    try {
+      state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
+        .run(now(), msg.slice(0, 500), state.chapterId);
+    } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { vn_mapping: Date.now() - t0 } };
   }
 }

@@ -167,6 +167,9 @@ export async function attributionNode(
     }
     if (state.rag?.knowledgeStore?.characters?.records) {
       for (const rec of state.rag.knowledgeStore.characters.records) {
+        // Strict project isolation — the RAG store is global across projects and
+        // records from another novel must not leak into this chapter's prompts
+        if (rec.metadata?.projectId !== state.projectId) continue;
         const cname = rec.metadata?.canonicalName as string;
         const cid = (rec.metadata?.characterId as string) || `char_${cname}`;
         // Only Chinese canonicalNames are useful as known characters; when several
@@ -226,6 +229,10 @@ export async function attributionNode(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[attributionNode] Error: ${msg}`);
+    try {
+      state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
+        .run(now(), msg.slice(0, 500), state.chapterId);
+    } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { attribution: Date.now() - t0 } };
   }
 }

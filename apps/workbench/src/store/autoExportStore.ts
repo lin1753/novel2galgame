@@ -80,7 +80,12 @@ class AutoExportStore {
           })
         }
         const logs = [...prev.logs, msg].slice(-200)
-        return { chapters, logs, running: prev.running || chapters.size > 0 }
+        // Derive running from live chapters — the old `prev.running || size > 0`
+        // latched true forever after a single chapter event
+        const running = Array.from(chapters.values()).some(
+          (c) => c.status === 'running' || c.status === 'queued',
+        )
+        return { chapters, logs, running }
       })
     } catch {}
   }
@@ -158,15 +163,21 @@ class AutoExportStore {
     }
 
     es.onerror = () => {
-      this.update(() => ({ running: false }))
-      es.close()
-      this.eventSource = null
+      // EventSource auto-reconnects on transient errors (proxy restart, sleep
+      // recovery) — closing here froze the panel while the export kept running
+      // and let the user start a second concurrent export
+      this.update((prev) => ({ logs: [...prev.logs, 'SSE connection lost, reconnecting...'].slice(-200) }))
     }
   }
 
   disconnect() {
     this.eventSource?.close()
     this.eventSource = null
+  }
+
+  /** Mark the run as failed (e.g. the POST /auto-export request itself failed) */
+  fail(reason: string) {
+    this.update((prev) => ({ running: false, logs: [...prev.logs, `Error: ${reason}`].slice(-200) }))
   }
 
   async cancelChapter(chapterId: string) {

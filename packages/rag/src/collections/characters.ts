@@ -374,8 +374,8 @@ export class CharacterCollection extends BaseCollection {
     return Array.from(seen);
   }
 
-  /** List character details for prompt injection. */
-  listCharacterDetails(): Array<{
+  /** List character details for prompt injection, optionally scoped to one project. */
+  listCharacterDetails(projectId?: string): Array<{
     characterId: string;
     canonicalName: string;
     firstSeenIn: string;
@@ -391,6 +391,7 @@ export class CharacterCollection extends BaseCollection {
       }
     >();
     for (const r of this.records) {
+      if (projectId && r.metadata.projectId !== projectId) continue;
       const id = r.metadata.characterId as string;
       if (!seen.has(id)) {
         seen.set(id, {

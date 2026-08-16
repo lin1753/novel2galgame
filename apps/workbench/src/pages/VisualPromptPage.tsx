@@ -48,7 +48,7 @@ export function VisualPromptPage() {
       <aside className="w-52 border-r border-border overflow-auto shrink-0 p-4">
         <h3 className="font-medium mb-3 text-sm text-muted-foreground">场景选择</h3>
         <div className="space-y-1">
-          {chapters?.slice(0, 20).map((ch) => (
+          {chapters?.map((ch) => (
             <div key={ch.chapterId}>
               <button
                 onClick={() => {
@@ -280,7 +280,7 @@ function CharacterPromptCard({
               <button
                 onClick={() => {
                   if (editing) saveMutation.mutate()
-                  else setEditing(true)
+                  else { setPromptText(pack.finalPrompt); setEditing(true) }
                 }}
                 disabled={saveMutation.isPending}
                 className="text-xs text-primary hover:underline"
@@ -360,7 +360,7 @@ function BackgroundPromptCard({
             <button
               onClick={() => {
                 if (editing) saveMutation.mutate()
-                else setEditing(true)
+                else { setPromptText(backgroundPrompt.finalPrompt); setEditing(true) }
               }}
               disabled={saveMutation.isPending}
               className="text-xs text-primary hover:underline"

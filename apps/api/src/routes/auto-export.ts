@@ -23,8 +23,10 @@ import type { QueueChapter } from "../task-queue/index.js";
 
 import { getActiveProfile } from "../config/index.js";
 
-// Active tasks: taskId -> queue
+// Active tasks: taskId -> queue, plus taskId -> projectId so cancellation
+// can be scoped to one project instead of killing every project's queues
 const activeTasks = new Map<string, PipelineTaskQueue>();
+const taskProject = new Map<string, string>();
 
 function param(req: Request, key: string): string {
   const val = req.params[key];
@@ -78,8 +80,8 @@ export function createAutoExportRoutes(
     const projectId = param(req, "id");
     const chapterId = param(req, "chapterId");
 
-    for (const [, queue] of activeTasks) {
-      // Can't directly check projectId from queue, so we use the chapterId
+    for (const [tid, queue] of activeTasks) {
+      if (taskProject.get(tid) !== projectId) continue;
       const cancelled = queue.cancel(chapterId);
       if (cancelled) {
         broadcastProgress({
@@ -100,7 +102,8 @@ export function createAutoExportRoutes(
   router.post("/projects/:id/auto-export/cancel", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     let cancelled = false;
-    for (const [, queue] of activeTasks) {
+    for (const [tid, queue] of activeTasks) {
+      if (taskProject.get(tid) !== projectId) continue;
       queue.cancelAll();
       cancelled = true;
     }
@@ -160,6 +163,7 @@ async function processAutoExport(
       rag,
     });
     activeTasks.set(taskId, queue);
+    taskProject.set(taskId, projectId);
 
     // Wire up SSE progress forwarding
     queue.onProgress = (event) => {
@@ -178,6 +182,7 @@ async function processAutoExport(
     await queue.enqueue(queueChapters);
 
     activeTasks.delete(taskId);
+    taskProject.delete(taskId);
 
     const successCount = queue.successCount;
     const failedCount = queue.failedCount;

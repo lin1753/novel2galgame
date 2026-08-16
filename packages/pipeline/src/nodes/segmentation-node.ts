@@ -216,25 +216,51 @@ export async function segmentationNode(
       }
     }
 
+    // Enforce full unit coverage: any unit not claimed by any scene (LLM
+    // omission or remap shortfall) is appended to the last scene so no source
+    // content is silently dropped; units claimed by multiple scenes keep only
+    // their first occurrence
+    {
+      const claimed = new Set<string>();
+      for (const scene of segResult.scenes) {
+        if (!Array.isArray(scene.unitIds)) scene.unitIds = [];
+        scene.unitIds = scene.unitIds.filter((id: string) => {
+          if (claimed.has(id)) return false;
+          claimed.add(id);
+          return true;
+        });
+        if (scene.unitIds.length > 0) {
+          scene.startUnitId = scene.unitIds[0]!;
+          scene.endUnitId = scene.unitIds[scene.unitIds.length - 1]!;
+        } else {
+          scene.startUnitId = "";
+          scene.endUnitId = "";
+        }
+      }
+      const missing = state.attributionResult!.units.filter((u: any) => !claimed.has(u.unitId));
+      if (missing.length > 0 && segResult.scenes.length > 0) {
+        const lastScene = segResult.scenes[segResult.scenes.length - 1]!;
+        lastScene.unitIds.push(...missing.map((u: any) => u.unitId));
+        if (!lastScene.startUnitId) lastScene.startUnitId = lastScene.unitIds[0] ?? "";
+        lastScene.endUnitId = lastScene.unitIds[lastScene.unitIds.length - 1] ?? "";
+        console.warn(`[segmentationNode] Appended ${missing.length} unclaimed units to last scene to guarantee coverage`);
+      }
+    }
+
     // Fix scene IDs: make globally unique by prepending chapterId
     // Only prefix if the sceneId doesn't already contain the chapterId
-    const oldToNewId = new Map<string, string>();
     for (const scene of segResult.scenes) {
       const oldId = scene.sceneId;
       if (!oldId.startsWith(state.chapterId)) {
-        const newId = `${state.chapterId}_${oldId}`;
-        oldToNewId.set(oldId, newId);
-        scene.sceneId = newId;
+        scene.sceneId = `${state.chapterId}_${oldId}`;
       }
     }
-    // Update sceneUnitMap keys if present
-    if (segResult.sceneUnitMap) {
-      const newMap: Record<string, string[]> = {};
-      for (const [oldKey, val] of Object.entries(segResult.sceneUnitMap)) {
-        newMap[oldToNewId.get(oldKey) ?? oldKey] = val;
-      }
-      segResult.sceneUnitMap = newMap;
-    }
+    // Rebuild sceneUnitMap from the final scenes — unitIds were deduped and
+    // coverage-appended above, and sceneIds may have been prefixed, so the
+    // LLM's original map is stale
+    segResult.sceneUnitMap = Object.fromEntries(
+      segResult.scenes.map((s: any) => [s.sceneId, s.unitIds]),
+    );
 
     writeSegmentationResult(state.dataDir, state.projectId, state.chapterId, segResult);
     state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
@@ -273,6 +299,10 @@ export async function segmentationNode(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[segmentationNode] Error: ${msg}`);
+    try {
+      state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
+        .run(now(), msg.slice(0, 500), state.chapterId);
+    } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { segmentation: Date.now() - t0 } };
   }
 }

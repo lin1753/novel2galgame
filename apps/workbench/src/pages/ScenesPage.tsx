@@ -28,25 +28,25 @@ export function ScenesPage() {
   })
 
   // Real data queries
-  const { data: vnScript } = useQuery({
+  const { data: vnScript, isError: vnScriptError } = useQuery({
     queryKey: ['script', projectId, selectedScene?.sceneId],
     queryFn: () => sceneService.getScript(projectId!, selectedScene!.sceneId),
     enabled: !!projectId && !!selectedScene && activeTab === 'script',
   })
 
-  const { data: narrativeResult } = useQuery({
+  const { data: narrativeResult, isError: narrativeError } = useQuery({
     queryKey: ['narrative', projectId, selectedChapterId],
     queryFn: () => sceneService.getNarrativeResult(projectId!, selectedChapterId!),
     enabled: !!projectId && !!selectedChapterId && activeTab === 'parsed',
   })
 
-  const { data: attributionResult } = useQuery({
+  const { data: attributionResult, isError: attributionError } = useQuery({
     queryKey: ['attribution', projectId, selectedChapterId],
     queryFn: () => sceneService.getAttributionResult(projectId!, selectedChapterId!),
     enabled: !!projectId && !!selectedChapterId && activeTab === 'attribution',
   })
 
-  const { data: fidelityReport } = useQuery({
+  const { data: fidelityReport, isError: fidelityError } = useQuery({
     queryKey: ['fidelity', projectId, selectedScene?.sceneId],
     queryFn: () => sceneService.getFidelity(projectId!, selectedScene!.sceneId),
     enabled: !!projectId && !!selectedScene && activeTab === 'fidelity',
@@ -153,6 +153,10 @@ export function ScenesPage() {
                 narrative={narrativeResult ?? null}
                 attribution={attributionResult ?? null}
                 fidelity={fidelityReport ?? null}
+                scriptError={vnScriptError}
+                narrativeError={narrativeError}
+                attributionError={attributionError}
+                fidelityError={fidelityError}
                 selectedScene={selectedScene}
               />
             </div>
@@ -214,6 +218,7 @@ export function ScenesPage() {
 
 function TabContent({
   tab, script, narrative, attribution, fidelity, selectedScene,
+  scriptError, narrativeError, attributionError, fidelityError,
 }: {
   tab: string
   script: VNScript | null
@@ -221,6 +226,10 @@ function TabContent({
   attribution: AttributionResult | null
   fidelity: FidelityReport | null
   selectedScene: SceneState
+  scriptError?: boolean
+  narrativeError?: boolean
+  attributionError?: boolean
+  fidelityError?: boolean
 }) {
   const typeColors: Record<string, string> = {
     bg: 'bg-amber-100 text-amber-700', show: 'bg-emerald-100 text-emerald-700',
@@ -231,7 +240,7 @@ function TabContent({
 
   switch (tab) {
     case 'script':
-      if (!script) return <p className="text-muted-foreground">加载 VN 脚本中...</p>
+      if (!script) return <p className="text-muted-foreground">{scriptError ? '尚未生成 VN 脚本，请先运行管线' : '加载 VN 脚本中...'}</p>
       return (
         <div className="space-y-1 max-h-[500px] overflow-auto">
           {script.steps.map((step, i) => (
@@ -258,7 +267,7 @@ function TabContent({
       )
 
     case 'parsed':
-      if (!narrative) return <p className="text-muted-foreground">加载叙事解析结果中...</p>
+      if (!narrative) return <p className="text-muted-foreground">{narrativeError ? '尚未生成叙事解析结果，请先运行管线' : '加载叙事解析结果中...'}</p>
       return (
         <div className="space-y-2 max-h-[500px] overflow-auto">
           {narrative.units.map((unit, i) => (
@@ -278,7 +287,7 @@ function TabContent({
       )
 
     case 'attribution':
-      if (!attribution) return <p className="text-muted-foreground">加载归因结果中...</p>
+      if (!attribution) return <p className="text-muted-foreground">{attributionError ? '尚未生成分说话人结果，请先运行管线' : '加载归因结果中...'}</p>
       return (
         <div className="space-y-3 max-h-[500px] overflow-auto">
           {attribution.characters.length > 0 && (
@@ -304,7 +313,7 @@ function TabContent({
       )
 
     case 'fidelity':
-      if (!fidelity) return <p className="text-muted-foreground">加载忠实性报告中...</p>
+      if (!fidelity) return <p className="text-muted-foreground">{fidelityError ? '尚未生成忠实性报告，请先运行管线' : '加载忠实性报告中...'}</p>
       return (
         <div className="space-y-2">
           <div className={`text-sm font-medium ${fidelity.passed ? 'text-green-600' : 'text-amber-600'}`}>

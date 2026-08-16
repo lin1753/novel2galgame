@@ -36,13 +36,13 @@ export function extractAssets(
 
 /** Generate default file path for an asset */
 export function defaultAssetPath(type: string, id: string, expression?: string): string {
-  const safeId = id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
+  const safeId = id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase();
   switch (type) {
     case "background":
       return `bg/${safeId}.png`;
     case "character":
       return expression
-        ? `char/${safeId}/${expression.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}.png`
+        ? `char/${safeId}/${expression.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase()}.png`
         : `char/${safeId}/default.png`;
     case "cg":
       return `cg/${safeId}.png`;

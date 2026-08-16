@@ -52,14 +52,15 @@ export function generateCharacterImagesFromManifest(
   for (const char of characters) {
     const id = sanitizeId(char.characterId);
     const exprs = expressions.get(char.characterId);
+    // Base image always — `show id` without an expression must resolve too
+    lines.push(`image ${id} = "images/char/${id}/default.png"`);
     if (exprs && exprs.size > 0) {
       for (const expr of exprs) {
         const exprId = sanitizeId(expr);
         lines.push(`image ${id} ${exprId} = "images/char/${id}/${exprId}.png"`);
       }
-    } else {
-      lines.push(`image ${id} = "images/char/${id}/default.png"`);
     }
+    lines.push("");
   }
 
   return lines.join("\n");
