@@ -29,10 +29,15 @@ export function afterFidelityReview(state: typeof ChapterPipelineState.State): s
   const seg = state.segmentationResult;
   if (!seg) return "handle_error";
   const allReviewed = state.sceneResults.length >= seg.scenes.length;
-  return allReviewed ? "visual_prompt" : "vn_mapping";
+  return allReviewed ? "rag_query" : "vn_mapping";
 }
 
 export function afterVisualPrompt(state: typeof ChapterPipelineState.State): string {
+  if (state.error) return "handle_error";
+  return "consistency_review";
+}
+
+export function afterConsistencyReview(state: typeof ChapterPipelineState.State): string {
   if (state.error) return "handle_error";
   return "extract_assets";
 }

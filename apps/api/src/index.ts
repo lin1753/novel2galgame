@@ -21,10 +21,10 @@ if (apiKey) {
   provider = new FetchLLMProvider({
     apiKey,
     baseUrl: activeProfile?.baseUrl ?? (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
-    defaultModel: activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "gpt-4o",
+    defaultModel: activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "agnes-2.0-flash",
     name: activeProfile?.name ?? process.env.LLM_PROVIDER_NAME ?? "default",
   });
-  console.log(`LLM provider: ${provider.name} (${activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "gpt-4o"})`);
+  console.log(`LLM provider: ${provider.name} (${activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "agnes-2.0-flash"})`);
 } else {
   console.log("WARNING: No OPENAI_API_KEY set. Chapter processing will be unavailable.");
 }
@@ -33,19 +33,18 @@ function setProvider(newProvider: LLMProvider) {
   provider = newProvider;
 }
 
-// RAG services (optional — silently degrades if no embedding API key)
+// RAG services - Always initialize using local bge-small-zh embeddings (pure CPU + BM25, no API key needed)
 let rag: any = undefined;
-if (apiKey) {
-  try {
-    // Use local bge-small-zh-v1.5 (512-dim, CPU, optimized for Chinese)
-    const embedder = new EmbeddingService({ local: true });
-    const knowledgeStore = new KnowledgeStore(config.dataDir, embedder, { minScore: 0.6, topK: 5 });
-    rag = {
-      knowledgeStore,
-      extractor: { extractCharacterKnowledge, extractScenePatterns },
-    };
-    console.log("RAG: Knowledge store ready");
-  } catch (e) { console.log("RAG: Disabled —", (e as Error).message); }
+try {
+  const embedder = new EmbeddingService({ local: true });
+  const knowledgeStore = new KnowledgeStore(config.dataDir, embedder, { minScore: 0.6, topK: 5 });
+  rag = {
+    knowledgeStore,
+    extractor: { extractCharacterKnowledge, extractScenePatterns },
+  };
+  console.log("RAG: Knowledge store ready (local bge-small-zh + BM25)");
+} catch (e) {
+  console.warn("RAG initialization warning:", (e as Error).message);
 }
 
 const app = createServer(db, provider, setProvider, rag);

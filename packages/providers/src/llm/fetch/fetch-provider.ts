@@ -137,7 +137,7 @@ export class FetchLLMProvider implements LLMProvider {
       });
 
       req.on("error", (e) => reject(new Error(`LLM request failed: ${e.message}`)));
-      req.setTimeout(600_000, () => { req.destroy(); reject(new Error("LLM request timeout (10min)")); });
+      req.setTimeout(120_000, () => { req.destroy(); reject(new Error("LLM request timeout (120s)")); });
       req.write(data);
       req.end();
     });
@@ -203,50 +203,67 @@ export class FetchLLMProvider implements LLMProvider {
 
 /** Attempt to repair truncated JSON by closing open brackets/strings */
 function repairJson(text: string): string {
+  if (!text || typeof text !== "string") return "{}";
   let s = text.trim();
-  // Remove trailing comma or partial key (e.g., "key")
-  s = s.replace(/,\s*"[^"]*$/, "").replace(/,\s*$/, "");
-  // Remove trailing colon + incomplete value (e.g., "key": or "key": "partial)
-  s = s.replace(/:\s*"[^"]*$/, "").replace(/:\s*-?\d+\.?\d*$/, "").replace(/:\s*$/, "");
-  // Remove trailing incomplete number (e.g., 123.)
-  s = s.replace(/-?\d+\.$/, "");
-  // If ends mid-string, close it
-  const openQuotes = (s.match(/(?<!\\)"/g) ?? []).length;
-  if (openQuotes % 2 !== 0) s += '"';
 
-  // If still invalid, try aggressive truncation: find last complete object
+  // Quick check: if already valid
   try { JSON.parse(s); return s; } catch { /* continue */ }
 
-  // Find the last '},' or '}]' which marks end of a complete object in an array
-  const lastComplete = Math.max(s.lastIndexOf("},"), s.lastIndexOf("}]"));
-  if (lastComplete > 0) {
-    const truncated = s.slice(0, lastComplete + 1);
-    // Close any open brackets
+  // 1. If truncated inside an array of objects (like "steps": [...]), drop trailing incomplete object
+  const lastCompleteObjEnd = s.lastIndexOf("}");
+  if (lastCompleteObjEnd > 0) {
+    const candidate = s.slice(0, lastCompleteObjEnd + 1);
     const stack: string[] = [];
-    let inStr = false, esc = false;
-    for (const ch of truncated) {
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < candidate.length; i++) {
+      const ch = candidate[i];
       if (esc) { esc = false; continue; }
       if (ch === "\\") { esc = true; continue; }
       if (ch === '"') { inStr = !inStr; continue; }
       if (inStr) continue;
       if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]");
-      if (ch === "}" || ch === "]") stack.pop();
+      if (ch === "}" || ch === "]") {
+        if (stack.length > 0 && stack[stack.length - 1] === ch) {
+          stack.pop();
+        }
+      }
     }
-    const repaired = truncated + stack.reverse().join("");
+    const repaired = candidate + stack.reverse().join("");
     try { JSON.parse(repaired); return repaired; } catch { /* continue */ }
   }
 
-  // Final fallback: track brackets and close
+  // 2. Remove trailing incomplete tokens and balance quotes/brackets
+  s = s.replace(/,\s*"[^"]*$/, "").replace(/,\s*$/, "");
+  s = s.replace(/:\s*"[^"]*$/, "").replace(/:\s*-?\d+\.?\d*$/, "").replace(/:\s*$/, "");
+
+  // If ends mid-string, close quote
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; }
+  }
+  if (inStr) s += '"';
+
+  // Balance open brackets
   const stack: string[] = [];
-  let inString = false;
-  let escaped = false;
-  for (const ch of s) {
-    if (escaped) { escaped = false; continue; }
-    if (ch === "\\") { escaped = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
+  inStr = false;
+  esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (esc) { esc = false; continue; }
+    if (ch === "\\") { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
     if (ch === "{" || ch === "[") stack.push(ch === "{" ? "}" : "]");
-    if (ch === "}" || ch === "]") stack.pop();
+    if (ch === "}" || ch === "]") {
+      if (stack.length > 0 && stack[stack.length - 1] === ch) {
+        stack.pop();
+      }
+    }
   }
   return s + stack.reverse().join("");
 }

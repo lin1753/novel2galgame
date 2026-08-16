@@ -165,9 +165,12 @@ export function PreviewPage() {
 
   const posToStyle = (pos?: string) => {
     switch (pos) {
-      case 'left': return 'left-[15%]'
-      case 'right': return 'left-[75%]'
-      default: return 'left-[45%]'
+      case 'left_far':  return 'left-[12%]'
+      case 'left':      return 'left-[30%]'
+      case 'center':    return 'left-[50%]'
+      case 'right':     return 'left-[70%]'
+      case 'right_far': return 'left-[88%]'
+      default:          return 'left-[50%]'
     }
   }
 
@@ -247,8 +250,8 @@ export function PreviewPage() {
           {Array.from(characters.entries()).map(([id, char]) => (
             <div
               key={id}
-              className={`absolute bottom-[25%] ${posToStyle(char.position)} transform -translate-x-1/2 transition-all duration-300`}
-              style={{ width: '180px', height: '300px' }}
+              className={`absolute bottom-0 ${posToStyle(char.position)} transform -translate-x-1/2 transition-all duration-500 ease-out`}
+              style={{ width: '22%', maxWidth: '260px', height: '70%' }}
             >
               <img
                 src={assetImageUrl(projectId!, 'char', `${id}/${char.expression ?? 'default'}.png`)}

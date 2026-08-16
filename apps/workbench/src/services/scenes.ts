@@ -37,4 +37,14 @@ export const sceneService = {
       `/projects/${projectId}/scenes/${sceneId}/script`,
       { method: 'PUT', body: JSON.stringify(script) }
     ),
+
+  updateVisualPrompt: (
+    projectId: string,
+    sceneId: string,
+    body: { characterId?: string; finalPrompt?: string; backgroundFinalPrompt?: string }
+  ) =>
+    request<VisualPromptResult>(`/projects/${projectId}/scenes/${sceneId}/visual-prompt`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
 }

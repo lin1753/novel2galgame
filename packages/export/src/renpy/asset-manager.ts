@@ -41,7 +41,7 @@ export function generatePlaceholders(
 
   // Generate placeholder character images
   for (const char of characters) {
-    const charDir = path.join(outputDir, "game", "images", sanitizeId(char.characterId));
+    const charDir = path.join(outputDir, "game", "images", "char", sanitizeId(char.characterId));
     fs.mkdirSync(charDir, { recursive: true });
 
     const label = char.canonicalName || char.characterId;

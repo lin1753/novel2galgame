@@ -85,7 +85,7 @@ export function createConfigRoutes(
     }
     try {
       await testProvider.chat({
-        model: req.body.defaultModel ?? "gpt-4o",
+        model: req.body.defaultModel ?? req.body.model ?? (testProvider as any).defaultModel ?? "agnes-2.0-flash",
         messages: [{ role: "user", content: "Reply with 'ok'" }],
         maxTokens: 5,
       });

@@ -47,25 +47,33 @@ export class AgnesImageProducer implements AssetProducer {
   }
 
   private buildPrompt(entry: AssetEntry): string {
-    const acgStyle = "Japanese visual novel game art, galgame character design, bishoujo anime style, moe aesthetic, modern 2020s anime, soft cel shading, detailed hair with highlights, large expressive eyes, cute youthful face, slim body proportions, vibrant colors, high quality illustration";
+    const neutralQuality = "Japanese visual novel game art, 2D anime illustration, soft cel shading, clean lineart, rich colors, high quality, masterpiece";
     switch (entry.type) {
-      case "background":
-        return `${entry.label}, Japanese anime background art, visual novel scene, painted style, wide angle establishing shot, atmospheric lighting, detailed environment, no characters, ${acgStyle.split(",").slice(0, 3).join(",")}`;
-      case "character": {
-        // If a visual prompt finalPrompt is available, use it directly for character consistency
+      case "background": {
+        // If a visual prompt finalPrompt is available, use it directly
         if (entry.prompt) {
-          return entry.prompt;
+          return `${entry.prompt}, (no humans:1.4), empty scenery`;
         }
-        const charBase = `solo character, full body standing pose, plain white solid background, no scenery no environment, character sprite sheet style, ${acgStyle}`;
+        return `${entry.label}, Japanese anime background art, visual novel scene, painted scenery, wide angle shot, atmospheric lighting, detailed environment, (no humans:1.4), scenery only, high quality`;
+      }
+      case "character": {
+        // If a visual prompt finalPrompt is available, use it directly
+        if (entry.prompt) {
+          if (!entry.expression || entry.expression === "default") {
+            return entry.prompt;
+          }
+          return `${entry.prompt}, expression: ${entry.expression}`;
+        }
+        const charBase = `solo character, full body standing pose, plain white solid background, clean cutout, 2D visual novel character sprite, ${neutralQuality}`;
         if (!entry.expression || entry.expression === "default") {
           return `${entry.label}, ${charBase}`;
         }
-        return `${entry.label}, same character identical appearance as default portrait, only different expression and outfit, keep face body hair exactly the same, ${charBase}`;
+        return `${entry.label}, expression: ${entry.expression}, ${charBase}`;
       }
       case "cg":
-        return `${entry.label}, ${acgStyle}, cinematic visual novel CG, dramatic composition, emotional scene, beautiful lighting`;
+        return `${entry.label}, ${neutralQuality}, cinematic visual novel CG, dramatic composition, emotional scene, beautiful cinematic lighting`;
       default:
-        return `${entry.label}, ${acgStyle}`;
+        return `${entry.label}, ${neutralQuality}`;
     }
   }
 

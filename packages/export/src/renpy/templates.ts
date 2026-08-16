@@ -60,6 +60,23 @@ define gui.about = _("Powered by All Novel Can Be Galgame")
 # Character display transform - scale to fit screen
 transform character_display:
     xysize (300, 400)
+
+# Five-point character layout transforms
+transform left_far:
+    xalign 0.12
+    yalign 1.0
+transform left:
+    xalign 0.30
+    yalign 1.0
+transform center:
+    xalign 0.50
+    yalign 1.0
+transform right:
+    xalign 0.70
+    yalign 1.0
+transform right_far:
+    xalign 0.88
+    yalign 1.0
 `;
 
 export const OPTIONS_RPY = (title: string, safeName: string) => `# Game options

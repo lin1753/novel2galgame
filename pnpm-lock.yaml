@@ -241,6 +241,9 @@ importers:
       '@novel2gal/providers':
         specifier: workspace:*
         version: link:../providers
+      '@novel2gal/rag':
+        specifier: workspace:*
+        version: link:../rag
       '@novel2gal/storage':
         specifier: workspace:*
         version: link:../storage

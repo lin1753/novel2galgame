@@ -49,7 +49,10 @@ export const ChapterPipelineState = Annotation.Root({
   ),
 
   modelConfig: Annotation<AgentModelConfig>({ default: () => ({}), reducer: (_prev, next) => next }),
-  autoRunVisualPrompt: Annotation<boolean>({ default: () => false, reducer: (_prev, next) => next }),
+  autoRunVisualPrompt: Annotation<boolean>({ default: () => true, reducer: (_prev, next) => next }),
+  autoRunConsistencyReview: Annotation<boolean>({ default: () => true, reducer: (_prev, next) => next }),
+  rag: Annotation<any>({ default: () => null, reducer: (_prev, next) => next }),
+  knownCharacters: Annotation<any[]>({ default: () => [], reducer: (_prev, next) => next }),
   dataDir: Annotation<string>,
   provider: Annotation<any>({ default: () => null, reducer: (_prev, next) => next }),
   defaultModel: Annotation<string>,

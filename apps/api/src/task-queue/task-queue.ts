@@ -40,6 +40,7 @@ export interface ChapterProgressEvent {
 
 export interface TaskQueueOptions {
   maxConcurrency?: number;
+  chapterTimeoutMs?: number;
   dataDir: string;
   project: ProjectState;
   provider: LLMProvider;
@@ -47,10 +48,13 @@ export interface TaskQueueOptions {
   agentModels?: AgentModelConfig;
   sceneRepo: SceneRepository;
   chapterRepo: any;
+  db?: any;
+  rag?: any;
 }
 
 export class PipelineTaskQueue {
   private maxConcurrency: number;
+  private chapterTimeoutMs: number;
   private dataDir: string;
   private project: ProjectState;
   private provider: LLMProvider;
@@ -58,6 +62,8 @@ export class PipelineTaskQueue {
   private agentModels?: AgentModelConfig;
   private sceneRepo: SceneRepository;
   private chapterRepo: any;
+  private db?: any;
+  private rag?: any;
 
   // Queue state
   private pending: QueueChapter[] = [];
@@ -74,7 +80,10 @@ export class PipelineTaskQueue {
   private _promise: Promise<void> | null = null;
 
   constructor(opts: TaskQueueOptions) {
-    this.maxConcurrency = opts.maxConcurrency ?? 3;
+    // Default to 1 (strict chapter sequence so RAG accumulates chronologically)
+    this.maxConcurrency = opts.maxConcurrency ?? 1;
+    // Default chapter timeout: 5 minutes (300,000ms)
+    this.chapterTimeoutMs = opts.chapterTimeoutMs ?? 300_000;
     this.dataDir = opts.dataDir;
     this.project = opts.project;
     this.provider = opts.provider;
@@ -82,12 +91,15 @@ export class PipelineTaskQueue {
     this.agentModels = opts.agentModels;
     this.sceneRepo = opts.sceneRepo;
     this.chapterRepo = opts.chapterRepo;
+    this.db = opts.db;
+    this.rag = opts.rag;
   }
 
-  /** Enqueue chapters for processing. Can only call once. */
+  /** Enqueue chapters for processing in strict chronological chapter index order. */
   enqueue(chapters: QueueChapter[]): Promise<void> {
     if (this._promise) throw new Error("TaskQueue already started");
-    this.pending = [...chapters];
+    // Ensure strict ascending index order
+    this.pending = [...chapters].sort((a, b) => a.index - b.index);
     this._promise = new Promise((resolve) => {
       this._resolve = resolve;
       this._resolved = false;
@@ -219,12 +231,19 @@ export class PipelineTaskQueue {
     const abort = new AbortController();
     this.active.set(chapter.chapterId, abort);
 
+    let isTimedOut = false;
+    const timeoutTimer = setTimeout(() => {
+      isTimedOut = true;
+      console.warn(`[PipelineTaskQueue] Chapter ${chapter.chapterId} timed out after ${this.chapterTimeoutMs / 1000}s. Aborting.`);
+      abort.abort(new Error(`Chapter processing timed out (${this.chapterTimeoutMs / 1000}s)`));
+    }, this.chapterTimeoutMs);
+
     this._emit({
       chapterId: chapter.chapterId,
       chapterIndex: chapter.index,
       status: "running",
       stage: "starting",
-      message: "Starting pipeline",
+      message: `Starting pipeline (Timeout: ${this.chapterTimeoutMs / 1000}s)`,
     });
 
     const captureResult = (result: any) => {
@@ -233,34 +252,48 @@ export class PipelineTaskQueue {
 
     this._runChapterPipeline(chapter, abort.signal)
       .then((result) => {
+        clearTimeout(timeoutTimer);
         this.active.delete(chapter.chapterId);
         this.results.set(chapter.chapterId, "completed");
         // Update chapter status in database
-        this.chapterRepo?.updateStatus(chapter.chapterId, "chapter_ready");
+        try { this.chapterRepo?.updateStatus(chapter.chapterId, "chapter_ready"); } catch {}
         captureResult(result);
         this._emit({
           chapterId: chapter.chapterId,
           chapterIndex: chapter.index,
           status: "completed",
           stage: "completed",
-          message: `Pipeline complete: ${result.sceneCount} scenes`,
+          message: `Pipeline complete: ${result?.sceneCount ?? 1} scenes`,
         });
         this._drain();
       })
       .catch((err) => {
+        clearTimeout(timeoutTimer);
         this.active.delete(chapter.chapterId);
-        if (err instanceof Error && err.name === "AbortError") {
-          // Cancelled — already handled
+        
+        const isUserCancel = err instanceof Error && err.name === "AbortError" && !isTimedOut;
+        if (isUserCancel) {
+          // Cancelled by user — already handled
           return;
         }
+
+        const errMsg = isTimedOut
+          ? `Chapter processing timed out (${this.chapterTimeoutMs / 1000}s) — auto skipping`
+          : err instanceof Error ? err.message.slice(0, 150) : String(err);
+
+        console.error(`[PipelineTaskQueue] Chapter ${chapter.chapterId} failed: ${errMsg}`);
         this.results.set(chapter.chapterId, "failed");
+        try { this.chapterRepo?.updateStatus(chapter.chapterId, "failed"); } catch {}
+        
         this._emit({
           chapterId: chapter.chapterId,
           chapterIndex: chapter.index,
           status: "failed",
           stage: "failed",
-          message: err instanceof Error ? err.message.slice(0, 120) : String(err),
+          message: errMsg,
         });
+        
+        // Auto advance to next chapter
         this._drain();
       });
   }
@@ -304,7 +337,13 @@ export class PipelineTaskQueue {
         try { this.sceneRepo.create(scene, sceneIndex); } catch {}
       },
       chapter.chapterId,
-      (chId: string, flags: any) => { try { this.chapterRepo?.updateFlags(chId, flags); } catch {} }
+      (chId: string, flags: any) => { try { this.chapterRepo?.updateFlags(chId, flags); } catch {} },
+      signal,
+      this.db,
+      undefined,
+      undefined,
+      this.sceneRepo,
+      this.rag,
     );
 
     return result;

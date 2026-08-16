@@ -3,7 +3,7 @@ import type { RenderAction } from "../step-engine/step-types.js";
 export interface CharacterState {
   id: string;
   expression?: string;
-  position?: "left" | "center" | "right";
+  position?: "left_far" | "left" | "center" | "right" | "right_far";
   visible: boolean;
 }
 

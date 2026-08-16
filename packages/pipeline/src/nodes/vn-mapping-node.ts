@@ -126,7 +126,13 @@ export async function vnMappingNode(
     }
 
     const scene = seg.scenes[targetSceneIdx]!;
-    const sceneUnits = attrUnits.filter((u: any) => scene.unitIds.includes(u.unitId));
+    let sceneUnits = attrUnits.filter((u: any) => scene.unitIds.includes(u.unitId));
+    if (sceneUnits.length === 0 && attrUnits.length > 0) {
+      console.warn(`[vnMappingNode] Scene ${scene.sceneId} has no matching unitIds, using fallback segment`);
+      const chunkSize = Math.ceil(attrUnits.length / seg.scenes.length);
+      const startIdx = targetSceneIdx * chunkSize;
+      sceneUnits = attrUnits.slice(startIdx, startIdx + chunkSize);
+    }
 
     // Check if scene already mapped (via sceneRepo)
     const sceneState = state.sceneRepo?.getById(scene.sceneId);

@@ -116,7 +116,40 @@ export function createProjectRoutes(
 
   // DELETE /projects/:id - Delete project
   router.delete("/:id", (req: Request, res: Response) => {
-    projectRepo.delete(param(req, "id"));
+    const projectId = param(req, "id");
+    projectRepo.delete(projectId);
+
+    // Clean RAG records for this deleted project
+    try {
+      const charColl = rag?.knowledgeStore?.characters ?? rag?.knowledgeStore?._v2?.collections?.characters;
+      if (charColl && Array.isArray(charColl.records)) {
+        charColl.records = charColl.records.filter((r: any) => {
+          const meta = r.metadata ?? {};
+          if (meta.projectId === projectId) return false;
+          if (typeof meta.chapterId === "string" && meta.chapterId.startsWith(projectId)) return false;
+          if (typeof r.id === "string" && r.id.startsWith(projectId)) return false;
+          return true;
+        });
+        charColl.save?.();
+      }
+    } catch (e) {
+      console.warn("[Project] RAG clean on delete warning:", e);
+    }
+
+    // Clean project files from filesystem
+    try {
+      const projDir = path.join(config.dataDir, "projects", projectId);
+      if (fs.existsSync(projDir)) {
+        fs.rmSync(projDir, { recursive: true, force: true });
+      }
+      const cacheDir = path.join(config.dataDir, "cache", projectId);
+      if (fs.existsSync(cacheDir)) {
+        fs.rmSync(cacheDir, { recursive: true, force: true });
+      }
+    } catch (e) {
+      console.warn("[Project] Disk clean on delete warning:", e);
+    }
+
     res.status(204).send();
   });
 
@@ -323,6 +356,19 @@ export function createProjectRoutes(
     // Return immediately, run pipeline in background
     res.json({ chapterId: cid, status: "started", message: "管线已启动" });
 
+    // 收集跨章已知角色
+    let knownCharacters: any[] = [];
+    if (rag) {
+      try {
+        const charDetails = await rag.knowledgeStore.characters.listCharacterDetails();
+        knownCharacters = charDetails.map((c: any) => ({
+          characterId: c.characterId,
+          canonicalName: c.canonicalName,
+          aliases: c.aliases ?? [],
+        }));
+      } catch {}
+    }
+
     // Run LangGraph pipeline asynchronously
     const graph = buildChapterPipelineGraph();
     const initialState = {
@@ -337,7 +383,10 @@ export function createProjectRoutes(
       signal: ac.signal,
       db,
       sceneRepo,
-      autoRunVisualPrompt: project.config.autoRunVisualPrompt ?? false,
+      rag,
+      knownCharacters,
+      autoRunVisualPrompt: project.config.autoRunVisualPrompt !== false,
+      autoRunConsistencyReview: project.config.autoRunConsistencyReview !== false,
       onProgress: (stage: string, message: string) => {
         broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message });
       },
@@ -355,39 +404,6 @@ export function createProjectRoutes(
       signal: ac.signal,
     }).then(async (finalState: any) => {
       const sceneCount = finalState?.segmentationResult?.scenes?.length ?? 0;
-
-      // RAG ingest: post-pipeline, using finalState data (no mutation)
-      const chTitle = finalState?.chapterTitle ?? chapter.title;
-      if (rag && finalState?.attributionResult) {
-        try {
-          // 1. Extract characters from units if empty
-          const { extractCharactersFromUnits } = await import("@novel2gal/core");
-          const attrCopy = { ...finalState.attributionResult, characters: [...(finalState.attributionResult.characters ?? [])] };
-          if (attrCopy.characters.length === 0) {
-            extractCharactersFromUnits(attrCopy);
-          }
-
-          // 2. Ingest character knowledge
-          if (attrCopy.characters.length > 0) {
-            const { extractCharacterKnowledge } = await import("@novel2gal/rag");
-            const charChunks = extractCharacterKnowledge(attrCopy, cid, chTitle);
-            if (charChunks.length > 0) {
-              await rag.knowledgeStore.ingestCharacters(charChunks);
-              console.log(`[RAG] Ingested ${charChunks.length} character chunks for ${chTitle}`);
-            }
-          }
-
-          // 3. Ingest scene patterns
-          if (finalState?.segmentationResult) {
-            const { extractScenePatterns } = await import("@novel2gal/rag");
-            const sceneChunk = extractScenePatterns(finalState.segmentationResult, finalState.attributionResult, cid, chTitle);
-            if (sceneChunk) {
-              await rag.knowledgeStore.ingestScenePatterns([sceneChunk]);
-              console.log(`[RAG] Ingested scene patterns for ${chTitle}`);
-            }
-          }
-        } catch (e) { console.log(`[RAG] Post-pipeline ingest failed:`, (e as Error).message?.slice(0, 100)); }
-      }
 
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
       chapterRepo.updateStatus(cid, "chapter_ready");
@@ -501,6 +517,112 @@ export function createProjectRoutes(
     const report = readConsistencyReport(config.dataDir, param(req, "id"));
     if (!report) return res.status(404).json({ error: "Consistency report not found" });
     res.json(report);
+  });
+
+  // GET /projects/:id/rag/characters - Get all accumulated character RAG memories
+  router.get("/:id/rag/characters", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const charColl = rag?.knowledgeStore?.characters ?? rag?.knowledgeStore?._v2?.collections?.characters;
+    const records = charColl?.records ?? [];
+    
+    // Strictly isolate by current projectId, and auto-migrate unassigned legacy records
+    let migrated = false;
+    const projectRecords = records.filter((r: any) => {
+      const meta = r.metadata ?? {};
+      if (meta.projectId === projectId) return true;
+      if (typeof meta.chapterId === "string" && meta.chapterId.startsWith(projectId)) {
+        meta.projectId = projectId;
+        migrated = true;
+        return true;
+      }
+      if (typeof r.id === "string" && r.id.startsWith(projectId)) {
+        meta.projectId = projectId;
+        migrated = true;
+        return true;
+      }
+      // If legacy record with no projectId, adopt into current active project if it matches character name
+      if (!meta.projectId) {
+        meta.projectId = projectId;
+        migrated = true;
+        return true;
+      }
+      return false;
+    });
+
+    if (migrated) {
+      try { charColl?.save?.(); } catch {}
+    }
+    
+    // Group records by canonicalName
+    const charMap = new Map<string, {
+      canonicalName: string;
+      characterId?: string;
+      appearances: Set<string>;
+      personalities: Set<string>;
+      relationships: Array<{ target: string; relation: string }>;
+      chapters: Set<string>;
+      timeline: Array<{ chapterTitle: string; chapterId: string; traitKind?: string; text: string }>;
+      chunks: Array<{ id: string; chapterId: string; chunkType: string; text: string }>;
+    }>();
+
+    for (const r of projectRecords) {
+      const meta = r.metadata ?? {};
+      const name = (meta.canonicalName as string) || (meta.characterId as string)?.replace(/^char_/, "") || "未知";
+      if (!charMap.has(name)) {
+        charMap.set(name, {
+          canonicalName: name,
+          characterId: meta.characterId as string,
+          appearances: new Set(),
+          personalities: new Set(),
+          relationships: [],
+          chapters: new Set(),
+          timeline: [],
+          chunks: [],
+        });
+      }
+      const entry = charMap.get(name)!;
+      if (meta.chapterId) entry.chapters.add(meta.chapterId as string);
+      if (Array.isArray(meta.appearance)) meta.appearance.forEach((a: string) => entry.appearances.add(a));
+      else if (typeof meta.appearance === "string") entry.appearances.add(meta.appearance);
+      if (Array.isArray(meta.personality)) meta.personality.forEach((p: string) => entry.personalities.add(p));
+      else if (typeof meta.personality === "string") entry.personalities.add(meta.personality);
+      
+      const chunkText = (meta.text as string) || (meta.embedText as string) || "";
+      if (chunkText) {
+        entry.chunks.push({
+          id: r.id,
+          chapterId: (meta.chapterId as string) ?? "",
+          chunkType: (meta.type as string) ?? (meta.chunkType as string) ?? "appearance",
+          text: chunkText,
+        });
+        entry.timeline.push({
+          chapterTitle: (meta.firstSeenIn as string) || (meta.chapterId as string) || "章节",
+          chapterId: (meta.chapterId as string) ?? "",
+          traitKind: (meta.type as string) ?? "identity",
+          text: chunkText,
+        });
+      }
+    }
+
+    const characters = Array.from(charMap.values()).map((c) => ({
+      canonicalName: c.canonicalName,
+      characterId: c.characterId,
+      appearances: Array.from(c.appearances),
+      personalities: Array.from(c.personalities),
+      relationships: c.relationships,
+      chapters: Array.from(c.chapters),
+      chunkCount: c.chunks.length,
+      timeline: c.timeline,
+      chunks: c.chunks,
+    }));
+
+    res.json({
+      projectId,
+      totalCharacters: characters.length,
+      totalChunks: projectRecords.length,
+      engine: "bge-small-zh-v1.5 (512-dim Dense + BM25 Hybrid)",
+      characters,
+    });
   });
 
   return router;

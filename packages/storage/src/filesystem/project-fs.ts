@@ -1,4 +1,4 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import type {
   ProjectState,
@@ -20,8 +20,8 @@ const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   segmentationMode: "standard",
   visualStyleTemplate: "school-romance-anime",
   budgetMode: "balanced",
-  autoRunVisualPrompt: false,
-  autoRunConsistencyReview: false,
+  autoRunVisualPrompt: true,
+  autoRunConsistencyReview: true,
   defaultTextModel: "agnes-2.0-flash",
   language: "zh-CN",
 };

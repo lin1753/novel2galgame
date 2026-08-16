@@ -14,6 +14,7 @@ import { PreviewPage } from '@/pages/PreviewPage'
 import { VisualPromptPage } from '@/pages/VisualPromptPage'
 import { EditorPage } from '@/pages/EditorPage'
 import { AssetsPage } from '@/pages/AssetsPage'
+import { RagInspectorPage } from '@/pages/RagInspectorPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ export function App() {
               <Route path="script" element={<VNScriptPage />} />
               <Route path="script/:sceneId" element={<VNScriptPage />} />
               <Route path="prompts" element={<VisualPromptPage />} />
+              <Route path="rag" element={<RagInspectorPage />} />
               <Route path="tasks" element={<TasksPage />} />
               <Route path="settings" element={<ProjectSettingsPage />} />
               <Route path="preview" element={<PreviewPage />} />

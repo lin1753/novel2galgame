@@ -140,6 +140,18 @@ export class KnowledgeStore {
     (this._v2 as any).embedder = this.embedder;
   }
 
+  get collections() {
+    return this._v2.collections;
+  }
+
+  get characters() {
+    return this._v2.collections.characters;
+  }
+
+  get scenes() {
+    return this._v2.collections.scenes;
+  }
+
   listKnownCharacters(): string[] {
     return this._v2.collections.characters.listKnownCharacters();
   }
@@ -168,19 +180,24 @@ export class KnowledgeStore {
     return this._v2.collections.scenes.searchByVector(vector, { topK: limit });
   }
 
-  async ingestCharacters(chunks: any[]): Promise<void> {
+  async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
     for (const chunk of chunks) {
+      const pid = chunk.projectId ?? projectId ?? (chunk.chapterId?.includes("_") ? chunk.chapterId.split("_chapter_")[0] : undefined);
       const embedText = chunk.embedText ?? `角色: ${chunk.canonicalName} | ${chunk.appearance?.join("; ") ?? ""}`;
       const vector = await this._v2.getEmbedding(embedText);
       const chunkType = chunk.characterId?.endsWith("_appearance") ? "appearance"
         : chunk.characterId?.endsWith("_relationship") ? "relationship"
         : "identity";
+      const recordId = pid && !chunk.characterId?.startsWith(pid)
+        ? `${pid}_${chunk.characterId}`
+        : chunk.characterId;
       await this._v2.collections.characters.upsert([{
-        id: chunk.characterId,
+        id: recordId,
         vector,
         updatedAt: new Date().toISOString(),
         metadata: {
           type: chunkType,
+          projectId: pid,
           characterId: chunk.characterId,
           canonicalName: chunk.canonicalName,
           chapterId: chunk.chapterId,

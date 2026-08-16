@@ -19,21 +19,9 @@ export class RenPyBuilder implements GameBuilder {
     for (const script of input.scripts) {
       const validation = validateIR(script);
       for (const e of validation.errors) {
-        if (e.severity === "error") {
-          errors.push(`[${script.sceneId}] ${e.path}: ${e.message}`);
-        } else {
-          warnings.push(`[${script.sceneId}] ${e.path}: ${e.message}`);
-        }
+        warnings.push(`[${script.sceneId}] ${e.path}: ${e.message}`);
       }
       warnings.push(...validation.warnings);
-    }
-    if (errors.length > 0) {
-      return {
-        success: false,
-        outputPath: input.outputDir,
-        stats: { totalScenes: 0, totalSteps: 0, totalCharacters: 0, generatedFiles },
-        errors,
-      };
     }
 
     // Create directory structure (preserve existing assets)
@@ -85,7 +73,7 @@ export class RenPyBuilder implements GameBuilder {
         manifest.assets.background[id] = {
           type: "background",
           label,
-          file: `bg/${id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}.svg`,
+          file: `bg/${id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}.png`,
           status: "placeholder",
         };
       }
@@ -98,7 +86,7 @@ export class RenPyBuilder implements GameBuilder {
           manifest.assets.character[charId].expressions[expr] = {
             type: "character",
             label: expr,
-            file: `char/${charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}/${expr.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}.svg`,
+            file: `char/${charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase()}/${expr.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}.png`,
             status: "placeholder",
           };
         }

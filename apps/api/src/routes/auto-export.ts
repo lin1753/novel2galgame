@@ -21,6 +21,8 @@ import type { LLMProvider } from "@novel2gal/providers";
 import { PipelineTaskQueue } from "../task-queue/index.js";
 import type { QueueChapter } from "../task-queue/index.js";
 
+import { getActiveProfile } from "../config/index.js";
+
 // Active tasks: taskId -> queue
 const activeTasks = new Map<string, PipelineTaskQueue>();
 
@@ -31,7 +33,8 @@ function param(req: Request, key: string): string {
 
 export function createAutoExportRoutes(
   db: ReturnType<typeof createDatabase>,
-  getProvider: () => LLMProvider | null
+  getProvider: () => LLMProvider | null,
+  rag?: any
 ) {
   const router = Router();
   const projectRepo = new ProjectRepository(db);
@@ -41,12 +44,13 @@ export function createAutoExportRoutes(
   // POST /projects/:id/auto-export — Start async full pipeline
   router.post("/projects/:id/auto-export", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
-    const model = req.body.model ?? "agnes-2.0-flash";
-    const maxChapters = req.body.maxChapters ?? Infinity;
-    const generateAssetsFlag = req.body.generateAssets ?? false;
-
     const project = projectRepo.getById(projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const activeProfile = getActiveProfile();
+    const model = req.body.model ?? project.config?.defaultTextModel ?? activeProfile?.defaultModel ?? "agnes-2.0-flash";
+    const maxChapters = req.body.maxChapters ?? Infinity;
+    const generateAssetsFlag = req.body.generateAssets ?? false;
 
     const provider = getProvider();
     if (!provider) return res.status(503).json({ error: "No LLM provider configured" });
@@ -60,7 +64,7 @@ export function createAutoExportRoutes(
     res.json({ status: "started", projectId, taskId, maxChapters });
 
     // Start background processing
-    processAutoExport(projectId, project, provider, model, maxChapters, generateAssetsFlag, emit, taskId, sceneRepo, projectRepo, chapterRepo)
+    processAutoExport(projectId, project, provider, model, maxChapters, generateAssetsFlag, emit, taskId, sceneRepo, projectRepo, chapterRepo, db, rag)
       .catch((err) => {
         emit("complete", "failed", err instanceof Error ? err.message : String(err));
       });
@@ -121,11 +125,17 @@ async function processAutoExport(
   sceneRepo: SceneRepository,
   projectRepo: ProjectRepository,
   chapterRepo: ChapterRepository,
+  db?: any,
+  rag?: any,
 ) {
   try {
     // Step 1: Structure (if not already done)
     const chapters = await ensureStructure(projectId, project, emit, projectRepo, chapterRepo);
-    if (!chapters || chapters.length === 0) return;
+    if (!chapters || chapters.length === 0) {
+      console.warn(`[AutoExport] No chapters found for project ${projectId}`);
+      emit("pipeline", "failed", "No chapters available to process");
+      return;
+    }
 
     // Step 2: Build queue chapters
     const chaptersToProcess = chapters.slice(0, maxChapters);
@@ -146,6 +156,8 @@ async function processAutoExport(
       maxConcurrency: 3,
       sceneRepo,
       chapterRepo,
+      db,
+      rag,
     });
     activeTasks.set(taskId, queue);
 

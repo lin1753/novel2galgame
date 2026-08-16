@@ -136,16 +136,22 @@ export async function segmentationNode(
       ).get(cacheKey, "scene_segmentation", state.chapterId) as { output_path: string } | undefined;
 
       if (cached?.output_path && fs.existsSync(cached.output_path)) {
-        console.log(`[Cache] HIT scene_segmentation for ${state.chapterId}`);
-        const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
-        state.db.prepare(
-          `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-           VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-        ).run(taskId, state.projectId, state.chapterId, "scene_segmentation", seg.provider.name, seg.model, 2, now(), now(), cacheKey, cached.output_path);
-        const segResult = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-        state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
-        const durationMs = Date.now() - t0;
-        return { segmentationResult: segResult, currentStage: "rag_ingest_scenes", stageTimings: { segmentation: durationMs } };
+        try {
+          const segResult = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
+          if (Array.isArray(segResult.scenes) && segResult.scenes.length > 0) {
+            console.log(`[Cache] HIT scene_segmentation for ${state.chapterId} (${segResult.scenes.length} scenes)`);
+            const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
+            state.db.prepare(
+              `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
+               VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+            ).run(taskId, state.projectId, state.chapterId, "scene_segmentation", seg.provider.name, seg.model, 2, now(), now(), cacheKey, cached.output_path);
+            state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
+            const durationMs = Date.now() - t0;
+            return { segmentationResult: segResult, currentStage: "rag_ingest_scenes", stageTimings: { segmentation: durationMs } };
+          } else {
+            console.warn(`[Cache] Invalidate empty scene_segmentation cache for ${state.chapterId}`);
+          }
+        } catch {}
       }
     }
 
@@ -167,6 +173,25 @@ export async function segmentationNode(
       { label: `segmentation:${state.chapterId}` }
     );
 
+    // Fallback: Ensure at least one valid scene exists
+    if ((!segResult.scenes || segResult.scenes.length === 0) && state.attributionResult!.units.length > 0) {
+      const allIds = state.attributionResult!.units.map((u: any) => u.unitId);
+      segResult.scenes = [
+        {
+          sceneId: `${state.chapterId}_scene_0001`,
+          chapterId: state.chapterId,
+          indexInChapter: 0,
+          unitIds: allIds,
+          startUnitId: allIds[0] ?? "",
+          endUnitId: allIds[allIds.length - 1] ?? "",
+          boundaryReason: "location_change",
+          summary: { shortSummary: "本章核心情节场景", locationHint: "主场景", moodHint: "常规" },
+          confidence: 0.85,
+        }
+      ];
+      segResult.sceneUnitMap = { [`${state.chapterId}_scene_0001`]: allIds };
+    }
+
     // Fix scene unitIds: LLM may generate inconsistent IDs, remap by order
     const allUnitIds = new Set(state.attributionResult!.units.map((u: any) => u.unitId));
     const needsRemap = segResult.scenes.some(
@@ -175,8 +200,11 @@ export async function segmentationNode(
     if (needsRemap) {
       const units = state.attributionResult!.units;
       let offset = 0;
-      for (const scene of segResult.scenes) {
-        const count = scene.unitIds.length;
+      for (let i = 0; i < segResult.scenes.length; i++) {
+        const scene = segResult.scenes[i];
+        if (!scene) continue;
+        const isLast = i === segResult.scenes.length - 1;
+        const count = isLast ? units.length - offset : (scene.unitIds?.length ?? 0);
         scene.unitIds = units.slice(offset, offset + count).map((u: any) => u.unitId);
         if (scene.unitIds.length > 0) {
           const firstId = scene.unitIds[0];

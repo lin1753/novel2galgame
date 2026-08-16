@@ -6,6 +6,7 @@ import type { LLMProvider } from "@novel2gal/providers";
 import { runAttributionAgent } from "@novel2gal/agents";
 import type { AgentResult } from "@novel2gal/agents";
 import { writeAttributionResult } from "@novel2gal/storage";
+import { extractCharactersFromUnits } from "@novel2gal/core";
 import type { ChapterPipelineState, AgentModelConfig } from "../state.js";
 
 const now = () => new Date().toISOString();
@@ -157,12 +158,31 @@ export async function attributionNode(
         .run(taskId, state.projectId, state.chapterId, "attribution", attr.provider.name, attr.model, 1, now());
     }
 
+    // 从 RAG / 知识库自动收集前文所有已知角色
+    const knownMap = new Map<string, { characterId: string; canonicalName: string; aliases: string[] }>();
+    if (state.knownCharacters) {
+      for (const k of state.knownCharacters) {
+        knownMap.set(k.canonicalName, { ...k, aliases: k.aliases ?? [] });
+      }
+    }
+    if (state.rag?.knowledgeStore?.characters?.records) {
+      for (const rec of state.rag.knowledgeStore.characters.records) {
+        const cname = rec.metadata?.canonicalName as string;
+        const cid = (rec.metadata?.characterId as string) || `char_${cname}`;
+        if (cname && !knownMap.has(cname)) {
+          knownMap.set(cname, { characterId: cid, canonicalName: cname, aliases: [] });
+        }
+      }
+    }
+    const effectiveKnownChars = Array.from(knownMap.values());
+
     let retryCount = 0;
     const attributionData = await withRetry(
       retryable(() => { retryCount++; return runAttributionAgent(
         {
           chapterId: state.chapterId,
           units: state.narrativeResult!.units,
+          knownCharacters: effectiveKnownChars.length ? effectiveKnownChars : undefined,
           characterKnowledge: state.ragContext.characterKnowledge || undefined,
         },
         wAttr,
@@ -170,6 +190,10 @@ export async function attributionNode(
       ); }),
       { label: `attribution:${state.chapterId}` }
     );
+
+    if (!attributionData.characters || attributionData.characters.length === 0) {
+      extractCharactersFromUnits(attributionData);
+    }
 
     writeAttributionResult(state.dataDir, state.projectId, state.chapterId, attributionData);
     state.onChapterFlags?.(state.chapterId, { attributionDone: true });

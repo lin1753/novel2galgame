@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Character knowledge chunker.
  *
  * Splits character knowledge into semantic chunks for fine-grained retrieval:
@@ -73,6 +73,9 @@ function chunkOneCharacter(
     canonicalName: name,
     chapterId,
     firstSeenIn: chapterTitle,
+    appearance: appearanceHints,
+    personality: personalityHints,
+    relationships: relationHints,
     allAttributedText: attributedTexts.join("\n"),
   };
 
@@ -89,12 +92,12 @@ function chunkOneCharacter(
   // 2. Appearance chunk
   if (appearanceHints.length > 0) {
     chunks.push({
-      characterId: char.characterId,
+      characterId: `${char.characterId}_appearance`,
       canonicalName: name,
       type: "appearance",
       text: `角色: ${name} | 外观: ${appearanceHints.join("; ")}`,
       parentText: `角色: ${name} 的外观特征:\n${appearanceHints.join("\n")}`,
-      metadata: { ...baseMeta, traitKind: "appearance", traitCount: appearanceHints.length },
+      metadata: { ...baseMeta, traitKind: "appearance", traitCount: appearanceHints.length, appearance: appearanceHints },
     });
   }
 

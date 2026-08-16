@@ -12,7 +12,7 @@ import type {
 
 export type RenderAction =
   | { type: "setBackground"; id: string; label?: string }
-  | { type: "showCharacter"; id: string; expression?: string; position?: "left" | "center" | "right" }
+  | { type: "showCharacter"; id: string; expression?: string; position?: "left_far" | "left" | "center" | "right" | "right_far" }
   | { type: "hideCharacter"; id: string }
   | { type: "showNarration"; text: string }
   | { type: "showDialogue"; characterId?: string; displayName?: string; text: string }

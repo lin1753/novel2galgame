@@ -38,27 +38,37 @@ export async function extractAssetsNode(
     }
 
     // Generate placeholder SVGs for characters (skip if real PNG exists)
+    // 按 canonicalName 去重合并，防止重复 ID 产生多余目录
+    const charMap = new Map<string, { charId: string; name: string; exprs: Set<string> }>();
     for (const char of attributionData.characters) {
-      const charId = char.characterId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
-      const exprs = new Set<string>(["default"]);
-      // Collect expressions from scene VN scripts (not scene objects — scenes have unitIds, not steps)
+      const name = char.canonicalName || char.characterId;
+      if (!charMap.has(name)) {
+        charMap.set(name, { charId: char.characterId, name, exprs: new Set<string>(["default"]) });
+      }
+      const item = charMap.get(name)!;
+
       for (const sceneResult of state.sceneResults) {
         const vnScript = sceneResult.vnScript;
         if (!vnScript?.steps) continue;
         for (const step of vnScript.steps) {
           if (step.type === "show" && step.characterId === char.characterId && step.expression) {
-            exprs.add(step.expression);
+            item.exprs.add(step.expression);
           }
         }
       }
-      for (const expr of exprs) {
+    }
+
+    for (const item of charMap.values()) {
+      const charId = item.charId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
+      const charExprDir = path.join(charDir, charId);
+      fs.mkdirSync(charExprDir, { recursive: true });
+
+      for (const expr of item.exprs) {
         const exprSafe = expr.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
-        const charExprDir = path.join(charDir, charId);
-        fs.mkdirSync(charExprDir, { recursive: true });
         const pngPath = path.join(charExprDir, `${exprSafe}.png`);
         const svgPath = path.join(charExprDir, `${exprSafe}.svg`);
         if (!fs.existsSync(pngPath) && !fs.existsSync(svgPath)) {
-          fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500"><rect width="300" height="500" fill="#2d2d44"/><text x="150" y="240" text-anchor="middle" fill="#aaa" font-size="20">${char.canonicalName || charId}</text><text x="150" y="280" text-anchor="middle" fill="#666" font-size="14">${expr}</text></svg>`, "utf-8");
+          fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500"><rect width="300" height="500" fill="#2d2d44"/><text x="150" y="240" text-anchor="middle" fill="#aaa" font-size="20">${item.name}</text><text x="150" y="280" text-anchor="middle" fill="#666" font-size="14">${expr}</text></svg>`, "utf-8");
         }
       }
     }

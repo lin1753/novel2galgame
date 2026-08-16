@@ -26,11 +26,15 @@ export function generateScript(scripts: VNScript[]): string {
   }
 
   lines.push("label start:");
+  lines.push("    jump scene_0001");
   lines.push("");
 
   let lastTransition: string | null = null;
 
-  for (const script of scripts) {
+  for (let sIdx = 0; sIdx < scripts.length; sIdx++) {
+    const script = scripts[sIdx];
+    const sceneLabel = `scene_${sanitizeId(script.sceneId || `part_${sIdx + 1}`)}`;
+    lines.push(`label ${sceneLabel}:`);
     lines.push(`    # --- Scene: ${script.sceneId} ---`);
     lines.push("");
 
@@ -45,9 +49,9 @@ export function generateScript(scripts: VNScript[]): string {
 
         case "show": {
           const s = step as ShowStep;
-          const pos = s.position ? ` at ${s.position}` : "";
+          const pos = s.position ?? "center";
           const expr = s.expression ? ` ${sanitizeId(s.expression)}` : "";
-          lines.push(`    show ${sanitizeId(s.characterId)}${expr} at center, character_display with dissolve`);
+          lines.push(`    show ${sanitizeId(s.characterId)}${expr} at ${pos}, character_display with dissolve`);
           break;
         }
 
@@ -55,21 +59,25 @@ export function generateScript(scripts: VNScript[]): string {
           lines.push(`    hide ${sanitizeId((step as HideStep).characterId)} with dissolve`);
           break;
 
-        case "narration":
-          lines.push(`    "${(step as NarrationStep).text}"${withClause}`);
+        case "narration": {
+          const text = escapeRenpyString((step as NarrationStep).text || "");
+          lines.push(`    "${text}"${withClause}`);
           break;
+        }
 
         case "say": {
           const s = step as SayStep;
           const char = s.characterId ? sanitizeId(s.characterId) : "narrator";
-          lines.push(`    ${char} "${s.text}"${withClause}`);
+          const text = escapeRenpyString(s.text || "");
+          lines.push(`    ${char} "${text}"${withClause}`);
           break;
         }
 
         case "thought": {
           const s = step as ThoughtStep;
           const char = s.characterId ? sanitizeId(s.characterId) : "narrator";
-          lines.push(`    ${char} "${s.text}" (what_prefix="«" what_suffix="»")${withClause}`);
+          const text = escapeRenpyString(s.text || "");
+          lines.push(`    ${char} "（${text}）"${withClause}`);
           break;
         }
 
@@ -84,10 +92,22 @@ export function generateScript(scripts: VNScript[]): string {
         }
       }
     }
+
+    // 场景结束自动衔接下一个 Scene 或返回
+    if (sIdx < scripts.length - 1) {
+      const nextSceneLabel = `scene_${sanitizeId(scripts[sIdx + 1].sceneId || `part_${sIdx + 2}`)}`;
+      lines.push(`    jump ${nextSceneLabel}`);
+    } else {
+      lines.push(`    return`);
+    }
     lines.push("");
   }
 
   return lines.join("\n");
+}
+
+function escapeRenpyString(str: string): string {
+  return str.replace(/"/g, '\\"').replace(/\n/g, "\\n");
 }
 
 /** Sanitize an ID for use in Ren'Py (no special chars, underscore-separated) */

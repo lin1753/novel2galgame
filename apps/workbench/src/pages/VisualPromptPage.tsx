@@ -131,7 +131,13 @@ export function VisualPromptPage() {
                 <h4 className="text-sm font-medium text-muted-foreground mb-3">角色提示词</h4>
                 <div className="grid gap-4">
                   {vpResult.characterPrompts.map((cp) => (
-                    <CharacterPromptCard key={cp.characterId} pack={cp} />
+                    <CharacterPromptCard
+                      key={cp.characterId}
+                      pack={cp}
+                      projectId={projectId!}
+                      sceneId={selectedSceneId!}
+                      onSaved={() => qc.invalidateQueries({ queryKey: ['visual-prompt', selectedSceneId] })}
+                    />
                   ))}
                 </div>
               </section>
@@ -139,38 +145,12 @@ export function VisualPromptPage() {
 
             {/* Background Prompt */}
             {vpResult.backgroundPrompt && (
-              <section>
-                <h4 className="text-sm font-medium text-muted-foreground mb-3">背景提示词</h4>
-                <div className="border border-border rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">背景</span>
-                  </div>
-
-                  {/* Evidence */}
-                  {vpResult.backgroundPrompt.evidence.length > 0 && (
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">原文证据:</p>
-                      {vpResult.backgroundPrompt.evidence.map((ev, i) => (
-                        <div key={i} className="flex items-start gap-2 text-xs">
-                          <span className="shrink-0 px-1.5 py-0.5 bg-muted rounded text-muted-foreground">
-                            {ev.category}
-                          </span>
-                          <span className="italic text-slate-400">"{ev.quote}"</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Final Prompt */}
-                  <div className="pt-2 border-t border-border">
-                    <p className="text-xs text-muted-foreground mb-1">最终 Prompt:</p>
-                    <p className="text-sm bg-muted p-2 rounded font-mono">
-                      {vpResult.backgroundPrompt.finalPrompt}
-                    </p>
-                  </div>
-                </div>
-              </section>
+              <BackgroundPromptCard
+                backgroundPrompt={vpResult.backgroundPrompt}
+                projectId={projectId!}
+                sceneId={selectedSceneId!}
+                onSaved={() => qc.invalidateQueries({ queryKey: ['visual-prompt', selectedSceneId] })}
+              />
             )}
           </div>
         )}
@@ -219,8 +199,32 @@ export function VisualPromptPage() {
   )
 }
 
-function CharacterPromptCard({ pack }: { pack: CharacterPromptPack }) {
-  const [expanded, setExpanded] = useState(false)
+function CharacterPromptCard({
+  pack,
+  projectId,
+  sceneId,
+  onSaved,
+}: {
+  pack: CharacterPromptPack
+  projectId: string
+  sceneId: string
+  onSaved: () => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [promptText, setPromptText] = useState(pack.finalPrompt)
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      sceneService.updateVisualPrompt(projectId, sceneId, {
+        characterId: pack.characterId,
+        finalPrompt: promptText,
+      }),
+    onSuccess: () => {
+      setEditing(false)
+      onSaved()
+    },
+  })
 
   return (
     <div className="border border-border rounded-lg p-4 space-y-3">
@@ -269,13 +273,114 @@ function CharacterPromptCard({ pack }: { pack: CharacterPromptPack }) {
             </div>
           )}
 
-          {/* Final Prompt */}
+          {/* Final Prompt with Inline Edit */}
           <div className="pt-2 border-t border-border">
-            <p className="text-xs text-muted-foreground mb-1">最终 Prompt:</p>
-            <p className="text-sm bg-muted p-2 rounded font-mono">{pack.finalPrompt}</p>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-muted-foreground">最终 Prompt (可自定义修改):</p>
+              <button
+                onClick={() => {
+                  if (editing) saveMutation.mutate()
+                  else setEditing(true)
+                }}
+                disabled={saveMutation.isPending}
+                className="text-xs text-primary hover:underline"
+              >
+                {saveMutation.isPending ? '保存中...' : editing ? '保存修改' : '编辑'}
+              </button>
+            </div>
+            {editing ? (
+              <textarea
+                value={promptText}
+                onChange={(e) => setPromptText(e.target.value)}
+                className="w-full h-24 text-xs bg-background border border-border p-2 rounded font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            ) : (
+              <p className="text-sm bg-muted p-2 rounded font-mono select-all">
+                {pack.finalPrompt}
+              </p>
+            )}
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+function BackgroundPromptCard({
+  backgroundPrompt,
+  projectId,
+  sceneId,
+  onSaved,
+}: {
+  backgroundPrompt: any
+  projectId: string
+  sceneId: string
+  onSaved: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [promptText, setPromptText] = useState(backgroundPrompt.finalPrompt)
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      sceneService.updateVisualPrompt(projectId, sceneId, {
+        backgroundFinalPrompt: promptText,
+      }),
+    onSuccess: () => {
+      setEditing(false)
+      onSaved()
+    },
+  })
+
+  return (
+    <section>
+      <h4 className="text-sm font-medium text-muted-foreground mb-3">背景提示词</h4>
+      <div className="border border-border rounded-lg p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <Eye className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium">背景</span>
+        </div>
+
+        {backgroundPrompt.evidence?.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">原文证据:</p>
+            {backgroundPrompt.evidence.map((ev: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <span className="shrink-0 px-1.5 py-0.5 bg-muted rounded text-muted-foreground">
+                  {ev.category}
+                </span>
+                <span className="italic text-slate-400">"{ev.quote}"</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="pt-2 border-t border-border">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-xs text-muted-foreground">最终 Prompt (可自定义修改):</p>
+            <button
+              onClick={() => {
+                if (editing) saveMutation.mutate()
+                else setEditing(true)
+              }}
+              disabled={saveMutation.isPending}
+              className="text-xs text-primary hover:underline"
+            >
+              {saveMutation.isPending ? '保存中...' : editing ? '保存修改' : '编辑'}
+            </button>
+          </div>
+          {editing ? (
+            <textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              className="w-full h-24 text-xs bg-background border border-border p-2 rounded font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          ) : (
+            <p className="text-sm bg-muted p-2 rounded font-mono select-all">
+              {backgroundPrompt.finalPrompt}
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }

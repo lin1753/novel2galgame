@@ -166,7 +166,7 @@ async function runAgentWithMetrics(opts: {
     ? crypto.createHash("sha256").update(`${opts.chapterId}|${opts.type}|${opts.model}|${opts.cacheHint}`).digest("hex")
     : null;
 
-  if (cacheKey) {
+  if (cacheKey && opts.db) {
     const cached = opts.db.prepare(
       "SELECT output_path FROM tasks WHERE input_hash = ? AND status = 'succeeded' AND type = ? AND chapter_id = ? ORDER BY finished_at DESC LIMIT 1"
     ).get(cacheKey, opts.type, opts.chapterId) as { output_path: string } | undefined;
@@ -182,7 +182,7 @@ async function runAgentWithMetrics(opts: {
   }
 
   // ── Normal execution ──
-  opts.db.prepare(`INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at)
+  opts.db?.prepare(`INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at)
     VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)`)
     .run(taskId, opts.projectId, opts.chapterId, opts.type, opts.provider.name, opts.model, opts.stageOrder, now());
 
@@ -203,7 +203,7 @@ async function runAgentWithMetrics(opts: {
       fs.writeFileSync(outputPath, JSON.stringify(data), "utf-8");
     }
 
-    opts.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
+    opts.db?.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
       .run(now(), durationMs, actualRetries, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, cacheKey, outputPath, taskId);
 
     return data;
@@ -211,7 +211,7 @@ async function runAgentWithMetrics(opts: {
     const durationMs = Date.now() - startedAt;
     const actualRetries = Math.max(0, retryCount - 1);
     const msg = err instanceof Error ? err.message : String(err);
-    opts.db.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=? WHERE task_id=?`)
+    opts.db?.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=? WHERE task_id=?`)
       .run(now(), durationMs, actualRetries, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg.slice(0, 500), taskId);
     throw err;
   }
@@ -534,21 +534,24 @@ export async function runChapterPipeline(
             const charNames = attrCharacters.map((c: any) => c.canonicalName).filter(Boolean);
             const knowledgeParts: string[] = [];
             for (const name of charNames) {
-              const results = rag.knowledgeStore.searchCharactersHybrid
-                ? await rag.knowledgeStore.searchCharactersHybrid(`${name} 外观 appearance`, 3, 0.6)
-                : await rag.knowledgeStore.searchCharacters(name, 2);
-              for (const r of results) {
-                if (r.canonicalName === name && r.appearance?.length > 0) {
-                  knowledgeParts.push(`角色"${r.canonicalName}"(首次出现: ${r.firstSeenIn}): ${r.appearance.join("; ")}`);
-                  break;
-                }
+              const results = await rag.knowledgeStore.searchCharacters(name, 3);
+              const appearances = new Set<string>();
+              for (const r of results ?? []) {
+                if (Array.isArray(r.appearance)) r.appearance.forEach((a: string) => appearances.add(a));
+                else if (typeof r.appearance === "string") appearances.add(r.appearance);
+                if (r.embedText) appearances.add(r.embedText);
+              }
+              if (appearances.size > 0) {
+                knowledgeParts.push(`角色"${name}": ${Array.from(appearances).join("; ")}`);
               }
             }
             if (knowledgeParts.length > 0) {
               characterKnowledge = knowledgeParts.join("\n");
-              console.log(`[RAG] Visual prompt: ${charNames.length} characters with appearance knowledge`);
+              console.log(`[RAG] Visual prompt: retrieved appearance for ${knowledgeParts.length} characters`);
             }
-          } catch (e) { /* silent */ }
+          } catch (e) {
+            console.warn(`[RAG] Failed to retrieve character appearance:`, e);
+          }
         }
 
         const vp = resolveAgent(agentModels, "visualPrompt", provider, model);

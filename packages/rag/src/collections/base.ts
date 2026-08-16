@@ -280,17 +280,22 @@ export class BaseCollection {
   }
 
   private tokenize(text: string): string[] {
-    const cleaned = text.replace(/[^一-鿿\w]/g, " ").toLowerCase();
+    const strText = typeof text === "string" ? text : Array.isArray(text) ? (text as string[]).join(" ") : String(text ?? "");
+    const cleaned = strText.replace(/[^一-鿿\w]/g, " ").toLowerCase();
     const words = cleaned.split(/\s+/).filter(Boolean);
 
-    // Chinese bigrams for BM25 matching
+    // Chinese unigrams & bigrams for BM25 matching
+    const unigrams: string[] = [];
     const bigrams: string[] = [];
-    const chineseOnly = text.replace(/[^一-鿿]/g, "");
-    for (let i = 0; i < chineseOnly.length - 1; i++) {
-      bigrams.push(chineseOnly.slice(i, i + 2));
+    const chineseOnly = strText.replace(/[^一-鿿]/g, "");
+    for (let i = 0; i < chineseOnly.length; i++) {
+      unigrams.push(chineseOnly.charAt(i));
+      if (i < chineseOnly.length - 1) {
+        bigrams.push(chineseOnly.slice(i, i + 2));
+      }
     }
 
-    return [...words, ...bigrams].filter((w) => w.length >= 2);
+    return Array.from(new Set([...words, ...unigrams, ...bigrams])).filter((w) => w.length >= 1);
   }
 
   /** Extract searchable text for BM25 keyword matching.

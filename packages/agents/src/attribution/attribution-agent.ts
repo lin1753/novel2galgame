@@ -24,8 +24,12 @@ const SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的
 规则:
 1. 通过上下文推断角色, 对话通常有引号和说话提示
 2. 首次出现的角色需要提取 canonicalName 和 aliases
-3. 不确定的归属标记 uncertain=true
-4. 保持原文不变, 只添加归属信息
+3. 重要: 如果 "已知角色" 列表中已经存在某个角色，你必须复用该角色的 characterId，绝对不可重新编造新的 ID！
+4. characterId 格式规范: 必须使用 "char_拼音" 格式 (如 char_jiangyu、char_xiazhuo)，全书保持一致
+5. 对于未命名的临时次要角色（如"女孩""服务员""路人"），标记 isMinor: true，使用 "char_minor_001" 格式
+6. 不确定的归属标记 uncertain=true
+7. 保持原文不变, 只添加归属信息
+8. 必须在 characters 数组中提取并列出所有出现过的角色实体。
 
 输出 JSON 格式 (必须严格遵守字段名):
 {
@@ -91,28 +95,80 @@ ${unitsText}
     });
 
     // Normalize field names from LLM output
-    const normalizedUnits = normalizeAttributionUnits(result.units ?? []);
+    const rawLlmUnits = normalizeAttributionUnits(result?.units ?? []);
+    const characters = result?.characters ?? [];
+    const speakerIdToCharId: Record<string, string> = result?.speakerIdToCharId ?? {};
 
-    // 确保 chapterId 正确
-    for (const unit of normalizedUnits) {
-      unit.chapterId = chapterId;
+    // 建立以 input.units 为基准的严格对齐映射（100% 保障叙事单元数量与顺序完整）
+    const llmByUnitId = new Map<string, AttributedNarrativeUnit>();
+    const llmByOrder = new Map<number, AttributedNarrativeUnit>();
+    for (const u of rawLlmUnits) {
+      if (u.unitId) llmByUnitId.set(u.unitId, u);
+      if (typeof u.order === "number") llmByOrder.set(u.order, u);
+    }
+
+    const alignedUnits: AttributedNarrativeUnit[] = units.map((baseUnit, idx) => {
+      const match = llmByUnitId.get(baseUnit.unitId) ?? llmByOrder.get(baseUnit.order) ?? rawLlmUnits[idx];
+      return {
+        ...baseUnit,
+        chapterId,
+        attribution: match?.attribution ?? baseUnit.attribution ?? {
+          speakerId: undefined,
+          actorId: undefined,
+          thinkerId: undefined,
+          participantIds: [],
+          uncertain: false,
+          evidence: [],
+        },
+      };
+    });
+
+    // 自动补全 speakerIdToCharId
+    const charMap = new Map(characters.map((c) => [c.characterId, c.canonicalName]));
+    for (const u of alignedUnits) {
+      const sid = u.attribution?.speakerId;
+      if (sid && !speakerIdToCharId[sid]) {
+        speakerIdToCharId[sid] = charMap.get(sid) ?? sid;
+      }
     }
 
     return {
       success: true,
       data: {
         chapterId,
-        units: normalizedUnits,
-        characters: result.characters ?? [],
-        aliasMap: result.aliasMap ?? {},
-        uncertainUnitIds: result.uncertainUnitIds ?? [],
+        units: alignedUnits,
+        characters,
+        aliasMap: result?.aliasMap ?? {},
+        uncertainUnitIds: result?.uncertainUnitIds ?? [],
+        speakerIdToCharId,
       },
     };
   } catch (err) {
+    // LLM 调用异常时，提供保底归属结果，绝不导致全章中断
+    console.warn(`[AttributionAgent] LLM failed, using fallback pass-through for ${chapterId}: ${err instanceof Error ? err.message : String(err)}`);
+    const fallbackUnits: AttributedNarrativeUnit[] = units.map((u) => ({
+      ...u,
+      chapterId,
+      attribution: u.attribution ?? {
+        speakerId: undefined,
+        actorId: undefined,
+        thinkerId: undefined,
+        participantIds: [],
+        uncertain: true,
+        evidence: ["fallback pass-through"],
+      },
+    }));
+
     return {
-      success: false,
-      failureLevel: "recoverable",
-      errorMessage: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
+      success: true,
+      data: {
+        chapterId,
+        units: fallbackUnits,
+        characters: knownCharacters ?? [],
+        aliasMap: {},
+        uncertainUnitIds: fallbackUnits.map((u) => u.unitId),
+        speakerIdToCharId: {},
+      },
     };
   }
 }

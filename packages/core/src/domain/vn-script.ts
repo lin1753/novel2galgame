@@ -27,7 +27,7 @@ export interface ShowStep extends BaseVNStep {
   type: "show";
   characterId: string;
   expression?: string;
-  position?: "left" | "center" | "right";
+  position?: "left_far" | "left" | "center" | "right" | "right_far";
 }
 
 export interface HideStep extends BaseVNStep {

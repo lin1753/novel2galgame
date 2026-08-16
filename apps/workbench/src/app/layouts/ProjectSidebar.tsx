@@ -10,6 +10,7 @@ import {
   Settings,
   Sparkles,
   Pencil,
+  Brain,
 } from 'lucide-react'
 
 const projectLinks = [
@@ -18,6 +19,7 @@ const projectLinks = [
   { to: 'scenes', label: '场景工作区', icon: Layers },
   { to: 'script', label: 'VN 脚本', icon: ScrollText },
   { to: 'prompts', label: '视觉提示', icon: Images },
+  { to: 'rag', label: '角色记忆 (RAG)', icon: Brain },
   { to: 'assets', label: '资产管理', icon: Images },
   { to: 'preview', label: '预览播放', icon: Play },
   { to: 'editor', label: '场景编辑', icon: Pencil },
