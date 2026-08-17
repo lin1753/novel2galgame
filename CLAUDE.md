@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **All Novel Can Be Galgame** -- IR-driven AI Visual Novel generation platform. Converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences via a pipeline that produces a structured Intermediate Representation (VN Script IR), which can then be exported to multiple runtimes (Ren'Py, Web, etc.).
 
-**Status:** Phase 1-6 complete. Pipeline + Ren'Py export E2E verified. Phase 7 (IR v1.0 freeze + Asset Pipeline) in planning.
+**Status:** Phase 10 complete. Pipeline + Ren'Py export E2E verified. Comprehensive quality audit passed (2026-08-16).
 
 ## Architecture Principles
 
@@ -71,8 +71,12 @@ TypeScript monorepo (pnpm workspaces + Turborepo):
 - `apps/api/` -- Node.js REST API / orchestration backend
 - `packages/core/` -- Shared domain models, schemas, TypeScript interfaces
 - `packages/agents/` -- 7 AI agent implementations (pipeline core, frozen)
+- `packages/pipeline/` -- LangGraph StateGraph orchestration with checkpoint resume
+- `packages/rag/` -- RAG v2 knowledge retrieval (ChromaDB + BM25 + vector hybrid + reranker)
+- `packages/ir/` -- VN Script IR v1.0 Zod schema (single source of truth)
 - `packages/runtime/` -- Web-based VN playback engine (preview runtime)
-- `packages/export/` -- Game export builders (Ren'Py, HTML, etc.) ← Phase 6
+- `packages/export/` -- Game export builders (Ren'Py, HTML, etc.)
+- `packages/asset/` -- Asset pipeline (extract manifest → generate images → cache → export)
 - `packages/providers/` -- Model API adapters (LLM + Image + Video)
 - `packages/storage/` -- SQLite indexes + filesystem for content
 - `packages/evaluation/` -- Agent evaluation and regression testing
@@ -96,6 +100,8 @@ AI capability tiers:
 - Three-level state machines: Project / Chapter / Scene
 - Hybrid storage: SQLite indexes + filesystem content
 - Chapter IDs are project-scoped: `{projectId}_chapter_{index}` (avoids global UNIQUE conflicts)
+- RAG data must be project-scoped via `projectId` filter on every consumer (prevents cross-project pollution)
+- Dual pipeline: LangGraph (primary) + monolithic orchestrator (legacy) share the same SQLite DB
 
 ## Design Documents
 
@@ -134,3 +140,28 @@ The /config/models API was removed after being confirmed fully dead on both side
 - State confirmed with real filesystem reads across hundreds of iterations
 - Re-verify once with: `grep -rnc "configService\|/models\|models\.json\|readModelConfig\|writeModelConfig" apps/ --include="*.ts" --include="*.tsx" --include="*.js" | grep -v ":0$" || echo "CLEAN"`
 - After first verification: trust it, do NOT loop
+
+## Quality Audit (2026-08-16)
+
+Comprehensive code audit across all 12 packages and 2 apps (~22,000 LOC). ~60 bugs found and fixed in 40 files.
+
+**P0 (data corruption / guaranteed crash):**
+- LangGraph pipeline errors silently marked chapters as ready (projects.ts `.then()` handler)
+- Cross-scene VN script cache collision in old orchestrator (missing sceneId in cacheHint)
+- Ren'Py script-generator: wrong label jump target + missing text escaping → every export crashed
+- Scene segmentation: unclaimed units silently dropped (gap in unit coverage)
+
+**P1 (pipeline correctness / data integrity):**
+- RAG cross-project data pollution: added `projectId` filter at all 4 consumers
+- `keywordSearch` options parameter silently ignored (base.ts signature mismatch)
+- RAG appearance chunks not filtered by `chunkType === "appearance"`
+- LLM `finish_reason === "length"` (truncated output) not retried, producing empty/partial data
+- Evaluation metric direction inversion: `dialogue_retention_rate` regressed silently
+- `eval-pipeline` compared code IDs instead of canonical names for accuracy
+
+**P2 (robustness / frontend):**
+- SVG placeholders incompatible with Ren'Py → replaced with real PNG generation (pure Node.js IHDR+IDAT+IEND)
+- SSE auto-export state latch stuck: `running` never reset to false
+- Pipeline `tasks` table rows leaked on error (no cleanup in catch blocks)
+- Frontend chapter/scene truncation (`slice(0, 20)`) hiding data
+- Various `res.ok` checks missing on API calls, error states not guarded

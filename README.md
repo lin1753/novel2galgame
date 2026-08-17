@@ -93,7 +93,7 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 
 ## 技术栈
 
-- **Monorepo：** pnpm workspaces + Turborepo, 11 packages
+- **Monorepo：** pnpm workspaces + Turborepo, 12 packages
 - **编排：** LangGraph StateGraph + checkpoint 断点续跑
 - **后端：** Node.js + Express + SQLite (better-sqlite3)
 - **前端：** React 19 + Vite 6 + Tailwind CSS 4 + TanStack Query
@@ -103,6 +103,7 @@ txt 小说 → Structure → Narrative Parsing → Attribution → Scene Segment
 - **评测：** 30 条 × 5 类检索评测集 + 消融实验
 - **韧性：** SHA256 缓存（省 80% API 调用）+ 指数退避重试 + 三级失败策略
 - **可观测性：** Agent 指标 (duration/token/retry) + SSE 实时进度 + 崩溃恢复
+- **质量：** 2026-08-16 全量代码审计，修复 ~60 处 bug（含 RAG 跨项目隔离、Ren'Py 导出必崩、管线状态管理等）
 
 ## 项目结构
 
@@ -115,13 +116,14 @@ packages/
   core/         领域模型与 TypeScript 接口
   agents/       7 个 AI Agent 实现
   ir/           VN Script IR v1.0 Zod Schema
+  rag/          RAG v2 知识检索 (ChromaDB + 多路召回 + 评测)
   providers/    LLM + 图像 + 视频 Provider 抽象层
-  rag-v2/       RAG v2 知识检索 (ChromaDB + 多路召回 + 评测)
+  asset/        资产管线 (manifest → 生成 → 缓存 → 导出)
   storage/      SQLite 索引 + 文件系统存储
-  runtime/      VN 播放引擎
   export/       Ren'Py 导出器
+  runtime/      VN 播放引擎
   evaluation/   评测框架
-docs/           设计文档 + 训练日志 + 模型卡
+docs/           设计文档 + 训练日志 + 模型卡 + 审计报告
 data/           项目数据、测试小说、评测数据集
 xl/             训练代码、数据集、评测结果
 ```

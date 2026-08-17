@@ -6,45 +6,69 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 **All Novel Can Be Galgame** -- a locally-deployable AI workbench that converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences. It is a narrative-to-VN converter, not a creative rewriting tool: the output must faithfully preserve plot, dialogue, character relationships, and emotional tone from the source text.
 
-**Status:** Pre-implementation. The repo contains 10 Chinese-language design specification documents (`.txt` files at root). No source code exists yet.
+**Status:** Phase 10 complete. Pipeline + Ren'Py export E2E verified. Comprehensive quality audit passed (2026-08-16).
 
-## Planned Architecture
+## Architecture
 
-TypeScript monorepo (pnpm workspaces + Turborepo):
+TypeScript monorepo (pnpm workspaces + Turborepo) with 12 packages:
 
-- `apps/workbench/` -- React SPA workbench frontend
-- `apps/api/` -- Node.js REST API / orchestration backend
-- `packages/core/` -- Shared domain models, schemas, TypeScript interfaces
-- `packages/agents/` -- 9 AI agent implementations (the pipeline core)
-- `packages/runtime/` -- Web-based VN playback engine
-- `packages/providers/` -- Model API adapter (OpenAI gpt-image-2, Anthropic, local models)
-- `packages/storage/` -- SQLite indexes + filesystem for text/JSON/intermediate results
+- `apps/workbench/` -- React 19 SPA workbench frontend (Vite 6 + Tailwind CSS 4 + TanStack Query)
+- `apps/api/` -- Node.js REST API / orchestration backend (Express + SQLite)
+- `packages/core/` -- Shared domain models, schemas, TypeScript interfaces (Zod)
+- `packages/agents/` -- 7 AI agent implementations (pipeline core, frozen)
+- `packages/pipeline/` -- LangGraph StateGraph orchestration with checkpoint resume
+- `packages/rag/` -- RAG v2 knowledge retrieval (ChromaDB + BM25 + vector hybrid + reranker)
+- `packages/ir/` -- VN Script IR v1.0 Zod schema (single source of truth)
+- `packages/providers/` -- Model API adapters (LLM + Image + Video, OpenAI-compatible)
+- `packages/storage/` -- SQLite indexes + filesystem for content
+- `packages/export/` -- Ren'Py Builder (VN Script → playable Ren'Py project)
+- `packages/asset/` -- Asset pipeline (extract manifest → generate images → cache → export)
+- `packages/runtime/` -- Web-based VN playback engine (in-browser preview)
 - `packages/evaluation/` -- Agent evaluation and regression testing
-- `packages/prompts/` -- Prompt templates separated from code
-- `packages/utils/` -- Shared utilities
 - `data/` -- Project data, caches, evaluation datasets
 
 ## Core Pipeline
 
-The backbone is a 9-agent sequential pipeline per chapter:
+7-agent sequential pipeline per chapter (frozen), orchestrated by LangGraph StateGraph:
 
-**Structure** (txt->chapters) -> **Narrative Parsing** (classify text units) -> **Attribution** (assign speakers) -> **Scene Segmentation** (split for VN) -> **VN Mapping** + **Visual Prompt** (parallel) -> **Fidelity Review** (audit faithfulness) -> **Consistency Review** (cross-chapter) -> **Preview Ready**
+**Structure** (txt→chapters) → **Narrative Parsing** (classify units) → **Attribution** (assign speakers) → **Scene Segmentation** (split for VN) → **VN Mapping** + **Visual Prompt** (parallel) → **Fidelity Review** (audit faithfulness) → **Consistency Review** (cross-chapter)
 
-Each agent has AI capability tier assignments:
-- **L0 (rules/heuristics):** text cleaning, structure recognition, consistency checks
-- **L2 (strong model APIs):** all semantic tasks (attribution, scene segmentation, VN mapping, fidelity review)
+```
+Novel (.txt)
+    │
+    ▼
+AI Pipeline (7 Agents, LangGraph) ← frozen, no new agents unless accuracy demands it
+    │
+    ▼
+VN Script IR (JSON DSL) ← the ONLY intermediate representation
+    │
+    ├────────────┐
+    ▼            ▼
+Ren'Py Export  Web Preview ← two runtimes, same IR
+    │
+    ▼
+Asset Manifest → Asset Producer (Agnes/Flux/GPT Image) → Export
+```
+
+AI capability tiers:
+- **L0 (rules/heuristics):** structure recognition, consistency checks
+- **L2 (LLM APIs):** narrative, attribution, segmentation, VN mapping, fidelity, consistency
 - **L3 (orchestrator):** routing, budget, caching, retries, fallback
 
 ## Key Design Constraints
 
-- VN scripts use a fixed step vocabulary: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`
+- VN Script IR v1.0 with 8 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition` -- frozen in v1.0
+- Zod schema in `packages/ir/` is the authoritative definition; agents only output IR v1.0 fields
 - Dialogue retention must be >= 95%; non-original text added must be <= 5%
-- Three-level state machines: Project (9 states), Chapter (8 states), Scene (6 states)
+- Three-level state machines: Project / Chapter / Scene
 - Hybrid storage: SQLite for indexes/status queries, filesystem for content
+- Chapter IDs are project-scoped: `{projectId}_chapter_{index}`
+- RAG data must be project-scoped via `projectId` filter on every consumer (prevents cross-project pollution)
+- Dual pipeline: LangGraph (primary) + monolithic orchestrator (legacy) share the same SQLite DB
 
 ## Design Documents
 
-All specs are at the repo root as `.txt` files. Key documents for implementation:
+All specs are in the `docs/` directory as `.txt` files. Key documents for implementation:
 
 | Document | When to read |
 |----------|-------------|

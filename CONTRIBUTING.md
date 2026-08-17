@@ -26,14 +26,16 @@ apps/api/          TypeScript 后端 (Express + SQLite)
 apps/workbench/    React 前端 (Vite + Tailwind)
 packages/
   agents/          7 个 AI Agent
-  rag/             RAG 知识检索 (bge-small-zh + Hybrid)
+  pipeline/        LangGraph 状态图编排
+  rag/             RAG v2 知识检索 (ChromaDB + BM25 + Vector Hybrid)
   core/            领域模型 & Zod Schema
+  ir/              VN Script IR v1.0 Zod Schema
+  asset/           资产管线 (manifest → 生成 → 缓存)
   storage/         SQLite + 文件系统
   providers/       LLM/Image/Video Provider
-  ir/              VN Script IR v1.0
-  asset/           Asset Pipeline
   export/          Ren'Py Builder
   runtime/         VN Web 播放引擎
+  evaluation/      评测框架
 ```
 
 ## Commit 规范

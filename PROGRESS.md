@@ -1243,6 +1243,97 @@ data/projects/{id}/assets/images/
 
 ---
 
+## Phase 10: 全量代码质量审计 ✅
+
+**整体状态:** 已完成
+**日期:** 2026-08-16
+**分支:** `fix/pipeline-issues-and-quality`
+
+**目标:** 逐行审查全部 12 packages + 2 apps（~22,000 LOC），排查隐形 bug，修复后合并 main 推送。
+
+**审计范围:** 3 轮并行审查
+
+| 轮次 | 审查范围 | 发现 |
+|------|---------|------|
+| 第 1 轮 | pipeline/rag/agents (亲自审查) | 7 个 bug（keywordSearch 参数忽略、appearance chunk 未过滤、unitId 重复、segmentation 内容丢失等） |
+| 第 2 轮 | API 后端 + providers + storage + core + evaluation | 18 个 bug（LangGraph 失败误标完成、RAG 跨项目污染、LLM 截断不重试、评测方向反转等） |
+| 第 3 轮 | export (Ren'Py) + asset + runtime + IR + 前端 workbench | 25 个 bug（Ren'Py label 跳转死循环、文本转义缺失、SVG→PNG 占位图、SSE 状态闩死等） |
+
+**总计:** ~60 个 bug，40 个文件修改（+545 −137 行）
+
+### 10.1 P0 修复（数据损坏 / 必崩）
+
+| # | 问题 | 文件 | 修复 |
+|---|------|------|------|
+| 1 | LangGraph 管线失败时 `.then()` 未检查 `finalState.error`，错误章节被标记为 ready | `apps/api/src/routes/projects.ts` | 检查 `finalState.error` 后再标记状态 |
+| 2 | 旧编排器 vn_mapping 缓存 key 缺少 sceneId，导致跨场景 VN 脚本串台 | `apps/api/src/orchestrator/chapter-pipeline.ts` | cacheHint 加入 sceneId + vnScript hash |
+| 3 | Ren'Py script-generator jump 目标使用未计算的标签 + 所有文本未转义 | `packages/export/src/renpy/script-generator.ts` | 重写：预计算 label、完整 escape（\→\\, "→\", %→%%, [→[[, {→{{） |
+| 4 | 场景分割后未覆盖的 units 被静默丢弃 | `packages/pipeline/src/nodes/segmentation-node.ts` | 未覆盖 units 追加到最后一个场景 + 重建 sceneUnitMap |
+
+### 10.2 P1 修复（管线正确性 / 数据完整性）
+
+| # | 问题 | 文件 | 修复 |
+|---|------|------|------|
+| 1 | RAG 跨项目数据污染（全局 character/scene collection） | `rag-query-node.ts`, `attribution-node.ts`, `projects.ts`, `chapter-pipeline.ts`, `characters.ts` | 所有消费者添加 `projectId` 过滤 |
+| 2 | `keywordSearch` options 参数签名不匹配，调用方传入被忽略 | `packages/rag/src/collections/base.ts` | 支持两种调用方式：`number` 和 `{limit?, where?}` |
+| 3 | RAG 检索未过滤 `chunkType === "appearance"` | `packages/rag/src/nodes/rag-query-node.ts` | 添加 chunkType 过滤 |
+| 4 | LLM `finish_reason === "length"` 截断输出不重试 | `packages/providers/src/llm/fetch/fetch-provider.ts` | 检测 length finish reason 并自动重试 |
+| 5 | 评测 runner `includes("rate")` 匹配错误指标方向 | `packages/evaluation/src/eval-runner.ts` | 改为显式 `LOWER_IS_BETTER` 列表 |
+| 6 | VN Mapping 评测空/单字符匹配膨胀保留率 | `packages/evaluation/src/metrics/vn-mapping-metrics.ts` | 添加 `text.length < 2` 守卫 |
+| 7 | `evaluate-pipeline` 比较 speakerId 而非 canonicalName | `apps/api/src/evaluate-pipeline.ts` | 添加 ID→name 解析 |
+| 8 | Narrative Agent unitId 重复（seenUnitIds 未去重） | `packages/agents/src/narrative-parsing-agent.ts` | 添加 `seenUnitIds` Set |
+| 9 | `project-fs.ts` 目录过滤 `startsWith("chapter-")` 不匹配实际 `{pid}_chapter_{idx}` 格式 | `packages/storage/src/filesystem/project-fs.ts` | 改为 `includes("chapter")` |
+| 10 | 管线节点 catch 块未清理 tasks 残留 | 6 个 pipeline nodes | 添加 `taskRepo.cleanup()` 在 catch 中 |
+| 11 | 旧编排器 fidelityPassed 在 catch 后未设为 false | `chapter-pipeline.ts` | 添加 `fidelityPassed = false` |
+| 12 | `knownCharacters` 变量作用域错误（Stage 1 内声明、Stage 2 引用） | `chapter-pipeline.ts` | 移至 Stage 1 外声明 |
+| 13 | VN Mapping 空 steps 重试（LLM 偶发返回空结果） | `packages/agents/src/vn-mapping-agent.ts` | 3 次重试 + fallback 逻辑 |
+
+### 10.3 P2 修复（稳健性 / 前端）
+
+| # | 问题 | 文件 | 修复 |
+|---|------|------|------|
+| 1 | SVG 占位图 Ren'Py 无法加载 | `packages/export/src/renpy/asset-manager.ts` | 纯 Node.js 生成真实 PNG（IHDR+IDAT+IEND） |
+| 2 | Ren'Py character-generator 有表情时缺 default 图像 | `character-generator.ts` | 始终生成 base default 图像 |
+| 3 | Ren'Py templates.ts 标题未转义 Ren'Py 特殊字符 | `templates.ts` | 添加 `escapeRenpyText()` |
+| 4 | SSE auto-export running latch 卡死 | `autoExportStore.ts` | 改为从 chapter 状态推导 running |
+| 5 | SSE onerror 关闭连接阻止自动重连 | `useAutoExport.ts` | 移除 close() 调用 |
+| 6 | 前端章节列表截断 `slice(0, 20)` | `PreviewPage.tsx`, `VisualPromptPage.tsx` | 移除截断 |
+| 7 | ScenesPage 错误状态永久显示"加载中..." | `ScenesPage.tsx` | 添加 error guard 显示"尚未生成" |
+| 8 | 多处 API 调用未检查 `res.ok` | `ConfigPage.tsx`, `ProjectSettingsPage.tsx` | 添加 status 检查 |
+| 9 | Editor 步骤重排序 mutation 不正确 | `EditorPage.tsx` | 不可变重索引 `{ ...step, order: i }` |
+| 10 | AgnesImageProducer JSON.parse 崩溃 | `packages/asset/src/agnes-producer.ts` | try/catch 包裹 + HTTP 状态码校验 |
+| 11 | Runtime execute-step 未知 step 类型 TypeError | `packages/runtime/src/step-engine/execute-step.ts` | 添加 default case 返回 no-op |
+| 12 | IR position 枚举缺少 left_far/right_far | `packages/ir/src/schema.ts` | 扩展为 5 值枚举 |
+| 13 | asset cache 路径不匹配 (`assets/` → `assets/images/`) | `packages/asset/src/cache.ts` | 修正路径 |
+| 14 | auto-export cancel 未按 projectId 过滤 | `apps/api/src/routes/auto-export.ts` | 添加 project-scoped cancel |
+
+### 10.4 构建验证
+
+```
+packages/core        ✅ tsc
+packages/providers   ✅ tsc
+packages/storage     ✅ tsc
+packages/agents      ✅ tsc
+packages/pipeline    ✅ tsc
+packages/rag         ✅ tsc
+packages/ir          ✅ tsc
+packages/asset       ✅ tsc
+packages/export      ✅ tsc
+packages/runtime     ✅ tsc
+packages/evaluation  ✅ tsc
+apps/api             ✅ tsc
+apps/workbench       ✅ vite build
+```
+
+### 10.5 Git 记录
+
+- 分支: `fix/pipeline-issues-and-quality`
+- 提交: `eb986d3` (40 files, +545 −137)
+- 合并: `main` → merge commit `70faa0b` (75 files, +2615 −594)
+- 推送: `origin/main` via `ssh.github.com:443`
+
+---
+
 ## MVP 验收指标
 
 | Agent | 指标 | 目标 |
