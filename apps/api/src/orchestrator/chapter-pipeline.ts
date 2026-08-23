@@ -71,18 +71,26 @@ function retryable<T>(fn: () => Promise<AgentResult<T>>): () => Promise<T> {
  *  Only retries on transient errors (network, timeout, 5xx, recoverable agent failures). */
 async function withRetry<T>(
   fn: () => Promise<T>,
-  opts?: { maxRetries?: number; baseDelayMs?: number; label?: string }
+  opts?: { maxRetries?: number; baseDelayMs?: number; label?: string; signal?: AbortSignal }
 ): Promise<T> {
   const maxRetries = opts?.maxRetries ?? 3;
   const baseDelay = opts?.baseDelayMs ?? 5000;
   const label = opts?.label ?? "operation";
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (opts?.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
     try {
       return await fn();
     } catch (err) {
-      const isRetryable = (err as any)?.retryable === true;
       const msg = err instanceof Error ? err.message : String(err);
+      const isAbort = (err instanceof Error && err.name === "AbortError") || msg.includes("ABORTED") || opts?.signal?.aborted;
+      if (isAbort) {
+        throw err;
+      }
+
+      const isRetryable = (err as any)?.retryable === true;
       const isTransient = isRetryable ||
         msg.includes("socket hang up") ||
         msg.includes("socket disconnected") ||
@@ -111,13 +119,15 @@ async function withRetry<T>(
 /** Run tasks with concurrency limit */
 async function parallelLimit<T>(
   tasks: Array<() => Promise<T>>,
-  limit: number
+  limit: number,
+  signal?: AbortSignal
 ): Promise<T[]> {
   const results: T[] = new Array(tasks.length);
   let nextIdx = 0;
 
   async function runNext(): Promise<void> {
     while (nextIdx < tasks.length) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
       const idx = nextIdx++;
       results[idx] = await tasks[idx]();
     }
@@ -129,14 +139,14 @@ async function parallelLimit<T>(
 }
 
 /** Wrap a provider to collect token usage via onResponse callback */
-function instrumentProvider(p: LLMProvider, onResponse: (r: any) => void): LLMProvider {
+function instrumentProvider(p: LLMProvider, onResponse: (r: any) => void, signal?: AbortSignal): LLMProvider {
   return {
     name: p.name,
     chat(options: any) {
-      return p.chat({ ...options, onResponse: (r: any) => { options.onResponse?.(r); onResponse(r); } });
+      return p.chat({ ...options, signal: options.signal ?? signal, onResponse: (r: any) => { options.onResponse?.(r); onResponse(r); } });
     },
     chatJson<T>(options: any): Promise<T> {
-      return p.chatJson<T>({ ...options, onResponse: (r: any) => { options.onResponse?.(r); onResponse(r); } });
+      return p.chatJson<T>({ ...options, signal: options.signal ?? signal, onResponse: (r: any) => { options.onResponse?.(r); onResponse(r); } });
     },
   };
 }
@@ -157,6 +167,8 @@ async function runAgentWithMetrics(opts: {
   dataDir?: string;
   cacheHint?: string;
 }): Promise<any> {
+  if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
   const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
   const startedAt = Date.now();
   let retryCount = 0;
@@ -188,8 +200,12 @@ async function runAgentWithMetrics(opts: {
 
   try {
     const data = await withRetry(
-      retryable(() => { retryCount++; return opts.fn(); }),
-      { label: opts.label }
+      retryable(() => {
+        if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+        retryCount++;
+        return opts.fn();
+      }),
+      { label: opts.label, signal: opts.signal }
     );
 
     const durationMs = Date.now() - startedAt;
@@ -310,7 +326,7 @@ export async function runChapterPipeline(
 
     const narr = resolveAgent(agentModels, "narrative", provider, model);
     const t0 = { prompt: 0, completion: 0 };
-    const wNarr = instrumentProvider(narr.provider, (r: any) => { t0.prompt += r.usage?.promptTokens ?? 0; t0.completion += r.usage?.completionTokens ?? 0; });
+    const wNarr = instrumentProvider(narr.provider, (r: any) => { t0.prompt += r.usage?.promptTokens ?? 0; t0.completion += r.usage?.completionTokens ?? 0; }, signal);
     narrativeData = await runAgentWithMetrics({
       type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
       provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0, dataDir, cacheHint: chapterText.slice(0, 200),
@@ -332,7 +348,7 @@ export async function runChapterPipeline(
     onStageUpdate?.("attribution");
     const attr = resolveAgent(agentModels, "attribution", provider, model);
     const t1 = { prompt: 0, completion: 0 };
-    const wAttr = instrumentProvider(attr.provider, (r: any) => { t1.prompt += r.usage?.promptTokens ?? 0; t1.completion += r.usage?.completionTokens ?? 0; });
+    const wAttr = instrumentProvider(attr.provider, (r: any) => { t1.prompt += r.usage?.promptTokens ?? 0; t1.completion += r.usage?.completionTokens ?? 0; }, signal);
 
     // RAG: hybrid retrieval (BM25 keyword + vector) → LLM rerank
     let characterKnowledge: string | undefined;
@@ -407,7 +423,7 @@ export async function runChapterPipeline(
 
     const seg = resolveAgent(agentModels, "segmentation", provider, model);
     const t2 = { prompt: 0, completion: 0 };
-    const wSeg = instrumentProvider(seg.provider, (r: any) => { t2.prompt += r.usage?.promptTokens ?? 0; t2.completion += r.usage?.completionTokens ?? 0; });
+    const wSeg = instrumentProvider(seg.provider, (r: any) => { t2.prompt += r.usage?.promptTokens ?? 0; t2.completion += r.usage?.completionTokens ?? 0; }, signal);
     segResult = await runAgentWithMetrics({
       type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
       provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2, dataDir, cacheHint: chapterText.slice(0, 200),
@@ -484,6 +500,7 @@ export async function runChapterPipeline(
   const attrUnits = attributionData.units;
   const attrCharacters = attributionData.characters;
   const sceneTasks = segResult.scenes.map((scene: any) => async () => {
+    checkAbort();
     const sceneUnits = attrUnits.filter((u: any) => scene.unitIds.includes(u.unitId));
     const sceneState = sceneRepo?.getById(scene.sceneId);
     const sceneIdx = segResult.scenes.indexOf(scene);
@@ -494,10 +511,11 @@ export async function runChapterPipeline(
       try { vnData = readSceneJson(dataDir, project.projectId, scene.sceneId, "vn_script.json"); onProgress?.("vn_mapping", `Skipped ${scene.sceneId} (already mapped)`); } catch {}
     }
     if (!vnData) {
+      checkAbort();
       onProgress?.("vn_mapping", `Mapping scene ${scene.sceneId}`);
       const vn = resolveAgent(agentModels, "vnMapping", provider, model);
       const tv = { prompt: 0, completion: 0 };
-      const wVn = instrumentProvider(vn.provider, (r: any) => { tv.prompt += r.usage?.promptTokens ?? 0; tv.completion += r.usage?.completionTokens ?? 0; });
+      const wVn = instrumentProvider(vn.provider, (r: any) => { tv.prompt += r.usage?.promptTokens ?? 0; tv.completion += r.usage?.completionTokens ?? 0; }, signal);
       vnData = await runAgentWithMetrics({
         type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
         provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir,
@@ -514,10 +532,11 @@ export async function runChapterPipeline(
     if (sceneState?.reviewStatus === "passed") {
       onProgress?.("fidelity_review", `Skipped ${scene.sceneId} (already reviewed)`);
     } else {
+      checkAbort();
       onProgress?.("fidelity_review", `Reviewing scene ${scene.sceneId}`);
       const fr = resolveAgent(agentModels, "fidelityReview", provider, model);
       const tf = { prompt: 0, completion: 0 };
-      const wFr = instrumentProvider(fr.provider, (r: any) => { tf.prompt += r.usage?.promptTokens ?? 0; tf.completion += r.usage?.completionTokens ?? 0; });
+      const wFr = instrumentProvider(fr.provider, (r: any) => { tf.prompt += r.usage?.promptTokens ?? 0; tf.completion += r.usage?.completionTokens ?? 0; }, signal);
       try {
         // Cache key includes the reviewed script's content hash so a different
         // script (or another scene — scenes used to collide on the same key)
@@ -595,7 +614,7 @@ export async function runChapterPipeline(
     return { sceneId: scene.sceneId, passed: fidelityPassed };
   });
 
-  const sceneResults = await parallelLimit(sceneTasks, sceneConcurrency);
+  const sceneResults = await parallelLimit(sceneTasks, sceneConcurrency, signal);
 
   // Extract asset needs into project asset directory
   try {

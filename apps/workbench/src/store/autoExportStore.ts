@@ -146,7 +146,7 @@ class AutoExportStore {
             })
           }
           const logs = [...prev.logs, msg].slice(-200)
-          const isComplete = event.stage === 'complete'
+          const isComplete = event.stage === 'complete' || event.stage === 'cancelled'
           return {
             chapters,
             logs,
@@ -154,7 +154,7 @@ class AutoExportStore {
             taskId: event.data?.taskId ?? prev.taskId,
             exportOutput: isComplete && event.status === 'completed'
               ? { success: true, outputPath: event.data?.outputPath }
-              : isComplete && event.status === 'failed'
+              : isComplete && (event.status === 'failed' || event.status === 'cancelled')
                 ? { success: false }
                 : prev.exportOutput,
           }
@@ -163,9 +163,8 @@ class AutoExportStore {
     }
 
     es.onerror = () => {
-      // EventSource auto-reconnects on transient errors (proxy restart, sleep
-      // recovery) — closing here froze the panel while the export kept running
-      // and let the user start a second concurrent export
+      // EventSource auto-reconnects on transient errors — only log if still running
+      if (!this.state.running) return
       this.update((prev) => ({ logs: [...prev.logs, 'SSE connection lost, reconnecting...'].slice(-200) }))
     }
   }
@@ -192,7 +191,7 @@ class AutoExportStore {
           status: 'cancelled',
           stage: 'cancelled',
         })
-        return { chapters, logs: [...prev.logs, `Cancelled chapter ${chapterId}`] }
+        return { chapters, logs: [...prev.logs, `Cancelled chapter ${chapterId}`].slice(-200) }
       })
     } catch {}
   }
@@ -202,8 +201,22 @@ class AutoExportStore {
     if (!projectId) return
     try {
       await fetch(`/api/projects/${projectId}/auto-export/cancel`, { method: 'POST' })
-      this.update(() => ({ running: false, logs: [...this.state.logs, 'All cancelled'] }))
-    } catch {}
+      this.update((prev) => {
+        const chapters = new Map(prev.chapters)
+        for (const [id, ch] of chapters) {
+          if (ch.status === 'running' || ch.status === 'queued') {
+            chapters.set(id, { ...ch, status: 'cancelled', stage: 'cancelled' })
+          }
+        }
+        return {
+          chapters,
+          running: false,
+          logs: [...prev.logs, 'All tasks cancelled by user'].slice(-200),
+        }
+      })
+    } catch (err) {
+      this.update((prev) => ({ logs: [...prev.logs, `Cancel request failed: ${err}`].slice(-200) }))
+    }
   }
 }
 

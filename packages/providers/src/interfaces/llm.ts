@@ -9,6 +9,8 @@ export interface LLMRequestOptions {
   temperature?: number;
   maxTokens?: number;
   jsonMode?: boolean;
+  /** Optional AbortSignal to cancel pending requests */
+  signal?: AbortSignal;
   /** Optional callback invoked with the raw LLMResponse after each call — used for metrics collection */
   onResponse?: (response: LLMResponse) => void;
 }

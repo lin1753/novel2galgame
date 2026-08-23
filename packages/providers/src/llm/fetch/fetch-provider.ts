@@ -86,7 +86,11 @@ export class FetchLLMProvider implements LLMProvider {
     this.defaultModel = config.defaultModel ?? "gpt-4o";
   }
 
-  private async request(path: string, body: object): Promise<any> {
+  private async request(path: string, body: object, signal?: AbortSignal): Promise<any> {
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
+    }
+
     const url = new URL(`${this.baseUrl}${path}`);
     const data = JSON.stringify(body);
     const port = parseInt(url.port || (url.protocol === "https:" ? "443" : "80"), 10);
@@ -97,6 +101,10 @@ export class FetchLLMProvider implements LLMProvider {
     if (realIp) {
       connectHost = realIp;
       console.log(`[FetchLLM] DNS bypass: ${url.hostname} → ${realIp}`);
+    }
+
+    if (signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError");
     }
 
     const transport = url.protocol === "https:" ? https : http;
@@ -119,10 +127,13 @@ export class FetchLLMProvider implements LLMProvider {
         reqOpts.servername = url.hostname;
       }
 
+      let abortHandler: (() => void) | null = null;
+
       const req = transport.request(reqOpts, (res) => {
         let responseBody = "";
         res.on("data", (chunk) => { responseBody += chunk; });
         res.on("end", () => {
+          if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
           console.log(`[FetchLLM] Response: ${res.statusCode} (${responseBody.length} bytes)`);
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             try {
@@ -136,8 +147,27 @@ export class FetchLLMProvider implements LLMProvider {
         });
       });
 
-      req.on("error", (e) => reject(new Error(`LLM request failed: ${e.message}`)));
-      req.setTimeout(120_000, () => { req.destroy(); reject(new Error("LLM request timeout (120s)")); });
+      if (signal) {
+        abortHandler = () => {
+          req.destroy();
+          reject(new DOMException("Aborted", "AbortError"));
+        };
+        signal.addEventListener("abort", abortHandler, { once: true });
+      }
+
+      req.on("error", (e) => {
+        if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"));
+        } else {
+          reject(new Error(`LLM request failed: ${e.message}`));
+        }
+      });
+      req.setTimeout(120_000, () => {
+        if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
+        req.destroy();
+        reject(new Error("LLM request timeout (120s)"));
+      });
       req.write(data);
       req.end();
     });
@@ -152,7 +182,7 @@ export class FetchLLMProvider implements LLMProvider {
       ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
     };
 
-    const data = await this.request("/chat/completions", body);
+    const data = await this.request("/chat/completions", body, options.signal);
     const choice = data.choices?.[0];
     if (!choice) throw new Error("No response from LLM");
 

@@ -148,15 +148,15 @@ async function processAutoExport(
       title: ch.title,
     }));
 
-    // Step 3: Process chapters concurrently via TaskQueue
-    emit("pipeline", "started", `Processing ${queueChapters.length} chapters (up to 3 concurrent)`);
+    // Step 3: Process chapters sequentially via TaskQueue
+    emit("pipeline", "started", `Processing ${queueChapters.length} chapters in sequential order`);
 
     const queue = new PipelineTaskQueue({
       dataDir: config.dataDir,
       project,
       provider,
       model,
-      maxConcurrency: 3,
+      maxConcurrency: 1, // Default strict sequential execution (Ch1 -> Ch2 -> Ch3)
       sceneRepo,
       chapterRepo,
       db,
@@ -183,6 +183,13 @@ async function processAutoExport(
 
     activeTasks.delete(taskId);
     taskProject.delete(taskId);
+
+    // If cancelled by user, stop immediately without running export or asset generation
+    if (queue.isCancelled) {
+      console.log(`[AutoExport] Task ${taskId} was cancelled by user. Halting pipeline.`);
+      emit("complete", "cancelled", "Auto-export cancelled by user");
+      return;
+    }
 
     const successCount = queue.successCount;
     const failedCount = queue.failedCount;

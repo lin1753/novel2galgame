@@ -66,6 +66,7 @@ export class PipelineTaskQueue {
   private rag?: any;
 
   // Queue state
+  public isCancelled = false;
   private pending: QueueChapter[] = [];
   private active = new Map<string, AbortController>();
   private results = new Map<string, ChapterStatus>();
@@ -98,6 +99,7 @@ export class PipelineTaskQueue {
   /** Enqueue chapters for processing in strict chronological chapter index order. */
   enqueue(chapters: QueueChapter[]): Promise<void> {
     if (this._promise) throw new Error("TaskQueue already started");
+    this.isCancelled = false;
     // Ensure strict ascending index order
     this.pending = [...chapters].sort((a, b) => a.index - b.index);
     this._promise = new Promise((resolve) => {
@@ -144,7 +146,8 @@ export class PipelineTaskQueue {
 
   /** Cancel all running and pending chapters */
   cancelAll(): void {
-    for (const [chapterId] of this.active) {
+    this.isCancelled = true;
+    for (const [chapterId] of Array.from(this.active.entries())) {
       this.cancel(chapterId);
     }
     // Clear pending
@@ -220,6 +223,10 @@ export class PipelineTaskQueue {
   // ── Private ──
 
   private _drain() {
+    if (this.isCancelled) {
+      this._checkDone();
+      return;
+    }
     while (this.active.size < this.maxConcurrency && this.pending.length > 0) {
       const chapter = this.pending.shift()!;
       this._startChapter(chapter);
