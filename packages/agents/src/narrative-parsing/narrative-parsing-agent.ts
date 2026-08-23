@@ -49,8 +49,8 @@ export async function runNarrativeParsingAgent(
     return { success: false, failureLevel: "hard", errorMessage: "Empty chapter text" };
   }
 
-  // 章节过长时分段处理
-  const MAX_CHARS = 1500;
+  // 章节过长时分段处理 (800字每段，保障 JSON 展开后不超过 max_tokens)
+  const MAX_CHARS = 800;
   const textChunks = splitText(chapterText, MAX_CHARS);
   const allUnits: NarrativeUnit[] = [];
 
@@ -65,6 +65,7 @@ ${textChunks.length > 1 ? `分段: ${chunkIdx + 1}/${textChunks.length}` : ""}
 文本内容:
 ${chunk}`;
 
+    let chunkUnits: NarrativeUnit[] = [];
     try {
       const result = await provider.chatJson<{ units: NarrativeUnit[] }>({
         model,
@@ -81,40 +82,35 @@ ${chunk}`;
         ? result
         : (result?.units ?? (result as any)?.narrative_units ?? (result as any)?.data ?? []);
 
-      let chunkUnits: NarrativeUnit[] = Array.isArray(rawUnits) ? rawUnits : [];
-
-      // 智能保底：若 LLM 未返回有效单元，按段落切分规则保底
-      if (chunkUnits.length === 0 && chunk.trim().length > 0) {
-        console.warn(`[narrativeParsingAgent] Chunk ${chunkIdx + 1} empty units from LLM, using fallback line segmentation`);
-        const lines = chunk.split(/\n+/).filter(l => l.trim().length > 0);
-        chunkUnits = lines.map((line, lIdx) => {
-          const isDialogue = line.includes("“") || line.includes("”") || line.includes("\"");
-          return {
-            unitId: `unit_${chapterId.replace("chapter_", "")}_${String(allUnits.length + lIdx).padStart(4, "0")}`,
-            chapterId,
-            order: allUnits.length + lIdx,
-            type: isDialogue ? "dialogue" : "narration",
-            originalText: line.trim(),
-            confidence: 0.8,
-          } as NarrativeUnit;
-        });
-      }
-
-      // 修正 unitId 和 chapterId
-      for (const unit of chunkUnits) {
-        unit.chapterId = chapterId;
-        unit.order = allUnits.length;
-        if (!unit.unitId) {
-          unit.unitId = `unit_${chapterId.replace("chapter_", "")}_${String(allUnits.length).padStart(4, "0")}`;
-        }
-        allUnits.push(unit);
-      }
+      chunkUnits = Array.isArray(rawUnits) ? rawUnits : [];
     } catch (err) {
-      return {
-        success: false,
-        failureLevel: "recoverable",
-        errorMessage: `LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
+      console.warn(`[narrativeParsingAgent] Chunk ${chunkIdx + 1}/${textChunks.length} LLM failed, using fallback line segmentation: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // 智能保底：若 LLM 未返回有效单元或调用异常，按段落/对白切分规则保底
+    if (chunkUnits.length === 0 && chunk.trim().length > 0) {
+      const lines = chunk.split(/\n+/).filter((l) => l.trim().length > 0);
+      chunkUnits = lines.map((line, lIdx) => {
+        const isDialogue = line.includes("“") || line.includes("”") || line.includes("\"");
+        return {
+          unitId: `unit_${chapterId.replace("chapter_", "")}_${String(allUnits.length + lIdx).padStart(4, "0")}`,
+          chapterId,
+          order: allUnits.length + lIdx,
+          type: isDialogue ? "dialogue" : "narration",
+          originalText: line.trim(),
+          confidence: 0.75,
+        } as NarrativeUnit;
+      });
+    }
+
+    // 修正 unitId 和 chapterId
+    for (const unit of chunkUnits) {
+      unit.chapterId = chapterId;
+      unit.order = allUnits.length;
+      if (!unit.unitId) {
+        unit.unitId = `unit_${chapterId.replace("chapter_", "")}_${String(allUnits.length).padStart(4, "0")}`;
+      }
+      allUnits.push(unit);
     }
   }
 

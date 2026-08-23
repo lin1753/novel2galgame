@@ -327,12 +327,31 @@ export async function runChapterPipeline(
     const narr = resolveAgent(agentModels, "narrative", provider, model);
     const t0 = { prompt: 0, completion: 0 };
     const wNarr = instrumentProvider(narr.provider, (r: any) => { t0.prompt += r.usage?.promptTokens ?? 0; t0.completion += r.usage?.completionTokens ?? 0; }, signal);
-    narrativeData = await runAgentWithMetrics({
-      type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
-      provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0, dataDir, cacheHint: chapterText.slice(0, 200),
-      label: `narrative:${chapterId}`,
-      fn: () => runNarrativeParsingAgent({ chapterId, chapterTitle, chapterText }, wNarr, narr.model),
-    });
+    try {
+      narrativeData = await runAgentWithMetrics({
+        type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
+        provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0, dataDir, cacheHint: chapterText.slice(0, 200),
+        label: `narrative:${chapterId}`,
+        fn: () => runNarrativeParsingAgent({ chapterId, chapterTitle, chapterText }, wNarr, narr.model),
+      });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.warn(`[Pipeline] Narrative parsing fallback triggered for ${chapterId}:`, err);
+      onProgress?.("narrative_parsing", "触发规则分段保底转换");
+      const lines = chapterText.split(/\n+/).filter((l) => l.trim().length > 0);
+      narrativeData = {
+        chapterId,
+        units: lines.map((line, lIdx) => ({
+          unitId: `unit_${chapterId.replace("chapter_", "")}_${String(lIdx).padStart(4, "0")}`,
+          chapterId,
+          order: lIdx,
+          type: line.includes("“") || line.includes("”") || line.includes("\"") ? "dialogue" : "narration",
+          originalText: line.trim(),
+          confidence: 0.75,
+        })),
+        overallConfidence: 0.75,
+      };
+    }
     writeNarrativeResult(dataDir, project.projectId, chapterId, narrativeData);
     onChapterFlags?.(chapterId, { parsingDone: true });
   }
@@ -370,12 +389,36 @@ export async function runChapterPipeline(
       } catch (e) { /* silent */ }
     }
 
-    attributionData = await runAgentWithMetrics({
-      type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
-      provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1, dataDir, cacheHint: chapterText.slice(0, 200),
-      label: `attribution:${chapterId}`,
-      fn: () => runAttributionAgent({ chapterId, units: narrativeData.units, characterKnowledge }, wAttr, attr.model),
-    });
+    try {
+      attributionData = await runAgentWithMetrics({
+        type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
+        provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1, dataDir, cacheHint: chapterText.slice(0, 200),
+        label: `attribution:${chapterId}`,
+        fn: () => runAttributionAgent({ chapterId, units: narrativeData.units, characterKnowledge }, wAttr, attr.model),
+      });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.warn(`[Pipeline] Attribution fallback triggered for ${chapterId}:`, err);
+      onProgress?.("attribution", "触发说话人启发式保底转换");
+      attributionData = {
+        chapterId,
+        units: (narrativeData?.units ?? []).map((u: any) => ({
+          ...u,
+          attribution: {
+            speakerId: undefined,
+            actorId: undefined,
+            thinkerId: undefined,
+            participantIds: [],
+            uncertain: true,
+            evidence: ["fallback pass-through"],
+          },
+        })),
+        characters: knownCharacters ?? [],
+        aliasMap: {},
+        uncertainUnitIds: (narrativeData?.units ?? []).map((u: any) => u.unitId),
+        speakerIdToCharId: {},
+      };
+    }
     writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
 
     // Post-process: extract character list from units if LLM returned empty characters
@@ -424,12 +467,36 @@ export async function runChapterPipeline(
     const seg = resolveAgent(agentModels, "segmentation", provider, model);
     const t2 = { prompt: 0, completion: 0 };
     const wSeg = instrumentProvider(seg.provider, (r: any) => { t2.prompt += r.usage?.promptTokens ?? 0; t2.completion += r.usage?.completionTokens ?? 0; }, signal);
-    segResult = await runAgentWithMetrics({
-      type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
-      provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2, dataDir, cacheHint: chapterText.slice(0, 200),
-      label: `segmentation:${chapterId}`,
-      fn: () => runSceneSegmentationAgent({ chapterId, units: attributionData.units }, wSeg, seg.model),
-    });
+    try {
+      segResult = await runAgentWithMetrics({
+        type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
+        provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2, dataDir, cacheHint: chapterText.slice(0, 200),
+        label: `segmentation:${chapterId}`,
+        fn: () => runSceneSegmentationAgent({ chapterId, units: attributionData.units }, wSeg, seg.model),
+      });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      console.warn(`[Pipeline] Scene segmentation fallback triggered for ${chapterId}:`, err);
+      onProgress?.("scene_segmentation", "触发单场景分块保底转换");
+      const units = attributionData?.units ?? [];
+      const allUnitIds = units.map((u: any) => u.unitId);
+      const fallbackScene = {
+        sceneId: "scene_0001",
+        chapterId,
+        indexInChapter: 0,
+        unitIds: allUnitIds,
+        startUnitId: allUnitIds[0] ?? "",
+        endUnitId: allUnitIds[allUnitIds.length - 1] ?? "",
+        boundaryReason: "location_change",
+        summary: { shortSummary: chapterTitle, locationHint: "主场景", moodHint: "常规" },
+        confidence: 0.75,
+      };
+      segResult = {
+        chapterId,
+        scenes: [fallbackScene],
+        sceneUnitMap: { [fallbackScene.sceneId]: allUnitIds },
+      };
+    }
   }
 
   // Fix scene unitIds: LLM may generate inconsistent IDs, remap by order
@@ -516,13 +583,48 @@ export async function runChapterPipeline(
       const vn = resolveAgent(agentModels, "vnMapping", provider, model);
       const tv = { prompt: 0, completion: 0 };
       const wVn = instrumentProvider(vn.provider, (r: any) => { tv.prompt += r.usage?.promptTokens ?? 0; tv.completion += r.usage?.completionTokens ?? 0; }, signal);
-      vnData = await runAgentWithMetrics({
-        type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
-        provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir,
-        cacheHint: `${scene.sceneId}|${chapterText.slice(0, 200)}`,
-        label: `vn_mapping:${scene.sceneId}`,
-        fn: () => runVNMappingAgent({ sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" }, wVn, vn.model),
-      });
+      try {
+        vnData = await runAgentWithMetrics({
+          type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
+          provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir,
+          cacheHint: `${scene.sceneId}|${chapterText.slice(0, 200)}`,
+          label: `vn_mapping:${scene.sceneId}`,
+          fn: () => runVNMappingAgent({ sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" }, wVn, vn.model),
+        });
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        console.warn(`[Pipeline] VN mapping fallback triggered for ${scene.sceneId}:`, err);
+        onProgress?.("vn_mapping", `场景 ${scene.sceneId} 触发台词保底转换`);
+        const fallbackSteps: any[] = [];
+        for (let uIdx = 0; uIdx < sceneUnits.length; uIdx++) {
+          const u = sceneUnits[uIdx];
+          if (u.type === "dialogue") {
+            fallbackSteps.push({
+              stepId: `step_${scene.sceneId}_${String(uIdx).padStart(4, "0")}`,
+              type: "say",
+              order: uIdx,
+              characterId: u.attribution?.speakerId ?? "unknown",
+              displayName: u.attribution?.speakerId ?? "角色",
+              text: u.originalText ?? "",
+              sourceUnitIds: [u.unitId],
+            });
+          } else {
+            fallbackSteps.push({
+              stepId: `step_${scene.sceneId}_${String(uIdx).padStart(4, "0")}`,
+              type: "narration",
+              order: uIdx,
+              text: u.originalText ?? "",
+              sourceUnitIds: [u.unitId],
+            });
+          }
+        }
+        vnData = {
+          sceneId: scene.sceneId,
+          chapterId,
+          steps: fallbackSteps,
+          mappingMode: "standard",
+        };
+      }
       writeVNScript(dataDir, project.projectId, scene.sceneId, vnData);
       try { (sceneRepo as any)?.updateStatus(scene.sceneId, { mappingStatus: "done" }); } catch {}
     }
