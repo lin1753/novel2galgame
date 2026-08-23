@@ -44,7 +44,8 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
    - **严格忠实角色设定**: 根据角色的真实性别、年龄段（青年/中年/少年）、身份、气质构建英文提示词:
      * 男性角色: 使用 \`handsome young man / mature man, sharp features, calm/tired/composed expression, [specific outfit]\`，**严禁使用 bishoujo / kawaii / cute 等少女词**！
      * 女性角色: 准确描述发色、发型长度、瞳色、服装与气质
-     * 基础结构: \`Japanese visual novel character sprite, 2D anime game art, solo character, full body standing pose, plain white solid background, clean cutout, cel shading, crisp lineart, [character details], high quality\`
+     * 基础结构: \`Japanese visual novel character sprite, 2D anime game art, solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, cel shading, crisp lineart, [character details], high quality\`
+     * 景别选择: 日常对话用 waist-up (默认)，初登场/肢体展示用 full body，情感聚焦用 bust-up close portrait，冲突/告白用 face close-up
 
 3. **生成背景提示词包 (Background Prompt)**:
    - **单一核心地点锚定 (CRITICAL)**: 每个场景的背景图必须聚焦于**当前场景发生的最主要单一物理地点**（如"茶楼雅间"、"学校走廊"、"办公室"、"医院门口"）！
@@ -64,7 +65,7 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
         { "sourceUnitId": "unit_0001_05", "quote": "江屿垂眸静立一旁，娴熟地烫杯", "category": "appearance" }
       ],
       "conservativeCompletion": ["handsome young man in his 20s", "neat dark hair", "formal business attire", "composed quiet expression"],
-      "finalPrompt": "Japanese visual novel character sprite, 2D anime game art, solo character, full body standing pose, plain white solid background, clean cutout, handsome young man in his 20s, neat dark hair, sharp calm eyes, composed quiet expression, wearing formal business attire, cel shading, crisp lineart, high quality"
+      "finalPrompt": "Japanese visual novel character sprite, 2D anime game art, solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, handsome young man in his 20s, neat dark hair, sharp calm eyes, composed quiet expression, wearing formal business attire, cel shading, crisp lineart, high quality"
     }
   ],
   "backgroundPrompt": {

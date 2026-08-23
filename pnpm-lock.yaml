@@ -164,6 +164,9 @@ importers:
       '@novel2gal/ir':
         specifier: workspace:*
         version: link:../ir
+      sharp:
+        specifier: 0.33.5
+        version: 0.33.5
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

@@ -22,6 +22,10 @@ export const ShowStepSchema = z.object({
   characterId: z.string(),
   expression: z.string().optional(),
   position: z.enum(["left_far", "left", "center", "right", "right_far"]).optional(),
+  shotType: z.enum(["full_body", "thigh", "waist", "bust", "closeup"]).optional(),
+  scale: z.number().optional(),
+  enterEffect: z.enum(["none", "fade_in", "slide_in_left", "slide_in_right", "bounce"]).optional(),
+  emphasis: z.enum(["normal", "focus", "dim"]).optional(),
 });
 
 export const HideStepSchema = z.object({
@@ -62,6 +66,7 @@ export const TransitionStepSchema = z.object({
   ...BaseStepFields,
   type: z.literal("transition"),
   name: z.string().optional(),
+  cameraEffect: z.enum(["none", "shake_light", "shake_heavy", "zoom_in_slow", "zoom_punch", "flash_white"]).optional(),
 });
 
 // ===== Discriminated Union =====

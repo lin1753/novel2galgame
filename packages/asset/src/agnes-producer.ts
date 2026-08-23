@@ -2,6 +2,7 @@ import https from "node:https";
 import fs from "node:fs";
 import path from "node:path";
 import type { AssetEntry, AssetProducer } from "./types.js";
+import { removeWhiteBackground, hasTransparency } from "./alpha-processor.js";
 
 export interface AgnesImageProducerConfig {
   apiKey: string;
@@ -37,6 +38,19 @@ export class AgnesImageProducer implements AssetProducer {
       await this.downloadFile(imageData.url, filePath);
     }
 
+    // Post-process: remove white background for character sprites
+    if (entry.type === "character" && fs.existsSync(filePath)) {
+      try {
+        const transparent = await hasTransparency(filePath);
+        if (!transparent) {
+          console.log(`[AgnesImage] Removing white background: ${filePath}`);
+          await removeWhiteBackground(filePath);
+        }
+      } catch (err) {
+        console.warn(`[AgnesImage] Alpha processing failed, keeping original: ${err}`);
+      }
+    }
+
     // Update entry file path to .png
     entry.file = pngFile;
     return pngFile;
@@ -64,7 +78,7 @@ export class AgnesImageProducer implements AssetProducer {
           }
           return `${entry.prompt}, expression: ${entry.expression}`;
         }
-        const charBase = `solo character, full body standing pose, plain white solid background, clean cutout, 2D visual novel character sprite, ${neutralQuality}`;
+        const charBase = `solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, 2D visual novel character sprite, ${neutralQuality}`;
         if (!entry.expression || entry.expression === "default") {
           return `${entry.label}, ${charBase}`;
         }

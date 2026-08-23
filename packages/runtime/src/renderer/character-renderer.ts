@@ -4,6 +4,10 @@ export interface CharacterState {
   id: string;
   expression?: string;
   position?: "left_far" | "left" | "center" | "right" | "right_far";
+  shotType?: string;
+  scale?: number;
+  emphasis?: string;
+  enterEffect?: string;
   visible: boolean;
 }
 
@@ -16,6 +20,10 @@ export function applyShowCharacter(
     id: action.id,
     expression: action.expression,
     position: action.position ?? "center",
+    shotType: action.shotType,
+    scale: action.scale,
+    emphasis: action.emphasis,
+    enterEffect: action.enterEffect,
     visible: true,
   });
   return next;

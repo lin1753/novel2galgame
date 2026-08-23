@@ -77,6 +77,60 @@ transform right:
 transform right_far:
     xalign 0.88
     yalign 1.0
+
+# === Shot Type Transforms (景别缩放) ===
+transform shot_full_body:
+    zoom 0.82
+transform shot_thigh:
+    zoom 0.90
+transform shot_waist:
+    zoom 1.00
+transform shot_bust:
+    zoom 1.20
+transform shot_closeup:
+    zoom 1.50
+
+# === Emphasis Transforms (说话者聚焦) ===
+transform sprite_focus:
+    linear 0.3 matrixcolor BrightnessMatrix(0.0)
+transform sprite_dim:
+    linear 0.3 matrixcolor BrightnessMatrix(-0.3)
+
+# === Camera Effects (镜头动效) ===
+transform camera_shake_heavy:
+    parallel:
+        ease 0.05 xoffset 8
+        ease 0.05 xoffset -8
+        ease 0.05 xoffset 6
+        ease 0.05 xoffset -4
+        ease 0.05 xoffset 0
+    parallel:
+        ease 0.05 yoffset 4
+        ease 0.05 yoffset -4
+        ease 0.05 yoffset 2
+        ease 0.05 yoffset 0
+
+transform camera_shake_light:
+    ease 0.08 xoffset 3
+    ease 0.08 xoffset -3
+    ease 0.08 xoffset 0
+
+transform camera_zoom_in_slow:
+    ease 2.0 zoom 1.25 align (0.5, 0.3)
+
+transform camera_zoom_punch:
+    ease 0.15 zoom 1.45 align (0.5, 0.3)
+
+# === Enter Effects (入场动画) ===
+transform enter_fade_in:
+    alpha 0.0
+    linear 0.5 alpha 1.0
+transform enter_slide_left:
+    xoffset -200 alpha 0.0
+    ease 0.4 xoffset 0 alpha 1.0
+transform enter_slide_right:
+    xoffset 200 alpha 0.0
+    ease 0.4 xoffset 0 alpha 1.0
 `;
 
 /** Escape text interpolated into Ren'Py string literals (%/[]/{}/quotes) */

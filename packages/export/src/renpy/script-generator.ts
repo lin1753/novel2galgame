@@ -109,8 +109,21 @@ export function generateScript(scripts: VNScript[]): string {
             pos = lastPosition.get(id);
           }
           const expr = s.expression ? ` ${sanitizeId(s.expression)}` : "";
-          const atClause = pos ? ` at ${pos}, character_display` : " at character_display";
-          lines.push(`    show ${id}${expr}${atClause} with dissolve`);
+          
+          // Build transform chain: position, shot type, emphasis, enter effect
+          const transforms: string[] = [];
+          if (pos) transforms.push(pos);
+          transforms.push("character_display");
+          if (s.shotType && s.shotType !== "waist") transforms.push(`shot_${s.shotType}`);
+          if (s.emphasis === "focus") transforms.push("sprite_focus");
+          else if (s.emphasis === "dim") transforms.push("sprite_dim");
+
+          const withClauseShow = s.enterEffect === "fade_in" ? " with dissolve"
+            : s.enterEffect === "slide_in_left" ? " with moveinleft"
+            : s.enterEffect === "slide_in_right" ? " with moveinright"
+            : " with dissolve";
+          const atClause = ` at ${transforms.join(", ")}`;
+          lines.push(`    show ${id}${expr}${atClause}${withClauseShow}`);
           flushTransitionAsStatement();
           break;
         }
@@ -154,7 +167,21 @@ export function generateScript(scripts: VNScript[]): string {
         }
 
         case "transition": {
-          lastTransition = mapTransition((step as TransitionStep).name);
+          const t = step as TransitionStep;
+          lastTransition = mapTransition(t.name);
+          // Emit camera effect as ATL
+          if (t.cameraEffect && t.cameraEffect !== "none") {
+            const effectMap: Record<string, string> = {
+              shake_heavy: "with vpunch",
+              shake_light: "with hpunch",
+              zoom_in_slow: "camera at camera_zoom_in_slow",
+              zoom_punch: "camera at camera_zoom_punch",
+              flash_white: "with Fade(0.1, 0.3, 0.5, color=\"#fff\")",
+            };
+            if (effectMap[t.cameraEffect]) {
+              lines.push(`    ${effectMap[t.cameraEffect]}`);
+            }
+          }
           break;
         }
       }

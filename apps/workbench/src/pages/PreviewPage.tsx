@@ -38,7 +38,8 @@ export function PreviewPage() {
   const [textDisplay, setTextDisplay] = useState<TextDisplay | null>(null)
   const [bgId, setBgId] = useState<string>('default')
   const [bgLabel, setBgLabel] = useState<string>('')
-  const [characters, setCharacters] = useState<Map<string, { expression?: string; position?: string }>>(new Map())
+  const [characters, setCharacters] = useState<Map<string, { expression?: string; position?: string; shotType?: string; scale?: number; emphasis?: string; enterEffect?: string }>>(new Map())
+  const [cameraEffect, setCameraEffect] = useState<string | null>(null)
   const [stepIndex, setStepIndex] = useState(0)
   const [totalSteps, setTotalSteps] = useState(0)
   const [status, setStatus] = useState<string>('idle')
@@ -113,6 +114,12 @@ const controllerRef = useRef<PlayerController | null>(null)
         case 'showDialogue':
         case 'showThought':
           setTextDisplay(actionToDisplay(action))
+          break
+        case 'transition':
+          if (action.cameraEffect) {
+            setCameraEffect(action.cameraEffect)
+            setTimeout(() => setCameraEffect(null), 600)
+          }
           break
       }
 
@@ -226,7 +233,11 @@ const controllerRef = useRef<PlayerController | null>(null)
       {/* Center: VN playback area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div
-          className="relative flex-1 bg-black/90 overflow-hidden cursor-pointer select-none"
+          className={`relative flex-1 bg-black/90 overflow-hidden cursor-pointer select-none ${
+            cameraEffect === 'shake_heavy' ? 'animate-shake-heavy' :
+            cameraEffect === 'shake_light' ? 'animate-shake-light' :
+            cameraEffect === 'flash_white' ? 'animate-flash' : ''
+          }`}
           onClick={handleAreaClick}
           style={{ aspectRatio: '16/9', maxHeight: 'calc(100vh - 200px)' }}
         >
@@ -251,29 +262,50 @@ const controllerRef = useRef<PlayerController | null>(null)
           </div>
 
           {/* Characters */}
-          {Array.from(characters.entries()).map(([id, char]) => (
-            <div
-              key={id}
-              className={`absolute bottom-0 ${posToStyle(char.position)} transform -translate-x-1/2 transition-all duration-500 ease-out`}
-              style={{ width: '22%', maxWidth: '260px', height: '70%' }}
-            >
-              <img
-                src={assetImageUrl(projectId!, 'char', `${sanitizeAssetId(id)}/${sanitizeAssetId(char.expression ?? 'default')}.png`)}
-                alt={id}
-                className="w-full h-full object-contain"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none'
+          {Array.from(characters.entries()).map(([id, char]) => {
+            const scaleMap: Record<string, number> = {
+              full_body: 0.82,
+              thigh: 0.90,
+              waist: 1.0,
+              bust: 1.20,
+              closeup: 1.50,
+            }
+            const shotScale = char.scale ?? scaleMap[char.shotType ?? 'waist'] ?? 1.0
+            const baseHeight = 70
+            const height = `${baseHeight * shotScale}%`
+            const opacity = char.emphasis === 'dim' ? 0.6 : 1.0
+            const brightness = char.emphasis === 'dim' ? 'brightness(0.7)' : 'brightness(1.0)'
+
+            return (
+              <div
+                key={id}
+                className={`absolute bottom-0 ${posToStyle(char.position)} transform -translate-x-1/2 transition-all duration-500 ease-out`}
+                style={{
+                  width: '22%',
+                  maxWidth: '260px',
+                  height,
+                  opacity,
+                  filter: brightness,
                 }}
-              />
-              {/* Fallback placeholder */}
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-700/60 rounded-lg border border-slate-600 pointer-events-none" style={{ display: 'none' }}>
-                <span className="text-xs text-slate-400 text-center p-2">
-                  {id}
-                  {char.expression && <span className="block text-[10px]">{char.expression}</span>}
-                </span>
+              >
+                <img
+                  src={assetImageUrl(projectId!, 'char', `${sanitizeAssetId(id)}/${sanitizeAssetId(char.expression ?? 'default')}.png`)}
+                  alt={id}
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none'
+                  }}
+                />
+                {/* Fallback placeholder */}
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-700/60 rounded-lg border border-slate-600 pointer-events-none" style={{ display: 'none' }}>
+                  <span className="text-xs text-slate-400 text-center p-2">
+                    {id}
+                    {char.expression && <span className="block text-[10px]">{char.expression}</span>}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* Text box */}
           {textDisplay && (

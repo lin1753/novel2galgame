@@ -10,7 +10,8 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@novel2gal/ir": "workspace:*"
+    "@novel2gal/ir": "workspace:*",
+    "sharp": "^0.33.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

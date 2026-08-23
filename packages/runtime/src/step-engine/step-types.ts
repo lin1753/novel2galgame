@@ -12,13 +12,13 @@ import type {
 
 export type RenderAction =
   | { type: "setBackground"; id: string; label?: string }
-  | { type: "showCharacter"; id: string; expression?: string; position?: "left_far" | "left" | "center" | "right" | "right_far" }
+  | { type: "showCharacter"; id: string; expression?: string; position?: "left_far" | "left" | "center" | "right" | "right_far"; shotType?: string; scale?: number; emphasis?: string; enterEffect?: string }
   | { type: "hideCharacter"; id: string }
   | { type: "showNarration"; text: string }
   | { type: "showDialogue"; characterId?: string; displayName?: string; text: string }
   | { type: "showThought"; characterId?: string; displayName?: string; text: string }
   | { type: "wait"; durationMs: number }
-  | { type: "transition"; name?: string };
+  | { type: "transition"; name?: string; cameraEffect?: string };
 
 export type {
   VNStep,

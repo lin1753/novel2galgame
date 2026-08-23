@@ -28,6 +28,14 @@ export interface ShowStep extends BaseVNStep {
   characterId: string;
   expression?: string;
   position?: "left_far" | "left" | "center" | "right" | "right_far";
+  /** Shot size / framing. Default: "waist" */
+  shotType?: "full_body" | "thigh" | "waist" | "bust" | "closeup";
+  /** Display scale multiplier. Default: 1.0 (waist-up baseline) */
+  scale?: number;
+  /** Enter animation effect */
+  enterEffect?: "none" | "fade_in" | "slide_in_left" | "slide_in_right" | "bounce";
+  /** Sprite visual emphasis: focus (highlight speaker) or dim (fade listener) */
+  emphasis?: "normal" | "focus" | "dim";
 }
 
 export interface HideStep extends BaseVNStep {
@@ -62,6 +70,8 @@ export interface PauseStep extends BaseVNStep {
 export interface TransitionStep extends BaseVNStep {
   type: "transition";
   name?: string;
+  /** Camera effect for cinematic impact */
+  cameraEffect?: "none" | "shake_light" | "shake_heavy" | "zoom_in_slow" | "zoom_punch" | "flash_white";
 }
 
 export type VNStep =

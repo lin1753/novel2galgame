@@ -6,7 +6,16 @@ export function executeStep(step: VNStep): RenderAction {
     case "bg":
       return { type: "setBackground", id: step.backgroundId, label: step.backgroundLabel };
     case "show":
-      return { type: "showCharacter", id: step.characterId, expression: step.expression, position: step.position };
+      return {
+        type: "showCharacter",
+        id: step.characterId,
+        expression: step.expression,
+        position: step.position,
+        shotType: step.shotType,
+        scale: step.scale,
+        emphasis: step.emphasis,
+        enterEffect: step.enterEffect,
+      };
     case "hide":
       return { type: "hideCharacter", id: step.characterId };
     case "narration":
@@ -18,7 +27,7 @@ export function executeStep(step: VNStep): RenderAction {
     case "pause":
       return { type: "wait", durationMs: step.durationMs ?? 1000 };
     case "transition":
-      return { type: "transition", name: step.name };
+      return { type: "transition", name: step.name, cameraEffect: step.cameraEffect };
     default:
       // Unknown step types are tolerated by validation (warning-level) —
       // a no-op action keeps the player from crashing on action.type
