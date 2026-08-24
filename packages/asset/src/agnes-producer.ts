@@ -68,17 +68,17 @@ export class AgnesImageProducer implements AssetProducer {
         if (entry.prompt) {
           return `${entry.prompt}, (no humans:1.4), empty scenery`;
         }
-        return `${entry.label}, Japanese anime background art, visual novel scene, painted scenery, wide angle shot, atmospheric lighting, detailed environment, (no humans:1.4), scenery only, high quality`;
+        return `${entry.label}, visual novel background scenery, painted environment, wide angle shot, atmospheric lighting, detailed scenery, (no humans:1.4), scenery only, high quality`;
       }
       case "character": {
-        // If a visual prompt finalPrompt is available, use it directly
+        // If a rich visual prompt is available in entry.prompt, use it directly
         if (entry.prompt) {
-          if (!entry.expression || entry.expression === "default") {
+          if (!entry.expression || entry.expression === "default" || entry.prompt.includes(`expression: ${entry.expression}`)) {
             return entry.prompt;
           }
           return `${entry.prompt}, expression: ${entry.expression}`;
         }
-        const charBase = `solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, 2D visual novel character sprite, ${neutralQuality}`;
+        const charBase = `solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, modern visual novel character sprite, ${neutralQuality}`;
         if (!entry.expression || entry.expression === "default") {
           return `${entry.label}, ${charBase}`;
         }

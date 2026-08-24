@@ -76,28 +76,94 @@ export class RenPyBuilder implements GameBuilder {
       fs.writeFileSync(path.join(gameDir, "screens.rpy"), SCREENS_RPY, "utf-8");
       generatedFiles.push(path.join(gameDir, "screens.rpy"));
 
-      // 5. Generate Asset Manifest from IR
+      // 5. Generate Asset Manifest from IR and Visual Prompts
       const manifest = createEmptyManifest();
       const { backgrounds, characters } = extractAssets(input.scripts, manifest);
+
+      // Scan project scene visual_prompt.json files to collect rich appearance prompts
+      const characterPromptMap = new Map<string, string>(); // characterId -> basePrompt
+      const characterNamePromptMap = new Map<string, string>(); // canonicalName -> basePrompt
+      const backgroundPromptMap = new Map<string, string>(); // backgroundId/sceneId/label -> prompt
+
+      const projectRoot = path.resolve(input.outputDir, "..", "..");
+      const projectScenesDir = path.join(projectRoot, "scenes");
+      if (fs.existsSync(projectScenesDir)) {
+        try {
+          const sceneEntries = fs.readdirSync(projectScenesDir);
+          for (const sEntry of sceneEntries) {
+            const vpPath = path.join(projectScenesDir, sEntry, "visual_prompt.json");
+            if (fs.existsSync(vpPath)) {
+              try {
+                const vp = JSON.parse(fs.readFileSync(vpPath, "utf-8"));
+                if (Array.isArray(vp.characterPrompts)) {
+                  for (const cp of vp.characterPrompts) {
+                    const prompt = cp.finalPrompt || cp.promptPack?.appearancePrompt || "";
+                    if (prompt) {
+                      if (cp.characterId && !characterPromptMap.has(cp.characterId)) {
+                        characterPromptMap.set(cp.characterId, prompt);
+                      }
+                      if (cp.canonicalName && !characterNamePromptMap.has(cp.canonicalName)) {
+                        characterNamePromptMap.set(cp.canonicalName, prompt);
+                      }
+                    }
+                  }
+                }
+                if (vp.backgroundPrompt) {
+                  const bgPrompt = vp.backgroundPrompt.finalPrompt || vp.backgroundPrompt.description;
+                  if (bgPrompt) {
+                    if (vp.backgroundPrompt.sceneId) backgroundPromptMap.set(vp.backgroundPrompt.sceneId, bgPrompt);
+                    if (vp.backgroundPrompt.backgroundId) backgroundPromptMap.set(vp.backgroundPrompt.backgroundId, bgPrompt);
+                    if (Array.isArray(vp.backgroundPrompt.evidence)) {
+                      for (const ev of vp.backgroundPrompt.evidence) {
+                        if (ev.quote) backgroundPromptMap.set(ev.quote.replace(/^\[.*?\]\s*/, "").trim(), bgPrompt);
+                      }
+                    }
+                  }
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+      }
+
+      const characterNameMap = new Map(input.characters.map((c) => [c.characterId, c.canonicalName]));
+
       for (const [id, label] of backgrounds) {
+        const bgPrompt = backgroundPromptMap.get(id) || (label ? backgroundPromptMap.get(label) : undefined);
         manifest.assets.background[id] = {
           type: "background",
           label,
           file: `bg/${sanitizeManifestId(id)}.png`,
           status: "placeholder",
+          ...(bgPrompt ? { prompt: bgPrompt } : {}),
         };
       }
+
       for (const [charId, expressions] of characters) {
         manifest.assets.character[charId] = {
           characterId: charId,
           expressions: {},
         };
+        const charName = characterNameMap.get(charId) || charId;
+        const basePrompt = characterPromptMap.get(charId) || (charName ? characterNamePromptMap.get(charName) : undefined);
+
         for (const expr of expressions) {
+          let prompt: string;
+          if (basePrompt) {
+            prompt = (!expr || expr === "default" || expr === "neutral")
+              ? basePrompt
+              : `${basePrompt}, expression: ${expr}`;
+          } else {
+            prompt = `solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, modern visual novel character sprite, ${charName}, expression: ${expr || "neutral"}, high quality`;
+          }
+
           manifest.assets.character[charId].expressions[expr] = {
             type: "character",
             label: expr,
             file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(expr)}.png`,
             status: "placeholder",
+            expression: expr,
+            prompt,
           };
         }
       }
@@ -112,7 +178,6 @@ export class RenPyBuilder implements GameBuilder {
       generatedFiles.push(...assetFiles);
 
       // 6b. Copy project-level real assets if available (overrides placeholders)
-      const projectRoot = path.resolve(input.outputDir, "..", "..");
       const projectAssetDir = path.join(projectRoot, "assets", "images");
       if (fs.existsSync(projectAssetDir)) {
         const copied = this.copyProjectAssets(projectAssetDir, gameDir);
