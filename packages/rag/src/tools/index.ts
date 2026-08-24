@@ -5,7 +5,7 @@
  * in LangGraph agent definitions via ToolNode.
  *
  * Design: Accepts individual components (collections + embedder)
- * rather than the full KnowledgeStoreV2 to avoid circular imports.
+ * rather than the full KnowledgeStore to avoid circular imports.
  * Callers pass whatever subset of components they need.
  */
 

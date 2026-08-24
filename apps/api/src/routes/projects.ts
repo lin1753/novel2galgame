@@ -132,7 +132,7 @@ export function createProjectRoutes(
 
     // Clean RAG records for this deleted project
     try {
-      const charColl = rag?.knowledgeStore?.characters ?? rag?.knowledgeStore?._v2?.collections?.characters;
+      const charColl = rag?.knowledgeStore?.characters;
       if (charColl && Array.isArray(charColl.records)) {
         charColl.records = charColl.records.filter((r: any) => {
           const meta = r.metadata ?? {};
@@ -548,7 +548,7 @@ export function createProjectRoutes(
   // GET /projects/:id/rag/characters - Get all accumulated character RAG memories
   router.get("/:id/rag/characters", (req: Request, res: Response) => {
     const projectId = param(req, "id");
-    const charColl = rag?.knowledgeStore?.characters ?? rag?.knowledgeStore?._v2?.collections?.characters;
+    const charColl = rag?.knowledgeStore?.characters;
     const records = charColl?.records ?? [];
     
     // Strictly isolate by current projectId, and auto-migrate unassigned legacy records

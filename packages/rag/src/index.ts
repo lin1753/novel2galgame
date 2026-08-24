@@ -24,14 +24,18 @@ import { PromptCollection } from "./collections/prompts.js";
 import type { CharacterChunk } from "./chunking/character-chunker.js";
 import type { SceneChunk } from "./chunking/scene-chunker.js";
 
-export interface KnowledgeStoreV2Config {
+export interface KnowledgeStoreConfig {
   embedder?: EmbeddingConfig;
+  minScore?: number;
+  topK?: number;
 }
 
+export type KnowledgeStoreV2Config = KnowledgeStoreConfig;
+
 /**
- * V2 Knowledge Store — light container for RAG collections.
+ * Unified Knowledge Store for RAG collections and semantic retrieval.
  */
-export class KnowledgeStoreV2 {
+export class KnowledgeStore {
   readonly collections: {
     characters: CharacterCollection;
     scenes: SceneCollection;
@@ -41,14 +45,46 @@ export class KnowledgeStoreV2 {
 
   readonly embedder: EmbeddingService;
 
-  constructor(dataDir: string, config?: KnowledgeStoreV2Config) {
-    this.embedder = new EmbeddingService(config?.embedder ?? {});
+  constructor(
+    dataDir: string,
+    embedderOrConfig?: EmbeddingService | KnowledgeStoreConfig,
+    _legacyConfig?: { minScore?: number; topK?: number }
+  ) {
+    if (embedderOrConfig instanceof EmbeddingService) {
+      this.embedder = embedderOrConfig;
+    } else {
+      this.embedder = new EmbeddingService(embedderOrConfig?.embedder ?? {});
+    }
     this.collections = {
       characters: new CharacterCollection(dataDir),
       scenes: new SceneCollection(dataDir),
       narratives: new NarrativeCollection(dataDir),
       prompts: new PromptCollection(dataDir),
     };
+  }
+
+  get characters() {
+    return this.collections.characters;
+  }
+
+  get scenes() {
+    return this.collections.scenes;
+  }
+
+  get narratives() {
+    return this.collections.narratives;
+  }
+
+  get prompts() {
+    return this.collections.prompts;
+  }
+
+  get embedderDimension(): number {
+    return this.embedder.dimension;
+  }
+
+  get embedderMode(): string {
+    return this.embedder.mode;
   }
 
   async getEmbedding(text: string): Promise<number[]> {
@@ -59,9 +95,6 @@ export class KnowledgeStoreV2 {
     return this.embedder.embed(texts);
   }
 
-  get embedderDimension(): number { return this.embedder.dimension; }
-  get embedderMode(): string { return this.embedder.mode; }
-
   async ingestCharacterChunks(chunks: CharacterChunk[], confidence?: number): Promise<void> {
     await this.collections.characters.ingestChunks(chunks, this.embedder, confidence);
   }
@@ -69,7 +102,107 @@ export class KnowledgeStoreV2 {
   async ingestSceneChunk(chunk: SceneChunk): Promise<void> {
     await this.collections.scenes.ingestChunk(chunk, this.embedder);
   }
+
+  listKnownCharacters(): string[] {
+    return this.collections.characters.listKnownCharacters();
+  }
+
+  listKnownCharacterDetails(projectId?: string): Array<{ characterId: string; canonicalName: string; firstSeenIn: string }> {
+    return this.collections.characters.listCharacterDetails(projectId);
+  }
+
+  async searchCharacters(queryText: string, limit = 5): Promise<any[]> {
+    const vector = await this.getEmbedding(queryText);
+    return this.collections.characters.searchByVector(vector, { topK: limit });
+  }
+
+  async searchCharactersHybrid(queryText: string, limit = 5, vectorWeight = 0.6): Promise<any[]> {
+    const vector = await this.getEmbedding(queryText);
+    return this.collections.characters.searchHybrid(vector, queryText, { topK: limit, vectorWeight });
+  }
+
+  async searchCharactersWithRerank(queryText: string, llm: any, model: string, finalK = 3, coarseK = 10): Promise<any[]> {
+    const vector = await this.getEmbedding(queryText);
+    return this.collections.characters.searchReranked(vector, queryText, llm, model, { topK: finalK, coarseK });
+  }
+
+  async searchScenePatterns(queryText: string, limit = 3): Promise<any[]> {
+    const vector = await this.getEmbedding(queryText);
+    return this.collections.scenes.searchByVector(vector, { topK: limit });
+  }
+
+  async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
+    for (const chunk of chunks) {
+      const meta = chunk.metadata ?? {};
+      const appearance: string[] = chunk.appearance ?? meta.appearance ?? [];
+      const personality: string[] = chunk.personality ?? meta.personality ?? [];
+      const relationships: string[] = chunk.relationships ?? meta.relationships ?? [];
+      const chunkType = chunk.type
+        ?? (chunk.characterId?.endsWith("_appearance") ? "appearance"
+          : chunk.characterId?.endsWith("_relationship") ? "relationship"
+          : "identity");
+      const pid = chunk.projectId ?? projectId ?? (chunk.chapterId?.includes("_") ? chunk.chapterId.split("_chapter_")[0] : undefined);
+      const embedText = chunk.embedText ?? chunk.text ?? `角色: ${chunk.canonicalName} | ${appearance.join("; ")}`;
+      const vector = await this.getEmbedding(embedText);
+      let contentHash = 0;
+      for (let i = 0; i < embedText.length; i++) {
+        contentHash = (contentHash * 31 + embedText.charCodeAt(i)) | 0;
+      }
+      const contentHashStr = (contentHash >>> 0).toString(36);
+      const chapterId = chunk.chapterId ?? meta.chapterId ?? pid ?? "";
+      const recordId = `${chapterId}_${chunk.characterId}_${chunkType}_${contentHashStr}`;
+      await this.collections.characters.upsert([{
+        id: recordId,
+        vector,
+        updatedAt: new Date().toISOString(),
+        metadata: {
+          type: chunkType,
+          projectId: pid,
+          characterId: chunk.characterId,
+          canonicalName: chunk.canonicalName,
+          chapterId,
+          firstSeenIn: chunk.firstSeenIn ?? meta.firstSeenIn,
+          embedText,
+          text: chunk.text ?? embedText,
+          appearance,
+          personality,
+          relationships,
+        },
+      }]);
+    }
+  }
+
+  async ingestScenePatterns(chunks: any[]): Promise<void> {
+    for (const chunk of chunks) {
+      const embedText = chunk.embedText ?? `${chunk.chapterTitle} 场景数:${chunk.sceneCount}`;
+      const vector = await this.getEmbedding(embedText);
+      await this.collections.scenes.upsert([{
+        id: chunk.chapterId,
+        vector,
+        updatedAt: new Date().toISOString(),
+        metadata: {
+          chapterId: chunk.chapterId,
+          chapterTitle: chunk.chapterTitle,
+          sceneCount: chunk.sceneCount,
+          locationHints: chunk.locationHints ?? [],
+          characterDistribution: chunk.characterDistribution ?? {},
+          text: embedText,
+        },
+      }]);
+    }
+  }
+
+  get characterCount(): number {
+    return this.collections.characters.count;
+  }
+
+  get sceneCount(): number {
+    return this.collections.scenes.count;
+  }
 }
+
+// Backward-compatible alias
+export const KnowledgeStoreV2 = KnowledgeStore;
 
 // ── Collection exports ────────────────────────────────────
 export { BaseCollection } from "./collections/base.js";
@@ -106,12 +239,6 @@ export type { HierarchicalChunk } from "./chunking/hierarchical.js";
 export { evaluateRetrieval, formatEvalResult } from "./evaluation/metrics.js";
 export type { EvalResult, EvalSample, EvalRun } from "./evaluation/metrics.js";
 
-// Tool exports are available via @novel2gal/rag/tools entry point.
-
-// ── Backward-compatible API layer ─────────────────────────
-// Wraps v2 API with v1-style method signatures so existing
-// pipeline consumers (chapter-pipeline.ts) work without changes.
-
 import { chunkCharacterKnowledge as _chunkCharacterKnowledge } from "./chunking/character-chunker.js";
 import { chunkScenePatterns as _chunkScenePatterns } from "./chunking/scene-chunker.js";
 
@@ -123,128 +250,4 @@ export function extractCharacterKnowledge(attributionData: any, chapterId: strin
 /** Alias: extractScenePatterns → chunkScenePatterns */
 export function extractScenePatterns(segResult: any, attributionData: any, chapterId: string, chapterTitle: string): any {
   return _chunkScenePatterns(segResult, attributionData, chapterId, chapterTitle);
-}
-
-/**
- * Backward-compatible KnowledgeStore — wraps KnowledgeStoreV2
- * with v1-style text-in/text-out convenience methods.
- */
-export class KnowledgeStore {
-  readonly _v2: KnowledgeStoreV2;
-  readonly embedder: EmbeddingService;
-
-  constructor(dataDir: string, embedder?: EmbeddingService, _config?: { minScore?: number; topK?: number }) {
-    this.embedder = embedder ?? new EmbeddingService({});
-    // Pass embedder config to KnowledgeStoreV2, then override with our embedder instance
-    this._v2 = new KnowledgeStoreV2(dataDir);
-    (this._v2 as any).embedder = this.embedder;
-  }
-
-  get collections() {
-    return this._v2.collections;
-  }
-
-  get characters() {
-    return this._v2.collections.characters;
-  }
-
-  get scenes() {
-    return this._v2.collections.scenes;
-  }
-
-  listKnownCharacters(): string[] {
-    return this._v2.collections.characters.listKnownCharacters();
-  }
-
-  listKnownCharacterDetails(): Array<{ characterId: string; canonicalName: string; firstSeenIn: string }> {
-    return this._v2.collections.characters.listCharacterDetails();
-  }
-
-  async searchCharacters(queryText: string, limit = 5): Promise<any[]> {
-    const vector = await this._v2.getEmbedding(queryText);
-    return this._v2.collections.characters.searchByVector(vector, { topK: limit });
-  }
-
-  async searchCharactersHybrid(queryText: string, limit = 5, vectorWeight = 0.6): Promise<any[]> {
-    const vector = await this._v2.getEmbedding(queryText);
-    return this._v2.collections.characters.searchHybrid(vector, queryText, { topK: limit, vectorWeight });
-  }
-
-  async searchCharactersWithRerank(queryText: string, llm: any, model: string, finalK = 3, coarseK = 10): Promise<any[]> {
-    const vector = await this._v2.getEmbedding(queryText);
-    return this._v2.collections.characters.searchReranked(vector, queryText, llm, model, { topK: finalK, coarseK });
-  }
-
-  async searchScenePatterns(queryText: string, limit = 3): Promise<any[]> {
-    const vector = await this._v2.getEmbedding(queryText);
-    return this._v2.collections.scenes.searchByVector(vector, { topK: limit });
-  }
-
-  async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
-    for (const chunk of chunks) {
-      // Accept both v1 chunk shape (top-level trait arrays) and v2 CharacterChunk
-      // shape ({ type, text, metadata: { appearance, personality, relationships } })
-      const meta = chunk.metadata ?? {};
-      const appearance: string[] = chunk.appearance ?? meta.appearance ?? [];
-      const personality: string[] = chunk.personality ?? meta.personality ?? [];
-      const relationships: string[] = chunk.relationships ?? meta.relationships ?? [];
-      const chunkType = chunk.type
-        ?? (chunk.characterId?.endsWith("_appearance") ? "appearance"
-          : chunk.characterId?.endsWith("_relationship") ? "relationship"
-          : "identity");
-      const pid = chunk.projectId ?? projectId ?? (chunk.chapterId?.includes("_") ? chunk.chapterId.split("_chapter_")[0] : undefined);
-      const embedText = chunk.embedText ?? chunk.text ?? `角色: ${chunk.canonicalName} | ${appearance.join("; ")}`;
-      const vector = await this._v2.getEmbedding(embedText);
-      // Content-hash suffix keeps ids unique per trait chunk (a character can have
-      // several relationship chunks) while staying idempotent across re-runs
-      let contentHash = 0;
-      for (let i = 0; i < embedText.length; i++) {
-        contentHash = (contentHash * 31 + embedText.charCodeAt(i)) | 0;
-      }
-      const contentHashStr = (contentHash >>> 0).toString(36);
-      const chapterId = chunk.chapterId ?? meta.chapterId ?? pid ?? "";
-      const recordId = `${chapterId}_${chunk.characterId}_${chunkType}_${contentHashStr}`;
-      await this._v2.collections.characters.upsert([{
-        id: recordId,
-        vector,
-        updatedAt: new Date().toISOString(),
-        metadata: {
-          type: chunkType,
-          projectId: pid,
-          characterId: chunk.characterId,
-          canonicalName: chunk.canonicalName,
-          chapterId,
-          firstSeenIn: chunk.firstSeenIn ?? meta.firstSeenIn,
-          embedText,
-          text: chunk.text ?? embedText,
-          appearance,
-          personality,
-          relationships,
-        },
-      }]);
-    }
-  }
-
-  async ingestScenePatterns(chunks: any[]): Promise<void> {
-    for (const chunk of chunks) {
-      const embedText = chunk.embedText ?? `${chunk.chapterTitle} 场景数:${chunk.sceneCount}`;
-      const vector = await this._v2.getEmbedding(embedText);
-      await this._v2.collections.scenes.upsert([{
-        id: chunk.chapterId,
-        vector,
-        updatedAt: new Date().toISOString(),
-        metadata: {
-          chapterId: chunk.chapterId,
-          chapterTitle: chunk.chapterTitle,
-          sceneCount: chunk.sceneCount,
-          locationHints: chunk.locationHints ?? [],
-          characterDistribution: chunk.characterDistribution ?? {},
-          text: embedText,
-        },
-      }]);
-    }
-  }
-
-  get characterCount(): number { return this._v2.collections.characters.count; }
-  get sceneCount(): number { return this._v2.collections.scenes.count; }
 }
