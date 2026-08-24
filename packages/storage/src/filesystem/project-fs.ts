@@ -276,6 +276,21 @@ export function readConsistencyReport(
   return readProjectJson<ConsistencyReport>(dataDir, projectId, FILE_NAMES.consistencyReport);
 }
 
+export function writeCharacterProfiles(
+  dataDir: string,
+  projectId: string,
+  profiles: Record<string, any>
+): void {
+  writeProjectJson(dataDir, projectId, FILE_NAMES.characterProfiles, profiles);
+}
+
+export function readCharacterProfiles(
+  dataDir: string,
+  projectId: string
+): Record<string, any> | null {
+  return readProjectJson<Record<string, any>>(dataDir, projectId, FILE_NAMES.characterProfiles);
+}
+
 // --- Typed convenience readers ---
 
 export function readAttributionResult(

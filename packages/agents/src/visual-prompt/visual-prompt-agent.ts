@@ -66,6 +66,14 @@ export function cleanseVisualPrompt(prompt: string): string {
   return clean;
 }
 
+/** Post-process background prompt to ensure single location focus and remove artifacts */
+export function cleanseBackgroundPrompt(prompt: string): string {
+  if (!prompt) return "";
+  let clean = cleanseVisualPrompt(prompt);
+  clean = clean.replace(/,\s*,+/g, ",");
+  return clean.trim();
+}
+
 const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是从叙事单元中提取角色外观和场景背景的视觉信息，并生成适合 AI 图像生成模型的结构化提示词包。
 
 ## 任务说明
@@ -235,8 +243,8 @@ export async function runVisualPromptAgent(
       ? {
           ...result.backgroundPrompt,
           sceneId,
-          finalPrompt: cleanseVisualPrompt((result.backgroundPrompt as any).finalPrompt || (result.backgroundPrompt as any).description || ""),
-          description: cleanseVisualPrompt((result.backgroundPrompt as any).description || (result.backgroundPrompt as any).finalPrompt || ""),
+          finalPrompt: cleanseBackgroundPrompt((result.backgroundPrompt as any).finalPrompt || (result.backgroundPrompt as any).description || ""),
+          description: cleanseBackgroundPrompt((result.backgroundPrompt as any).description || (result.backgroundPrompt as any).finalPrompt || ""),
           evidence: validateEvidence(result.backgroundPrompt.evidence ?? []),
         }
       : undefined;

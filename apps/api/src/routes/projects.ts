@@ -647,5 +647,26 @@ export function createProjectRoutes(
     });
   });
 
+  // POST /projects/:projectId/reset-failed - Reset failed/crashed chapters for clean rerun
+  router.post("/:projectId/reset-failed", (req: Request, res: Response) => {
+    const projectId = param(req, "projectId");
+    const project = projectRepo.getById(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const result = db.prepare("UPDATE chapters SET status = 'raw', last_error = NULL, current_task_id = NULL, updated_at = ? WHERE project_id = ? AND status IN ('failed', 'crashed')")
+      .run(now(), projectId);
+
+    // Update project counts
+    const failed = db.prepare("SELECT COUNT(*) as count FROM chapters WHERE project_id = ? AND status = 'failed'").get(projectId) as { count: number };
+    const ready = db.prepare("SELECT COUNT(*) as count FROM chapters WHERE project_id = ? AND status = 'chapter_ready'").get(projectId) as { count: number };
+    projectRepo.updateChapterCounts(projectId, {
+      failed: failed?.count ?? 0,
+      ready: ready?.count ?? 0,
+    });
+
+    console.log(`[Project] Reset ${result.changes} failed/crashed chapters to raw for ${projectId}`);
+    res.json({ success: true, resetCount: result.changes });
+  });
+
   return router;
 }

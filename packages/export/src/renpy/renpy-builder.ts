@@ -126,6 +126,22 @@ export class RenPyBuilder implements GameBuilder {
         } catch {}
       }
 
+      // Also load from locked global character_profiles.json if present
+      const globalProfilesPath = path.join(projectRoot, "character_profiles.json");
+      if (fs.existsSync(globalProfilesPath)) {
+        try {
+          const globalProfiles = JSON.parse(fs.readFileSync(globalProfilesPath, "utf-8"));
+          for (const [cid, prof] of Object.entries<any>(globalProfiles)) {
+            if (prof?.basePrompt) {
+              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.basePrompt);
+              if (prof.canonicalName && !characterNamePromptMap.has(prof.canonicalName)) {
+                characterNamePromptMap.set(prof.canonicalName, prof.basePrompt);
+              }
+            }
+          }
+        } catch {}
+      }
+
       const characterNameMap = new Map(input.characters.map((c) => [c.characterId, c.canonicalName]));
 
       for (const [id, label] of backgrounds) {

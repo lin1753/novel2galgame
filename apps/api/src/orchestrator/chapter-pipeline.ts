@@ -11,6 +11,8 @@ import {
   writeVNScript,
   writeFidelityReport,
   writeVisualPromptResult,
+  writeCharacterProfiles,
+  readCharacterProfiles,
   createDatabase,
   readChapterJson,
   readAttributionResult,
@@ -666,10 +668,22 @@ export async function runChapterPipeline(
       try {
         // RAG: retrieve character appearance knowledge for visual prompt consistency
         let characterKnowledge: string | undefined;
+        const knowledgeParts: string[] = [];
+
+        // 1. Read locked global character profiles from disk first
+        try {
+          const globalProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
+          for (const [cid, prof] of Object.entries(globalProfiles)) {
+            if (prof.basePrompt) {
+              knowledgeParts.push(`角色"${prof.canonicalName || cid}": [全局母版] ${prof.basePrompt}`);
+            }
+          }
+        } catch {}
+
+        // 2. Query RAG vector store for additional context
         if (rag) {
           try {
             const charNames = attrCharacters.map((c: any) => c.canonicalName).filter(Boolean);
-            const knowledgeParts: string[] = [];
             for (const name of charNames) {
               const results = await rag.knowledgeStore.searchCharacters(name, 3);
               const appearances = new Set<string>();
@@ -682,13 +696,14 @@ export async function runChapterPipeline(
                 knowledgeParts.push(`角色"${name}": ${Array.from(appearances).join("; ")}`);
               }
             }
-            if (knowledgeParts.length > 0) {
-              characterKnowledge = knowledgeParts.join("\n");
-              console.log(`[RAG] Visual prompt: retrieved appearance for ${knowledgeParts.length} characters`);
-            }
           } catch (e) {
             console.warn(`[RAG] Failed to retrieve character appearance:`, e);
           }
+        }
+
+        if (knowledgeParts.length > 0) {
+          characterKnowledge = knowledgeParts.join("\n");
+          console.log(`[RAG] Visual prompt: retrieved appearance context for ${knowledgeParts.length} entries`);
         }
 
         const vp = resolveAgent(agentModels, "visualPrompt", provider, model);
@@ -707,6 +722,33 @@ export async function runChapterPipeline(
         );
         if (vpResult.success && vpResult.data) {
           writeVisualPromptResult(dataDir, project.projectId, scene.sceneId, vpResult.data);
+
+          // Update Project-level Global Character Profiles
+          try {
+            const existingProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
+            let profilesUpdated = false;
+            for (const cp of (vpResult.data.characterPrompts || []) as any[]) {
+              if (cp.characterId && (cp.finalPrompt || cp.promptPack?.appearancePrompt)) {
+                const prompt = cp.finalPrompt || cp.promptPack?.appearancePrompt || "";
+                if (prompt && (!existingProfiles[cp.characterId] || !existingProfiles[cp.characterId].basePrompt)) {
+                  existingProfiles[cp.characterId] = {
+                    characterId: cp.characterId,
+                    canonicalName: cp.canonicalName || cp.characterId,
+                    basePrompt: prompt,
+                    evidence: cp.evidence || [],
+                    updatedAt: new Date().toISOString(),
+                  };
+                  profilesUpdated = true;
+                }
+              }
+            }
+            if (profilesUpdated) {
+              writeCharacterProfiles(dataDir, project.projectId, existingProfiles);
+              console.log(`[RAG] Updated project character profiles with ${Object.keys(existingProfiles).length} characters`);
+            }
+          } catch (e) {
+            console.warn(`[RAG] Failed to update global character profiles:`, e);
+          }
         }
       } catch {
         onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);

@@ -27,6 +27,8 @@ export {
   readProjectJson,
   writeConsistencyReport,
   readConsistencyReport,
+  writeCharacterProfiles,
+  readCharacterProfiles,
   readAttributionResult,
   readSegmentationResult,
   readVisualPromptResult,

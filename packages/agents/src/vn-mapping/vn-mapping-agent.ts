@@ -25,12 +25,12 @@ VN 步骤类型:
 - pause: 暂停等待 (durationMs)
 - transition: 过场效果 (name: fade/cut/dissolve, cameraEffect)
 
-角色位置 rules (position 字段):
-- 必须是 "left_far" | "left" | "center" | "right" | "right_far" 之一
-- 单角色场景: 使用 "center"
-- 双角色对话: 说话者 "left"，倾听者 "right"（或反之，分立两侧）
-- 三角色场景: 主角 "center"，其他角色分列 "left_far" / "right_far"
-- 多人对峙场景: 动态穿插 "left_far", "left", "center", "right", "right_far"
+角色位置与同屏排布 rules (position 字段):
+- 必须严格是 "left_far" | "left" | "center" | "right" | "right_far" 之一 (绝不可输出其他单词)
+- 单角色场景: 使用 "center" (50%)
+- 双角色对话: 说话者 "left" (30%)，倾听者 "right" (70%)（或反之，分立两侧）
+- 三角色场景: 核心说话者居中 "center" (50%) 且 emphasis="focus"，左侧协同角色 "left_far" (15%) emphasis="dim"，右侧次要角色 "right_far" (85%) emphasis="dim"
+- 四角色群像: 依次分列 "left_far" (15%), "left" (30%), "right" (70%), "right_far" (85%)。当前发言者自动设为 shotType="bust" 且 emphasis="focus"，其他 3 名倾听角色一律设为 emphasis="dim"
 
 景别 rules (shotType 字段, 可选):
 - "waist": 腰部半身像 (scale=1.0) — 50%~60% 日常对白默认采用
