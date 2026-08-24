@@ -284,7 +284,7 @@ export async function runChapterPipeline(
   onStageUpdate?: (stage: string) => void,
   flagsDone?: { parsingDone?: boolean; attributionDone?: boolean; segmentationDone?: boolean },
   sceneRepo?: { getById: (id: string) => { mappingStatus?: string; reviewStatus?: string } | null },
-  rag?: { knowledgeStore: { searchCharacters: (q: string, l: number) => Promise<any[]>; searchCharactersHybrid?: (q: string, l: number, w: number) => Promise<any[]>; searchCharactersWithRerank?: (q: string, llm: any, m: string, k: number, c: number) => Promise<any[]>; searchScenePatterns: (q: string, l: number) => Promise<any[]>; listKnownCharacters: () => string[]; ingestCharacters: (c: any[]) => Promise<void>; ingestScenePatterns: (c: any[]) => Promise<void> }; extractor: { extractCharacterKnowledge: (attr: any, chId: string, chTitle: string) => any[]; extractScenePatterns: (seg: any, attr: any, chId: string, chTitle: string) => any } },
+  rag?: { knowledgeStore: { searchCharacters: (q: string, l: number) => Promise<any[]>; searchCharactersHybrid?: (q: string, l: number, w: number) => Promise<any[]>; searchCharactersWithRerank?: (q: string, llm: any, m: string, k: number, c: number) => Promise<any[]>; searchScenePatterns: (q: string, l: number) => Promise<any[]>; listKnownCharacters: () => string[]; ingestCharacters: (c: any[], projectId?: string) => Promise<void>; ingestScenePatterns: (c: any[]) => Promise<void> }; extractor: { extractCharacterKnowledge: (attr: any, chId: string, chTitle: string) => any[]; extractScenePatterns: (seg: any, attr: any, chId: string, chTitle: string) => any } },
 ) {
   const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
   const d = db!; // db is always passed from the route
@@ -435,7 +435,7 @@ export async function runChapterPipeline(
       try {
         const chunks = rag.extractor.extractCharacterKnowledge(attributionData, chapterId, chapterTitle);
         if (chunks.length > 0) {
-          await rag.knowledgeStore.ingestCharacters(chunks);
+          await rag.knowledgeStore.ingestCharacters(chunks, project.projectId);
           console.log(`[RAG] Ingested ${chunks.length} character chunks for ${chapterTitle}`);
         }
       } catch (e) { console.log(`[RAG] Ingest failed:`, e); }

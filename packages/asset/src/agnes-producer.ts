@@ -60,34 +60,42 @@ export class AgnesImageProducer implements AssetProducer {
     return ["background", "character", "cg"];
   }
 
+  private buildNegativePrompt(entry: AssetEntry): string {
+    if (entry.type === "background") {
+      return "1girl, 1boy, humans, people, character, silhouette, crowd, photorealistic, photograph, 3d, cgi, ugly, blurry, lowres, dark, dirty, messy texture, oil painting, painterly brushstrokes, text, watermark, signature";
+    }
+    if (entry.type === "character") {
+      return "photorealistic, realistic, photograph, 3d, cgi, render, western, comic, manhwa, bad anatomy, deformed eyes, cross-eyed, extra fingers, poorly drawn hands, missing fingers, extra limbs, bad proportions, blurry, lowres, jpeg artifacts, text, signature, watermark, multiple girls, 1boy, checkerboard, grey background, shadows on background";
+    }
+    return "bad anatomy, deformed eyes, extra limbs, bad hands, lowres, blurry, jpeg artifacts, text, watermark, signature, photograph, 3d render";
+  }
+
   private buildPrompt(entry: AssetEntry): string {
-    const neutralQuality = "Japanese visual novel game art, 2D anime illustration, soft cel shading, clean lineart, rich colors, high quality, masterpiece";
     switch (entry.type) {
       case "background": {
-        // If a visual prompt finalPrompt is available, use it directly
         if (entry.prompt) {
-          return `${entry.prompt}, (no humans:1.4), empty scenery`;
+          let p = entry.prompt.replace(/painted (?:scenery|environment|background)/gi, "anime background art");
+          p = p.replace(/oil painting|painterly|brushstrokes/gi, "clean lineart");
+          if (!p.includes("no humans")) p += ", no humans, scenery";
+          return p;
         }
-        return `${entry.label}, visual novel background scenery, painted environment, wide angle shot, atmospheric lighting, detailed scenery, (no humans:1.4), scenery only, high quality`;
+        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, makoto shinkai style, shinkai cinematic key visual, kyoto animation style, anime background art, visual novel background, game cg, official art, no humans, scenery, ${entry.label}, volumetric god rays, soft lighting bloom, vibrant saturated colors, crisp lineart, wide angle`;
       }
       case "character": {
-        // If a rich visual prompt is available in entry.prompt, use it directly
         if (entry.prompt) {
-          if (!entry.expression || entry.expression === "default" || entry.prompt.includes(`expression: ${entry.expression}`)) {
-            return entry.prompt;
+          let p = entry.prompt;
+          if (entry.expression && entry.expression !== "default" && !p.includes(`expression: ${entry.expression}`)) {
+            p = `${p}, expression: ${entry.expression}`;
           }
-          return `${entry.prompt}, expression: ${entry.expression}`;
+          return p;
         }
-        const charBase = `solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, modern visual novel character sprite, ${neutralQuality}`;
-        if (!entry.expression || entry.expression === "default") {
-          return `${entry.label}, ${charBase}`;
-        }
-        return `${entry.label}, expression: ${entry.expression}, ${charBase}`;
+        const charBase = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${entry.label}, expression: ${entry.expression || "neutral"}, clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background`;
+        return charBase;
       }
       case "cg":
-        return `${entry.label}, ${neutralQuality}, cinematic visual novel CG, dramatic composition, emotional scene, beautiful cinematic lighting`;
+        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, cinematic visual novel CG, dramatic composition, emotional scene, ${entry.label}, makoto shinkai style, beautiful cinematic lighting`;
       default:
-        return `${entry.label}, ${neutralQuality}`;
+        return `masterpiece, best quality, highres, visual novel asset, ${entry.label}, clean 2D lineart, solid white background`;
     }
   }
 
@@ -96,13 +104,16 @@ export class AgnesImageProducer implements AssetProducer {
     entry: AssetEntry
   ): Promise<{ url?: string; b64?: string }> {
     const size = entry.type === "background" ? "1024x768" : "768x1024";
+    const negative_prompt = this.buildNegativePrompt(entry);
 
     const body = JSON.stringify({
       model: "agnes-image-2.1-flash",
       prompt,
       size,
+      negative_prompt,
       extra_body: {
         response_format: "b64_json",
+        negative_prompt,
       },
     });
 

@@ -22,11 +22,11 @@ export interface VisualPromptInput {
 }
 
 const STYLE_TEMPLATES: Record<string, string> = {
-  "urban-romance": "modern Chinese romance visual novel style, high quality digital illustration, elegant manhwa character art, realistic contemporary workplace setting, refined aesthetic, clean lineart, soft cinematic lighting",
-  "modern-romance": "modern Chinese romance visual novel style, clean digital illustration, refined elegant manhwa art, stylish contemporary outfit, natural hair tones, crisp lineart",
-  "school-romance-anime": "Japanese visual novel style, high quality 2D anime illustration, soft cel shading, detailed character design, clean lineart, rich color palette",
-  "fresh-japanese": "Japanese illustration style, watercolor anime texture, soft pastel palette, gentle ambient lighting, clean flowing lines, iyashikei aesthetic",
-  "default": "high quality visual novel character art, clean digital illustration, refined aesthetic, crisp lineart, rich color palette",
+  "urban-romance": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, high-end 2D anime digital illustration, Type-Moon and Kyoto Animation aesthetic, clean fine lineart, smooth cel shading, vibrant soft colors, solid white background",
+  "modern-romance": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, high-end 2D anime illustration, clean delicate 2D lineart, smooth cel shading, solid white background",
+  "school-romance-anime": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, Key and Kyoto Animation aesthetic, detailed anime eyes, delicate lineart, smooth cel shading, solid white background",
+  "fresh-japanese": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, soft delicate aesthetic, pastel anime palette, clean flowing lineart, solid white background",
+  "default": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, 2D anime illustration, clean fine lineart, smooth cel shading, solid white background",
 };
 
 /** Chinese facial/appearance idiom translation dictionary for AI image prompts */
@@ -58,6 +58,9 @@ export const CHINESE_IDIOM_PROMPT_MAP: Record<string, string> = {
 export function cleanseVisualPrompt(prompt: string): string {
   if (!prompt) return "";
   let clean = prompt;
+  // Remove dirty paint words
+  clean = clean.replace(/painted (?:scenery|environment|background)/gi, "anime background art");
+  clean = clean.replace(/oil painting|painterly|brushstrokes/gi, "clean lineart");
   // Replace literal peach blossom eye translations
   clean = clean.replace(/peach[- ]blossom[- ](?:shaped[- ])?eyes?/gi, "captivating almond-shaped eyes");
   clean = clean.replace(/phoenix[- ](?:shaped[- ])?eyes?/gi, "narrow elegant upturned eyes");
@@ -66,45 +69,49 @@ export function cleanseVisualPrompt(prompt: string): string {
   return clean;
 }
 
-/** Post-process background prompt to ensure single location focus and remove artifacts */
+/** Post-process background prompt to ensure single location focus, no humans, and clean tags */
 export function cleanseBackgroundPrompt(prompt: string): string {
   if (!prompt) return "";
   let clean = cleanseVisualPrompt(prompt);
+  // Ensure no humans and clean commas
   clean = clean.replace(/,\s*,+/g, ",");
   return clean.trim();
 }
 
-const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是从叙事单元中提取角色外观和场景背景的视觉信息，并生成适合 AI 图像生成模型的结构化提示词包。
+const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是从叙事单元中提取角色外观和场景背景的视觉信息，并生成适合 AI 图像生成模型（如 2D 动漫扩散模型）的标准 Danbooru 风格 Tag 提示词序列。
 
 ## 任务说明
 
 1. **提取视觉证据**: 仔细阅读每个叙事单元, 提取以下类别的视觉信息:
-   - appearance: 角色外貌特征（发型、眼睛、体型、年龄、性别等）
-   - clothing: 角色服装描述
+   - appearance: 角色外貌特征（发型、发色、眼睛颜色与眼型、五官、体型、年龄、性别等）
+   - clothing: 角色服装细节与饰品描述
    - location: 场景发生的核心单一物理地点描述
    - time: 时间信息（白天、傍晚、深夜等）
-   - weather: 天气信息
+   - weather: 天气信息（晴天、阴雨、飞雪等）
    - mood: 氛围、情绪基调
 
-2. **生成角色提示词包 (Character Sprite Prompt)**:
+2. **生成角色立绘提示词包 (Character Sprite Prompt - Danbooru Tag 架构)**:
    - 收集该角色的真实视觉证据，引用必须是原文的精确摘录
    - **严格忠实角色性别与题材背景**:
-     * **性别必须明确标注**: 女性角色必须明确写出 \`young woman / adult female\`；男性角色必须明确写出 \`handsome young man / mature man\`。
-     * **现代都市题材服装**: 现代都市/言情题材必须生成现代日常/职场装（如 \`professional business suit, elegant modern blouse, casual chic outfit\`），**严禁生成和服、奇幻铠甲、日系校服等不符合题材的装束**。
+     * **性别与身份必须明确**: 女性角色使用 \`1girl, solo\`, 男性角色使用 \`1boy, solo\`。
+     * **现代都市题材服装**: 现代都市/言情题材必须生成现代日常/职场装（如 \`formal business suit, tailored blazer, white collared shirt, modern dress\`），**严禁生成和服、奇幻铠甲、日系校服等不符合题材的装束**。
      * **中文外貌成语规范英译（CRITICAL）**:
        - 桃花眼 -> \`captivating double-eyelid eyes, attractive alluring gaze\` (绝对严禁翻译成 peach-blossom)
        - 丹凤眼 -> \`slender elegant almond-shaped eyes with subtle upturned corners\`
        - 柳叶眉 -> \`slender arched delicate eyebrows\`
        - 剑眉星目 -> \`sharp defined eyebrows, bright piercing eyes\`
-     * 基础结构: \`solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, [gender & age], [hair style & color], [facial features & eyes], [clothing], [expression], high quality\`
-     * 景别选择: 日常对话用 waist-up (默认)，初登场/肢体展示用 full body，情感聚焦用 bust-up close portrait，冲突/告白用 face close-up
+     * **标准 2D Galgame 立绘 Tag 结构**:
+       \`masterpiece, best quality, highres, absurdres, [1girl/1boy], solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, [age & gender], [hair color & style], [expressive anime eyes & color], [facial features], [clothing tags], [expression], clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background\`
+     * 景别选择: 日常对话用 upper body waist up (默认)，初登场用 full body，情感聚焦用 bust up close portrait，冲突/告白用 face close-up。
 
-3. **生成背景提示词包 (Background Prompt)**:
+3. **生成背景提示词包 (Background Prompt - 新海诚/京阿尼电影级 2D 动漫背景)**:
    - **单一核心地点锚定 (CRITICAL)**: 每个场景的背景图必须聚焦于**当前场景发生的最主要单一物理地点**（如"茶楼雅间"、"学校走廊"、"办公室"、"医院门口"）！
    - **绝对禁止拼合多地点**: 若叙事中提到回忆、闪回或转场提及的多个地点，**只保留当前场景真实发生的核心地点，严禁输出多个地点**！
-   - 基础结构: \`Japanese anime background art, visual novel scene, painted scenery, no humans, empty scenery, wide angle shot, [location details], [time/weather lighting], [mood atmosphere], highly detailed environment\`
+   - **【极其重要】背景绝对纯净隔离**: **背景描述中绝对严禁包含任何角色姓名、人物外貌、动作或剧情互动！必须是 100% 纯环境建筑与光影描述！**
+   - **标准 2D 动漫背景 Tag 结构**:
+     \`masterpiece, best quality, highres, absurdres, 8k wallpaper, makoto shinkai style, shinkai cinematic key visual, kyoto animation style, anime background art, visual novel background, game cg, official art, no humans, scenery, [location tags], [architectural details], [time & weather tags], crepuscular rays, volumetric god rays, anamorphic lens flare, soft lighting bloom, vibrant saturated colors, crisp lineart, wide angle landscape\`
 
-4. **所有 finalPrompt 必须为精炼精准的英文**，适合 AI 图像生成模型使用。
+4. **所有 finalPrompt 必须为标准逗号分隔的英文 Tag 序列**，适合 AI 图像生成模型使用。
 
 ## 输出 JSON 格式
 
@@ -117,16 +124,18 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
         { "sourceUnitId": "unit_0001_05", "quote": "江屿垂眸静立一旁，娴熟地烫杯", "category": "appearance" }
       ],
       "conservativeCompletion": ["handsome young man in his 20s", "neat dark hair", "formal business attire", "composed quiet expression"],
-      "finalPrompt": "solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, handsome young man in his 20s, neat dark hair, sharp calm eyes, composed quiet expression, wearing formal business attire, modern visual novel character art, high quality"
+      "finalPrompt": "masterpiece, best quality, highres, absurdres, 1boy, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, handsome young man in his 20s, neat dark hair, sharp calm eyes, composed quiet expression, formal business attire, clean fine lineart, cel shading, simple background, solid white background"
     }
   ],
   "backgroundPrompt": {
     "sceneId": "scene_0001_0001",
+    "location": "传统茶楼雅间",
+    "backgroundId": "bg_teahouse_room",
     "evidence": [
       { "sourceUnitId": "unit_0001_10", "quote": "茶楼雅间里，茶香氤氲", "category": "location" }
     ],
     "conservativeCompletion": ["traditional Chinese tea house private room", "wooden tea table and chairs", "soft warm lighting"],
-    "finalPrompt": "Japanese anime background art, visual novel scene, painted scenery, no humans, empty scenery, wide angle shot, elegant traditional tea house private room, polished wooden furniture, delicate tea set on table, soft warm ambient lighting, peaceful tense atmosphere, highly detailed interior"
+    "finalPrompt": "masterpiece, best quality, highres, absurdres, 8k wallpaper, makoto shinkai style, shinkai cinematic key visual, kyoto animation style, anime background art, visual novel background, game cg, official art, no humans, scenery, traditional elegant tea house private room, polished dark wooden furniture, delicate porcelain tea set on wooden table, warm ambient lighting, soft volumetric lighting bloom, serene atmosphere, crisp lineart, wide angle interior"
   }
 }
 
@@ -134,7 +143,7 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
 - quote 必须是原文精确引用，绝不编造
 - 性别与题材背景必须 100% 准确，杜绝日系奇幻元素污染现代言情
 - 中文成语绝不字面直译（桃花眼不得出现 peach-blossom 单词）
-- 背景图提示词必须单一聚焦，不可包含多地点`;
+- 背景图提示词必须单一聚焦，不可包含多地点，**绝对严禁出现任何人物描写**`;
 
 function buildUserPrompt(input: VisualPromptInput): string {
   const { sceneId, chapterId, scene, units, characters, styleTemplate, characterKnowledge } = input;

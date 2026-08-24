@@ -111,14 +111,31 @@ export class RenPyBuilder implements GameBuilder {
                 if (vp.backgroundPrompt) {
                   const bgPrompt = vp.backgroundPrompt.finalPrompt || vp.backgroundPrompt.description;
                   if (bgPrompt) {
+                    if (sEntry) backgroundPromptMap.set(sEntry, bgPrompt);
                     if (vp.backgroundPrompt.sceneId) backgroundPromptMap.set(vp.backgroundPrompt.sceneId, bgPrompt);
                     if (vp.backgroundPrompt.backgroundId) backgroundPromptMap.set(vp.backgroundPrompt.backgroundId, bgPrompt);
+                    if (vp.backgroundPrompt.location) backgroundPromptMap.set(vp.backgroundPrompt.location, bgPrompt);
                     if (Array.isArray(vp.backgroundPrompt.evidence)) {
                       for (const ev of vp.backgroundPrompt.evidence) {
                         if (ev.quote) backgroundPromptMap.set(ev.quote.replace(/^\[.*?\]\s*/, "").trim(), bgPrompt);
                       }
                     }
                   }
+                }
+              } catch {}
+            }
+            // Also check scene.json for location names
+            const scenePath = path.join(projectScenesDir, sEntry, "scene.json");
+            if (fs.existsSync(scenePath)) {
+              try {
+                const sc = JSON.parse(fs.readFileSync(scenePath, "utf-8"));
+                const locName = sc.location?.name;
+                const locCat = sc.location?.category;
+                const existingPrompt = backgroundPromptMap.get(sEntry);
+                if (existingPrompt) {
+                  if (locName && !backgroundPromptMap.has(locName)) backgroundPromptMap.set(locName, existingPrompt);
+                  if (locCat && !backgroundPromptMap.has(locCat)) backgroundPromptMap.set(locCat, existingPrompt);
+                  if (sc.id && !backgroundPromptMap.has(sc.id)) backgroundPromptMap.set(sc.id, existingPrompt);
                 }
               } catch {}
             }
@@ -145,7 +162,16 @@ export class RenPyBuilder implements GameBuilder {
       const characterNameMap = new Map(input.characters.map((c) => [c.characterId, c.canonicalName]));
 
       for (const [id, label] of backgrounds) {
-        const bgPrompt = backgroundPromptMap.get(id) || (label ? backgroundPromptMap.get(label) : undefined);
+        let bgPrompt = backgroundPromptMap.get(id) || (label ? backgroundPromptMap.get(label) : undefined);
+        if (!bgPrompt) {
+          // Substring / fuzzy match
+          for (const [k, p] of backgroundPromptMap.entries()) {
+            if ((label && (k.includes(label) || label.includes(k))) || (id && (k.includes(id) || id.includes(k)))) {
+              bgPrompt = p;
+              break;
+            }
+          }
+        }
         manifest.assets.background[id] = {
           type: "background",
           label,
@@ -170,7 +196,7 @@ export class RenPyBuilder implements GameBuilder {
               ? basePrompt
               : `${basePrompt}, expression: ${expr}`;
           } else {
-            prompt = `solo character, waist-up portrait, transparent background, alpha channel, no background, clean cutout, modern visual novel character sprite, ${charName}, expression: ${expr || "neutral"}, high quality`;
+            prompt = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${expr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
           }
 
           manifest.assets.character[charId].expressions[expr] = {

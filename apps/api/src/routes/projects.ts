@@ -26,6 +26,7 @@ import {
   writeConsistencyReport,
   readConsistencyReport,
   writeChapterSource,
+  readCharacterProfiles,
 } from "@novel2gal/storage";
 import { runStructureAgent, runConsistencyReviewAgent } from "@novel2gal/agents";
 import type { ChapterConsistencyData } from "@novel2gal/agents";
@@ -587,6 +588,68 @@ export function createProjectRoutes(
       chunks: Array<{ id: string; chapterId: string; chunkType: string; text: string }>;
     }>();
 
+    // 1. First populate from locked global character profiles (if available)
+    try {
+      const globalProfiles = readCharacterProfiles(config.dataDir, projectId);
+      for (const [cid, prof] of Object.entries<any>(globalProfiles || {})) {
+        if (!prof) continue;
+        const name = prof.canonicalName || cid.replace(/^char_/, "");
+        if (!charMap.has(name)) {
+          charMap.set(name, {
+            canonicalName: name,
+            characterId: prof.characterId || cid,
+            appearances: new Set(),
+            personalities: new Set(),
+            relationships: [],
+            chapters: new Set(),
+            timeline: [],
+            chunks: [],
+          });
+        }
+        const entry = charMap.get(name)!;
+        if (prof.appearance) entry.appearances.add(prof.appearance);
+        if (prof.clothing) entry.appearances.add(`服装: ${prof.clothing}`);
+        if (prof.personality) entry.personalities.add(prof.personality);
+        if (prof.gender || prof.age) entry.personalities.add(`${prof.gender || ""} ${prof.age ? prof.age + "岁" : ""}`.trim());
+
+        if (Array.isArray(prof.evidence)) {
+          for (const ev of prof.evidence) {
+            if (ev?.quote) {
+              entry.chunks.push({
+                id: `${cid}_evidence_${entry.chunks.length}`,
+                chapterId: ev.sourceUnitId || "母版",
+                chunkType: "appearance",
+                text: `[原文证据] ${ev.quote}`,
+              });
+              entry.timeline.push({
+                chapterTitle: ev.sourceUnitId || "小说原文",
+                chapterId: ev.sourceUnitId || "",
+                traitKind: "evidence",
+                text: ev.quote,
+              });
+            }
+          }
+        }
+        if (prof.basePrompt && entry.chunks.length === 0) {
+          entry.chunks.push({
+            id: `${cid}_profile_prompt`,
+            chapterId: "人设母版",
+            chunkType: "appearance",
+            text: `[立绘 Prompt] ${prof.basePrompt}`,
+          });
+          entry.timeline.push({
+            chapterTitle: "全局人设",
+            chapterId: "global_profile",
+            traitKind: "appearance",
+            text: prof.appearance || prof.basePrompt,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`[RAG Route] Failed to load character profiles:`, e);
+    }
+
+    // 2. Then merge from RAG vector records
     for (const r of projectRecords) {
       const meta = r.metadata ?? {};
       const name = (meta.canonicalName as string) || (meta.characterId as string)?.replace(/^char_/, "") || "未知";
