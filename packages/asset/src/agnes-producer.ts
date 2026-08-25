@@ -79,7 +79,7 @@ export class AgnesImageProducer implements AssetProducer {
           if (!p.includes("no humans")) p += ", no humans, scenery";
           return p;
         }
-        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, makoto shinkai style, shinkai cinematic key visual, kyoto animation style, anime background art, visual novel background, game cg, official art, no humans, scenery, ${entry.label}, volumetric god rays, soft lighting bloom, vibrant saturated colors, crisp lineart, wide angle`;
+        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, visual novel background, game cg, official art, no humans, scenery, ${entry.label}, atmospheric lighting, soft lighting bloom, vibrant rich colors, crisp lineart, wide angle`;
       }
       case "character": {
         if (entry.prompt) {
@@ -93,7 +93,7 @@ export class AgnesImageProducer implements AssetProducer {
         return charBase;
       }
       case "cg":
-        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, cinematic visual novel CG, dramatic composition, emotional scene, ${entry.label}, makoto shinkai style, beautiful cinematic lighting`;
+        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, cinematic visual novel CG, dramatic composition, emotional scene, ${entry.label}, beautiful cinematic lighting`;
       default:
         return `masterpiece, best quality, highres, visual novel asset, ${entry.label}, clean 2D lineart, solid white background`;
     }

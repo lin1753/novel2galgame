@@ -5,6 +5,7 @@
  * without changing the public API.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { readJson, writeJson } from "../storage/json-store.js";
 
@@ -23,6 +24,7 @@ export type WhereClause = Record<string, {
   $gte?: number;
   $lte?: number;
   $in?: unknown[];
+  $contains?: unknown;
 }>;
 
 export interface SearchOptions {
@@ -45,18 +47,27 @@ export class BaseCollection {
 
   constructor(dataDir: string, name: string) {
     this._name = name;
-    this.storePath = path.join(dataDir, "rag-v2", `${name}.json`);
+    this.storePath = path.join(dataDir, "rag", `${name}.json`);
     this.load();
   }
 
   // ── Persistence (delegated to json-store) ────────────
 
   protected load(): void {
-    const result = readJson<{ records: unknown[] }>(this.storePath);
+    let result = readJson<{ records: unknown[] }>(this.storePath);
+    if (!result.ok && result.error.message.includes("file not found")) {
+      const legacyPath = this.storePath.replace(/([/\\])rag([/\\])/, "$1rag-v2$2");
+      if (fs.existsSync(legacyPath)) {
+        result = readJson<{ records: unknown[] }>(legacyPath);
+      }
+    }
     if (result.ok) {
       this.records = Array.isArray(result.data.records)
         ? (result.data.records as VectorRecord[])
         : [];
+      if (!fs.existsSync(this.storePath) && this.records.length > 0) {
+        this.save();
+      }
     } else {
       // File not found on first run is normal — only log corruption
       if (!result.error.message.includes("file not found")) {

@@ -22,11 +22,14 @@ export interface VisualPromptInput {
 }
 
 const STYLE_TEMPLATES: Record<string, string> = {
-  "urban-romance": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, high-end 2D anime digital illustration, Type-Moon and Kyoto Animation aesthetic, clean fine lineart, smooth cel shading, vibrant soft colors, solid white background",
-  "modern-romance": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, high-end 2D anime illustration, clean delicate 2D lineart, smooth cel shading, solid white background",
+  "urban-romance": "masterpiece, best quality, authentic modern romance visual novel character sprite, refined workplace digital illustration, elegant lineart, smooth cel shading, soft cinematic lighting, solid white background",
+  "modern-workplace": "masterpiece, best quality, authentic modern romance visual novel character sprite, refined workplace digital illustration, elegant lineart, smooth cel shading, soft cinematic lighting, solid white background",
+  "modern-romance": "masterpiece, best quality, authentic modern romance visual novel character sprite, clean digital illustration, refined lineart, smooth cel shading, solid white background",
   "school-romance-anime": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, Key and Kyoto Animation aesthetic, detailed anime eyes, delicate lineart, smooth cel shading, solid white background",
   "fresh-japanese": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, soft delicate aesthetic, pastel anime palette, clean flowing lineart, solid white background",
-  "default": "masterpiece, best quality, authentic 2D Japanese visual novel character sprite, classic galgame art style, 2D anime illustration, clean fine lineart, smooth cel shading, solid white background",
+  "ancient-xianxia": "masterpiece, best quality, authentic Chinese wuxia xianxia visual novel character sprite, elegant Hanfu illustration, fine delicate lineart, soft cel shading, solid white background",
+  "gothic-fantasy": "masterpiece, best quality, atmospheric fantasy visual novel character sprite, refined costume details, dramatic soft lighting, solid white background",
+  "default": "masterpiece, best quality, authentic 2D visual novel character sprite, classic galgame art style, clean fine lineart, smooth cel shading, vibrant soft colors, solid white background",
 };
 
 /** Chinese facial/appearance idiom translation dictionary for AI image prompts */
@@ -54,26 +57,32 @@ export const CHINESE_IDIOM_PROMPT_MAP: Record<string, string> = {
   "小麦色皮肤": "warm wheat-toned tanned skin",
 };
 
-/** Post-process prompt to remove literal idiom translations (e.g. peach-blossom eyes -> flower in pupils) */
+/** Post-process prompt to remove literal idiom translations and scene-specific temporary props/actions */
 export function cleanseVisualPrompt(prompt: string): string {
   if (!prompt) return "";
   let clean = prompt;
   // Remove dirty paint words
   clean = clean.replace(/painted (?:scenery|environment|background)/gi, "anime background art");
   clean = clean.replace(/oil painting|painterly|brushstrokes/gi, "clean lineart");
+  // Remove temporary scene props that mistakenly leak into character sprite prompts
+  clean = clean.replace(/holding (?:a )?(?:plastic |takeout |paper )?bag(?: printed with [^,]+)?/gi, "");
+  clean = clean.replace(/holding (?:a )?(?:pen|pencil|paper|coffee cup|tea cup|tray|menu)/gi, "");
+  clean = clean.replace(/writing on (?:homework|paper|desk)/gi, "");
+  clean = clean.replace(/sitting (?:at|on) (?:a )?(?:desk|table|chair|sofa)/gi, "");
   // Replace literal peach blossom eye translations
   clean = clean.replace(/peach[- ]blossom[- ](?:shaped[- ])?eyes?/gi, "captivating almond-shaped eyes");
   clean = clean.replace(/phoenix[- ](?:shaped[- ])?eyes?/gi, "narrow elegant upturned eyes");
   clean = clean.replace(/willow[- ](?:leaf[- ])?eyebrows?/gi, "slender arched eyebrows");
   clean = clean.replace(/cherry[- ](?:small[- ])?lips?/gi, "delicate small lips");
-  return clean;
+  clean = clean.replace(/,\s*,+/g, ",");
+  return clean.trim();
 }
 
 /** Post-process background prompt to ensure single location focus, no humans, and clean tags */
 export function cleanseBackgroundPrompt(prompt: string): string {
   if (!prompt) return "";
   let clean = cleanseVisualPrompt(prompt);
-  // Ensure no humans and clean commas
+  // Ensure clean commas
   clean = clean.replace(/,\s*,+/g, ",");
   return clean.trim();
 }
@@ -95,6 +104,8 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
    - **严格忠实角色性别与题材背景**:
      * **性别与身份必须明确**: 女性角色使用 \`1girl, solo\`, 男性角色使用 \`1boy, solo\`。
      * **现代都市题材服装**: 现代都市/言情题材必须生成现代日常/职场装（如 \`formal business suit, tailored blazer, white collared shirt, modern dress\`），**严禁生成和服、奇幻铠甲、日系校服等不符合题材的装束**。
+     * **【极其重要】立绘纯净度与临时道具剥离**: **角色立绘（Sprite）是全剧常驻通用资产，绝对严禁包含任何场景临时动作或偶发道具（如 holding a plastic bag, holding a pen, holding coffee cup, sitting at desk 等）！立绘中只能包含角色相貌、发型、眼型、体型、常态服装与纯白背景！**
+     * **跨章外观继承**: 若提供了历史外观基准 (characterKnowledge)，必须绝对优先继承，确保全剧角色外观一致。
      * **中文外貌成语规范英译（CRITICAL）**:
        - 桃花眼 -> \`captivating double-eyelid eyes, attractive alluring gaze\` (绝对严禁翻译成 peach-blossom)
        - 丹凤眼 -> \`slender elegant almond-shaped eyes with subtle upturned corners\`
@@ -104,12 +115,12 @@ const SYSTEM_PROMPT = `你是一个中文小说视觉化专家。你的任务是
        \`masterpiece, best quality, highres, absurdres, [1girl/1boy], solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, [age & gender], [hair color & style], [expressive anime eyes & color], [facial features], [clothing tags], [expression], clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background\`
      * 景别选择: 日常对话用 upper body waist up (默认)，初登场用 full body，情感聚焦用 bust up close portrait，冲突/告白用 face close-up。
 
-3. **生成背景提示词包 (Background Prompt - 新海诚/京阿尼电影级 2D 动漫背景)**:
-   - **单一核心地点锚定 (CRITICAL)**: 每个场景的背景图必须聚焦于**当前场景发生的最主要单一物理地点**（如"茶楼雅间"、"学校走廊"、"办公室"、"医院门口"）！
+3. **生成背景提示词包 (Background Prompt - 电影级 2D 场景)**:
+   - **单一核心地点锚定 (CRITICAL)**: 每个场景的背景图必须聚焦于**当前场景发生的最主要单一物理地点**（如"茶楼雅间"、"写字楼办公室"、"英式下午茶餐厅"、"医院门口"）！
    - **绝对禁止拼合多地点**: 若叙事中提到回忆、闪回或转场提及的多个地点，**只保留当前场景真实发生的核心地点，严禁输出多个地点**！
    - **【极其重要】背景绝对纯净隔离**: **背景描述中绝对严禁包含任何角色姓名、人物外貌、动作或剧情互动！必须是 100% 纯环境建筑与光影描述！**
    - **标准 2D 动漫背景 Tag 结构**:
-     \`masterpiece, best quality, highres, absurdres, 8k wallpaper, makoto shinkai style, shinkai cinematic key visual, kyoto animation style, anime background art, visual novel background, game cg, official art, no humans, scenery, [location tags], [architectural details], [time & weather tags], crepuscular rays, volumetric god rays, anamorphic lens flare, soft lighting bloom, vibrant saturated colors, crisp lineart, wide angle landscape\`
+     \`masterpiece, best quality, highres, absurdres, 8k wallpaper, visual novel background, game cg, official art, no humans, scenery, [location tags], [architectural details], [time & weather tags], soft lighting bloom, vibrant saturated colors, crisp lineart, wide angle landscape\`
 
 4. **所有 finalPrompt 必须为标准逗号分隔的英文 Tag 序列**，适合 AI 图像生成模型使用。
 

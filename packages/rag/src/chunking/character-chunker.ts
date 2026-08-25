@@ -72,15 +72,29 @@ function chunkOneCharacter(
   const relationHints: string[] = [];
   const personalityHints: string[] = [];
 
-  const allRelevantTexts = [...attributedTexts, ...mentionTexts];
-  for (const text of allRelevantTexts) {
-    if (/穿|裙|发|眼|脸|身|服|装|戴|帽|鞋|裤|镜|长相|容貌|皮肤|唇|眉|鼻|肤|高|瘦|胖|帅|漂亮|美|秀|俊|挺拔|绑|绷带|伤|疤|纹|白皙|卷|短发|长发|西装|制服|校服|围巾|外套/.test(text)) {
-      appearanceHints.push(text.slice(0, 150));
+  // Semantic appearance regex: compound physical traits, facial features, hair, clothing, build
+  const APPEARANCE_REGEX = /(?:长发|短发|卷发|直发|黑发|金发|银发|大波浪|马尾|秀发|发丝|发型|碎发|刘海|发髻|头发|身材高挑|身材修长|身材挺拔|身形挺拔|高大挺拔|个子高|高挑|瘦削|苗条|娇小|丰满|高大|匀称|身材|体型|身段|腰肢|秀眉|深目|浓眉|剑眉|柳叶眉|双眼皮|单眼皮|桃花眼|丹凤眼|杏眼|狐狸眼|大眼睛|眼眸|眸子|双眸|眼眶|高鼻梁|小巧的鼻|樱桃小嘴|薄唇|红唇|脸颊|鹅蛋脸|瓜子脸|圆脸|娃娃脸|五官|面容|容貌|长相|面庞|眉清目秀|俊俏|俊美|其貌不扬|皮肤白皙|肤色白皙|冷白皮|肤白貌美|白皙|肤色|身穿|身着|穿着|换上|戴着|套着|西装|西服|套裙|职业装|衬衫|白衬衫|连衣裙|长裙|短裙|风衣|礼服|制服|大衣|校服|夹克|外套|毛衣|卫衣|牛仔裤|高跟鞋|皮鞋|领带|围巾|英俊|帅气|俊朗|美貌|美丽|漂亮|端庄|优雅|温婉|清秀|精致|妩媚|明艳|妖娆|野性|生命力|英气|少年气|小帅哥)/;
+
+  // False positive keywords that contain appearance characters but are purely actions, mood, or common words
+  const APPEARANCE_FALSE_POSITIVES = /佩服|服务员|服务|发起|发生|出发|打发|发火|发牢骚|发问|发话|发愁|发现|转身|自身|单身|翻身|随身|浑身|替身|挺身|很高兴|高兴|高中|大学|假装|伪装|装修|包装|装蒜|装作|看了一眼|看上一眼|转眼|冷眼|白眼|放眼|傻眼|出丑|失魂落魄|提着|拿着纸袋|拿着塑料袋|放下塑料袋|买饭|吃完饭|开会|打电话|上网|作业|补课/;
+
+  const RELATION_REGEX = /(?:同学|闺蜜|朋友|兄弟|姐妹|父母|父亲|母亲|爸爸|妈妈|师父|师傅|徒弟|老公|老婆|丈夫|妻子|男友|女友|前男友|前女友|前任|未婚夫|未婚妻|上司|下属|老板|同事|老师|学生|养子|养父|养母|养女)/;
+  const PERSONALITY_REGEX = /(?:性格|脾气|个性|脾性|温和|温柔|体贴|冷酷|冷漠|开朗|乐观|内向|外向|活泼|腼腆|害羞|强势|霸道|孤僻|桀骜不驯|傲慢|自负|谦逊|谨慎|沉稳|沉着|稳重|从容|狡黠|单纯|善良|刻薄|善解人意|不服输|争强好胜|要强|严谨|一丝不苟|生命力旺盛)/;
+
+  for (const text of mentionTexts) {
+    // 1. Appearance filtering: must match true appearance terms and NOT be purely false action
+    if (APPEARANCE_REGEX.test(text)) {
+      const isPureFalsePositive = APPEARANCE_FALSE_POSITIVES.test(text) && !/(?:身材|发型|长发|短发|卷发|秀眉|深目|面容|五官|白衬衫|套裙|西装|俊而不娘|小帅哥|其貌不扬|白皙)/.test(text);
+      if (!isPureFalsePositive) {
+        appearanceHints.push(text.slice(0, 150));
+      }
     }
-    if (/同学|友|关系|认识|兄弟|姐妹|父母|师傅|徒弟|老公|老婆|丈夫|妻子|男友|女友|前任|上司|下属|同事|老师|学生/.test(text)) {
+    // 2. Relationship filtering
+    if (RELATION_REGEX.test(text)) {
       relationHints.push(text.slice(0, 150));
     }
-    if (/性[格情]|温[柔和]|冷[漠酷]|开[朗]|生[气]|笑|怒|哭|害[羞怕]|骄[傲]|善[良]|沉默|内向|外向|活泼|腼腆|强势|霸道|温柔|体贴|冷淡/.test(text)) {
+    // 3. Personality filtering
+    if (PERSONALITY_REGEX.test(text)) {
       personalityHints.push(text.slice(0, 150));
     }
   }
@@ -129,8 +143,9 @@ function chunkOneCharacter(
     });
   }
 
-  // 4. Relationship chunks (one per relationship)
-  for (const relText of relationHints) {
+  // 4. Relationship chunks (deduplicated)
+  const uniqueRelHints = Array.from(new Set(relationHints));
+  for (const relText of uniqueRelHints) {
     chunks.push({
       characterId: char.characterId,
       canonicalName: name,

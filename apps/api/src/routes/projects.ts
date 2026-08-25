@@ -576,10 +576,26 @@ export function createProjectRoutes(
       try { charColl?.save?.(); } catch {}
     }
     
-    // Group records by canonicalName
+    // Helper to normalize character names across chapters
+    const normalizeCharName = (rawName: string): string => {
+      let n = (rawName || "").trim().replace(/^char_/, "").replace(/_.*$/, "");
+      if (n.startsWith("hewen") || n.startsWith("heweiwen") || n.startsWith("heyiwen") || n.includes("何亦雯")) return "何亦雯";
+      if (n.startsWith("shenhao") || n.includes("沈浩")) return "沈浩";
+      if (n.startsWith("yueshuya") || n.startsWith("joshua") || n.includes("约书亚")) return "约书亚";
+      if (n.startsWith("mary") || n.includes("玛丽")) return "玛丽";
+      if (n.startsWith("adam") || n.includes("亚当")) return "亚当";
+      if (n.startsWith("lifeng") || n.includes("李峰")) return "李峰";
+      if (n.startsWith("zhonglan") || n.includes("钟岚")) return "钟岚";
+      if (n.startsWith("xiaowei") || n.includes("小薇")) return "小薇";
+      if (n.startsWith("xuanxuan") || n.includes("萱萱")) return "萱萱";
+      return rawName.trim();
+    };
+
+    // Group records by normalized canonicalName
     const charMap = new Map<string, {
       canonicalName: string;
       characterId?: string;
+      basePrompt?: string;
       appearances: Set<string>;
       personalities: Set<string>;
       relationships: Array<{ target: string; relation: string }>;
@@ -593,11 +609,12 @@ export function createProjectRoutes(
       const globalProfiles = readCharacterProfiles(config.dataDir, projectId);
       for (const [cid, prof] of Object.entries<any>(globalProfiles || {})) {
         if (!prof) continue;
-        const name = prof.canonicalName || cid.replace(/^char_/, "");
+        const name = normalizeCharName(prof.canonicalName || cid);
         if (!charMap.has(name)) {
           charMap.set(name, {
             canonicalName: name,
             characterId: prof.characterId || cid,
+            basePrompt: prof.basePrompt,
             appearances: new Set(),
             personalities: new Set(),
             relationships: [],
@@ -607,6 +624,7 @@ export function createProjectRoutes(
           });
         }
         const entry = charMap.get(name)!;
+        if (prof.basePrompt && !entry.basePrompt) entry.basePrompt = prof.basePrompt;
         if (prof.appearance) entry.appearances.add(prof.appearance);
         if (prof.clothing) entry.appearances.add(`服装: ${prof.clothing}`);
         if (prof.personality) entry.personalities.add(prof.personality);
@@ -615,34 +633,31 @@ export function createProjectRoutes(
         if (Array.isArray(prof.evidence)) {
           for (const ev of prof.evidence) {
             if (ev?.quote) {
-              entry.chunks.push({
-                id: `${cid}_evidence_${entry.chunks.length}`,
-                chapterId: ev.sourceUnitId || "母版",
-                chunkType: "appearance",
-                text: `[原文证据] ${ev.quote}`,
-              });
-              entry.timeline.push({
-                chapterTitle: ev.sourceUnitId || "小说原文",
-                chapterId: ev.sourceUnitId || "",
-                traitKind: "evidence",
-                text: ev.quote,
-              });
+              const quote = ev.quote.trim();
+              // Only add high quality quotes
+              if (quote.length > 5 && !entry.chunks.some((c) => c.text.includes(quote))) {
+                entry.chunks.push({
+                  id: `${cid}_evidence_${entry.chunks.length}`,
+                  chapterId: ev.sourceUnitId || "母版",
+                  chunkType: "appearance",
+                  text: `[原文证据] ${quote}`,
+                });
+                entry.timeline.push({
+                  chapterTitle: ev.sourceUnitId || "小说原文",
+                  chapterId: ev.sourceUnitId || "",
+                  traitKind: "evidence",
+                  text: quote,
+                });
+                // If it's a rich appearance quote and appearances is empty, add it to appearances
+                if (entry.appearances.size === 0 && /(?:身材|发|目|眉|面|脸|五官|卷|西装|白衬衫|挺拔)/.test(quote)) {
+                  entry.appearances.add(quote);
+                }
+              }
             }
           }
         }
-        if (prof.basePrompt && entry.chunks.length === 0) {
-          entry.chunks.push({
-            id: `${cid}_profile_prompt`,
-            chapterId: "人设母版",
-            chunkType: "appearance",
-            text: `[立绘 Prompt] ${prof.basePrompt}`,
-          });
-          entry.timeline.push({
-            chapterTitle: "全局人设",
-            chapterId: "global_profile",
-            traitKind: "appearance",
-            text: prof.appearance || prof.basePrompt,
-          });
+        if (entry.appearances.size === 0 && prof.basePrompt) {
+          entry.appearances.add(`[立绘基准] ${prof.basePrompt}`);
         }
       }
     } catch (e) {
@@ -652,7 +667,8 @@ export function createProjectRoutes(
     // 2. Then merge from RAG vector records
     for (const r of projectRecords) {
       const meta = r.metadata ?? {};
-      const name = (meta.canonicalName as string) || (meta.characterId as string)?.replace(/^char_/, "") || "未知";
+      const rawName = (meta.canonicalName as string) || (meta.characterId as string)?.replace(/^char_/, "") || "未知";
+      const name = normalizeCharName(rawName);
       if (!charMap.has(name)) {
         charMap.set(name, {
           canonicalName: name,
@@ -673,7 +689,7 @@ export function createProjectRoutes(
       else if (typeof meta.personality === "string") entry.personalities.add(meta.personality);
       
       const chunkText = (meta.text as string) || (meta.embedText as string) || "";
-      if (chunkText) {
+      if (chunkText && !entry.chunks.some((c) => c.text === chunkText)) {
         entry.chunks.push({
           id: r.id,
           chapterId: (meta.chapterId as string) ?? "",
@@ -692,6 +708,7 @@ export function createProjectRoutes(
     const characters = Array.from(charMap.values()).map((c) => ({
       canonicalName: c.canonicalName,
       characterId: c.characterId,
+      basePrompt: c.basePrompt,
       appearances: Array.from(c.appearances),
       personalities: Array.from(c.personalities),
       relationships: c.relationships,
