@@ -17,7 +17,7 @@ export class AgnesImageProvider implements ImageProvider {
   constructor(config: AgnesImageProviderConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey,
-      baseURL: config.baseUrl ?? "https://apihub.agnes-ai.com",
+      baseURL: config.baseUrl,
     });
   }
 

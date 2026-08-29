@@ -781,7 +781,17 @@ export async function runChapterPipeline(
 
     // Generate placeholder SVGs for backgrounds (skip if real PNG exists)
     for (const scene of segResult.scenes) {
-      const bgId = scene.sceneId;
+      let bgId = scene.sceneId;
+      let vnSteps: any[] = [];
+      try {
+        const vnPath = path.join(dataDir, "projects", project.projectId, "scenes", scene.sceneId, "vn_script.json");
+        if (fs.existsSync(vnPath)) {
+          vnSteps = JSON.parse(fs.readFileSync(vnPath, "utf-8")).steps || [];
+          const bgStep = vnSteps.find((s: any) => s.type === "bg" && s.backgroundId);
+          if (bgStep) bgId = bgStep.backgroundId;
+        }
+      } catch (e) {}
+
       const safeId = bgId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
       const pngPath = path.join(bgDir, `${safeId}.png`);
       const svgPath = path.join(bgDir, `${safeId}.svg`);
@@ -795,20 +805,30 @@ export async function runChapterPipeline(
       const charId = char.characterId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
       const exprs = new Set<string>(["default"]);
       for (const scene of segResult.scenes) {
-        for (const step of (scene as any).steps ?? []) {
+        let vnSteps: any[] = [];
+        try {
+          const vnPath = path.join(dataDir, "projects", project.projectId, "scenes", scene.sceneId, "vn_script.json");
+          if (fs.existsSync(vnPath)) {
+            vnSteps = JSON.parse(fs.readFileSync(vnPath, "utf-8")).steps || [];
+          }
+        } catch (e) {}
+
+        for (const step of vnSteps) {
           if (step?.type === "show" && step.characterId === char.characterId && step.expression) {
             exprs.add(step.expression);
           }
         }
       }
+
+      const charExprDir = path.join(charDir, charId);
+      fs.mkdirSync(charExprDir, { recursive: true });
+
       for (const expr of exprs) {
         const exprSafe = expr.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
-        const charExprDir = path.join(charDir, charId);
-        fs.mkdirSync(charExprDir, { recursive: true });
         const pngPath = path.join(charExprDir, `${exprSafe}.png`);
         const svgPath = path.join(charExprDir, `${exprSafe}.svg`);
         if (!fs.existsSync(pngPath) && !fs.existsSync(svgPath)) {
-          fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500"><rect width="300" height="500" fill="#2d2d44"/><text x="150" y="240" text-anchor="middle" fill="#aaa" font-size="20">${char.canonicalName || charId}</text><text x="150" y="280" text-anchor="middle" fill="#666" font-size="14">${expr}</text></svg>`, "utf-8");
+          fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="500"><rect width="300" height="500" fill="#2d2d44"/><text x="150" y="240" text-anchor="middle" fill="#aaa" font-size="20">${char.canonicalName || char.characterId}</text><text x="150" y="280" text-anchor="middle" fill="#666" font-size="14">${expr}</text></svg>`, "utf-8");
         }
       }
     }

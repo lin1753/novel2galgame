@@ -113,6 +113,17 @@ export function createAutoExportRoutes(
     res.json({ success: true });
   });
 
+  // GET /projects/:id/auto-export/status — Get active task status
+  router.get("/projects/:id/auto-export/status", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    for (const [tid, queue] of activeTasks) {
+      if (taskProject.get(tid) === projectId) {
+        return res.json({ running: true, taskId: tid });
+      }
+    }
+    res.json({ running: false });
+  });
+
   return router;
 }
 

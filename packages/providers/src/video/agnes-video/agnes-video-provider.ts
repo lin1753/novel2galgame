@@ -18,8 +18,7 @@ export class AgnesVideoProvider implements VideoProvider {
 
   constructor(config: AgnesVideoProviderConfig) {
     this.apiKey = config.apiKey;
-    // Strip trailing /v1 (profiles use OpenAI-compatible base URLs; video API uses different paths)
-    this.baseUrl = (config.baseUrl ?? "https://apihub.agnes-ai.com").replace(/\/v1\/?$/, "").replace(/\/+$/, "");
+    this.baseUrl = (config.baseUrl ?? "").replace(/\/v1\/?$/, "").replace(/\/+$/, "");
   }
 
   async createTask(request: VideoGenerationRequest): Promise<VideoGenerationTask> {

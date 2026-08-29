@@ -111,17 +111,24 @@ ${unitsText}
 
     const alignedUnits: AttributedNarrativeUnit[] = units.map((baseUnit, idx) => {
       const match = llmByUnitId.get(baseUnit.unitId) ?? llmByOrder.get(baseUnit.order) ?? rawLlmUnits[idx];
+      
+      const attribution = match?.attribution ?? baseUnit.attribution ?? {
+        participantIds: [],
+        uncertain: false,
+        evidence: [],
+      };
+
+      // 强制对话类型的说话人不可为空
+      if (baseUnit.type === "dialogue" && !attribution.speakerId) {
+        attribution.speakerId = "unknown";
+        attribution.uncertain = true;
+        attribution.evidence = [...(attribution.evidence ?? []), "fallback: missing speakerId"];
+      }
+
       return {
         ...baseUnit,
         chapterId,
-        attribution: match?.attribution ?? baseUnit.attribution ?? {
-          speakerId: undefined,
-          actorId: undefined,
-          thinkerId: undefined,
-          participantIds: [],
-          uncertain: false,
-          evidence: [],
-        },
+        attribution,
       };
     });
 
@@ -145,7 +152,8 @@ ${unitsText}
         speakerIdToCharId,
       },
     };
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
     // LLM 调用异常时，提供保底归属结果，绝不导致全章中断
     console.error(`[AttributionAgent] LLM failed for chapter ${chapterId}:`, err);
     console.warn(`[AttributionAgent] LLM failed, using fallback pass-through for ${chapterId}: ${err instanceof Error ? err.message : String(err)}`);

@@ -80,13 +80,37 @@ class AutoExportStore {
           })
         }
         const logs = [...prev.logs, msg].slice(-200)
-        // Derive running from live chapters — the old `prev.running || size > 0`
-        // latched true forever after a single chapter event
-        const running = Array.from(chapters.values()).some(
-          (c) => c.status === 'running' || c.status === 'queued',
-        )
-        return { chapters, logs, running }
+        
+        // Derive running from explicit pipeline completion events
+        const isComplete = event.stage === 'complete' || event.stage === 'cancelled'
+        const running = isComplete ? false : (prev.running || Array.from(chapters.values()).some(
+          (c) => c.status === 'running' || c.status === 'queued'
+        ))
+
+        return { 
+          chapters, 
+          logs, 
+          running,
+          taskId: event.data?.taskId ?? prev.taskId,
+          exportOutput: isComplete && event.status === 'completed'
+            ? { success: true, outputPath: event.data?.outputPath }
+            : isComplete && (event.status === 'failed' || event.status === 'cancelled')
+              ? { success: false }
+              : prev.exportOutput,
+        }
       })
+    } catch {}
+  }
+
+  /** Fetch the current backend execution state (to restore "running" and allow manual cancel after reload/disconnect) */
+  async syncStatus(projectId: string) {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/auto-export/status`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.running) {
+        this.update((prev) => ({ running: true, taskId: data.taskId, logs: prev.logs.length === 0 ? ['Restored active task state'] : prev.logs }))
+      }
     } catch {}
   }
 
@@ -108,6 +132,9 @@ class AutoExportStore {
     es.onerror = () => {
       // SSE will auto-reconnect; don't clear state
     }
+    
+    // Sync status from backend to restore the "Cancel" button if a task is running
+    this.syncStatus(projectId)
   }
 
   /** Start auto-export flow — resets state and connects SSE */

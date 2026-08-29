@@ -9,7 +9,7 @@ import { ScenesPage } from '@/pages/ScenesPage'
 import { ConfigPage } from '@/pages/ConfigPage'
 import { VNScriptPage } from '@/pages/VNScriptPage'
 import { TasksPage } from '@/pages/TasksPage'
-import { ProjectSettingsPage } from '@/pages/ProjectSettingsPage'
+
 import { PreviewPage } from '@/pages/PreviewPage'
 import { VisualPromptPage } from '@/pages/VisualPromptPage'
 import { EditorPage } from '@/pages/EditorPage'
@@ -43,7 +43,6 @@ export function App() {
               <Route path="prompts" element={<VisualPromptPage />} />
               <Route path="rag" element={<RagInspectorPage />} />
               <Route path="tasks" element={<TasksPage />} />
-              <Route path="settings" element={<ProjectSettingsPage />} />
               <Route path="preview" element={<PreviewPage />} />
               <Route path="editor" element={<EditorPage />} />
               <Route path="editor/:sceneId" element={<EditorPage />} />

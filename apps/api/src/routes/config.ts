@@ -42,6 +42,19 @@ export function createConfigRoutes(
       cfg.profiles.push(profile);
     }
     writeProfilesConfig(cfg);
+
+    // If the updated profile is the currently active one, reload it in memory
+    if (cfg.activeProfile === profile.name && setProvider) {
+      const newProvider = new FetchLLMProvider({
+        apiKey: profile.apiKey,
+        baseUrl: profile.baseUrl,
+        defaultModel: profile.defaultModel,
+        name: profile.name,
+      });
+      setProvider(newProvider);
+      console.log(`Hot-reloaded active profile: ${profile.name} (${profile.baseUrl})`);
+    }
+
     res.json(cfg);
   });
 

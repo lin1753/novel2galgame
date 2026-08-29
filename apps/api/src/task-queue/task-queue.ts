@@ -83,9 +83,9 @@ export class PipelineTaskQueue {
   constructor(opts: TaskQueueOptions) {
     // Default to 1 (strict chapter sequence so RAG accumulates chronologically)
     this.maxConcurrency = opts.maxConcurrency ?? 1;
-    // Default chapter timeout: 15 minutes (900,000ms)
-    // Real-world long chapters need 380-450s; 15min provides 2x safety margin
-    this.chapterTimeoutMs = opts.chapterTimeoutMs ?? 900_000;
+    // Default chapter timeout: 30 minutes (1,800,000ms)
+    // Real-world long chapters need 380-450s, but with rate limit retries they can take up to 20 minutes
+    this.chapterTimeoutMs = opts.chapterTimeoutMs ?? 1800_000;
     this.dataDir = opts.dataDir;
     this.project = opts.project;
     this.provider = opts.provider;

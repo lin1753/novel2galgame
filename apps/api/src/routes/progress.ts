@@ -23,6 +23,7 @@ export function broadcastProgress(event: ProgressEvent) {
   const data = JSON.stringify(event);
   for (const res of conns) {
     res.write(`data: ${data}\n\n`);
+    if (typeof (res as any).flush === 'function') (res as any).flush();
   }
 }
 
@@ -37,14 +38,17 @@ export function createProgressRoutes() {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
     });
     res.write(`data: ${JSON.stringify({ projectId, status: "connected" })}\n\n`);
+    if (typeof (res as any).flush === 'function') (res as any).flush();
 
     if (!connections.has(projectId)) connections.set(projectId, new Set());
     connections.get(projectId)!.add(res);
 
     const pingInterval = setInterval(() => {
       res.write(":\n\n");
+      if (typeof (res as any).flush === 'function') (res as any).flush();
     }, 15000);
 
     req.on("close", () => {

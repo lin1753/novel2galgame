@@ -21,10 +21,9 @@ const projectLinks = [
   { to: 'prompts', label: '视觉提示', icon: Images },
   { to: 'rag', label: '角色记忆 (RAG)', icon: Brain },
   { to: 'assets', label: '资产管理', icon: Images },
-  { to: 'preview', label: '预览播放', icon: Play },
-  { to: 'editor', label: '场景编辑', icon: Pencil },
-  { to: 'tasks', label: '任务日志', icon: ListTodo },
-  { to: 'settings', label: '项目设置', icon: Settings },
+  { to: 'preview', label: '预览', icon: Play },
+  { to: 'editor', label: '编辑', icon: Pencil },
+  { to: 'tasks', label: '日志', icon: ListTodo },
 ]
 
 export function ProjectSidebar() {

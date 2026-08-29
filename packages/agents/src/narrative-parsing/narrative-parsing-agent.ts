@@ -49,8 +49,8 @@ export async function runNarrativeParsingAgent(
     return { success: false, failureLevel: "hard", errorMessage: "Empty chapter text" };
   }
 
-  // 章节过长时分段处理 (800字每段，保障 JSON 展开后不超过 max_tokens)
-  const MAX_CHARS = 800;
+  // 章节过长时分段处理 (500字每段，保障 JSON 展开后不超过 max_tokens)
+  const MAX_CHARS = 500;
   const textChunks = splitText(chapterText, MAX_CHARS);
   const allUnits: NarrativeUnit[] = [];
 
@@ -83,7 +83,8 @@ ${chunk}`;
         : (result?.units ?? (result as any)?.narrative_units ?? (result as any)?.data ?? []);
 
       chunkUnits = Array.isArray(rawUnits) ? rawUnits : [];
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
       console.warn(`[narrativeParsingAgent] Chunk ${chunkIdx + 1}/${textChunks.length} LLM failed, using fallback line segmentation: ${err instanceof Error ? err.message : String(err)}`);
     }
 

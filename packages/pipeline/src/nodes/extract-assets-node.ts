@@ -31,7 +31,13 @@ export async function extractAssetsNode(
 
     // Generate placeholder SVGs for backgrounds (skip if real PNG exists)
     for (const scene of segResult.scenes) {
-      const bgId = scene.sceneId;
+      let bgId = scene.sceneId;
+      const sceneResult = state.sceneResults?.find((r) => r.sceneId === scene.sceneId);
+      if (sceneResult?.vnScript?.steps) {
+        const bgStep = sceneResult.vnScript.steps.find((s) => s.type === "bg" && (s as any).backgroundId);
+        if (bgStep) bgId = (bgStep as any).backgroundId;
+      }
+
       const safeId = bgId.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").toLowerCase();
       const pngPath = path.join(bgDir, `${safeId}.png`);
       const svgPath = path.join(bgDir, `${safeId}.svg`);
@@ -50,7 +56,7 @@ export async function extractAssetsNode(
       }
       const item = charMap.get(name)!;
 
-      for (const sceneResult of state.sceneResults) {
+      for (const sceneResult of state.sceneResults ?? []) {
         const vnScript = sceneResult.vnScript;
         if (!vnScript?.steps) continue;
         for (const step of vnScript.steps) {

@@ -163,10 +163,10 @@ export class FetchLLMProvider implements LLMProvider {
           reject(new Error(`LLM request failed: ${e.message}`));
         }
       });
-      req.setTimeout(60_000, () => {
+      req.setTimeout(180_000, () => {
         if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
         req.destroy();
-        reject(new Error("LLM request timeout (60s)"));
+        reject(new Error("LLM request timeout (180s)"));
       });
       req.write(data);
       req.end();
@@ -174,17 +174,28 @@ export class FetchLLMProvider implements LLMProvider {
   }
 
   async chat(options: LLMRequestOptions): Promise<LLMResponse> {
-    const body = {
-      model: options.model || this.defaultModel,
-      messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
-      temperature: options.temperature ?? 0.3,
-      max_tokens: options.maxTokens ?? 4096,
-      ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
-    };
+      const body: any = {
+        model: options.model || this.defaultModel,
+        messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
+        temperature: options.temperature ?? 0.3,
+        max_tokens: options.maxTokens ?? 4096,
+      };
+      
+      // Known issue: DeepSeek-R1 (agnes-cloud) gets stuck in infinite reasoning loops if response_format: json_object is forced.
+      // We rely entirely on the system prompt (which already demands JSON) instead.
+      if (options.jsonMode && !this.baseUrl.includes("agnes-ai")) {
+        body.response_format = { type: "json_object" };
+      }
 
     const data = await this.request("/chat/completions", body, options.signal);
     const choice = data.choices?.[0];
     if (!choice) throw new Error("No response from LLM");
+
+    if ((choice.message?.content == null || choice.message?.content === "") && JSON.stringify(data).length > 1000) {
+      console.log(`[FetchLLM] WARNING: Content is empty but payload is large. Raw data keys: ${Object.keys(data).join(",")}, Message keys: ${Object.keys(choice.message || {}).join(",")}`);
+      // Log a truncated version of the raw choice
+      console.log(`[FetchLLM] Raw choice dump: ${JSON.stringify(choice).substring(0, 1000)}...`);
+    }
 
     const response: LLMResponse = {
       content: choice.message.content ?? "",

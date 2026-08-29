@@ -135,7 +135,8 @@ ${unitsText}
         sceneUnitMap: result.sceneUnitMap ?? (scenes[0] ? { [scenes[0].sceneId]: scenes[0].unitIds } : {}),
       },
     };
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
     console.warn(`[sceneSegmentationAgent] LLM failed for ${chapterId}, falling back to heuristic scene splitting: ${err instanceof Error ? err.message : String(err)}`);
     const scenes: Scene[] = [];
     const BATCH_SIZE = 25;

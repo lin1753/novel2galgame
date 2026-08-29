@@ -156,7 +156,8 @@ ${unitsText}
         allSteps.push(...normalizedSteps);
         success = true;
         break;
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
         const errMsg = err instanceof Error ? err.message : String(err);
         const is429 = errMsg.includes("429") || errMsg.includes("rate limit");
         if (is429 && attempt < 2) {
