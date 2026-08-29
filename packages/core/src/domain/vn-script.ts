@@ -6,7 +6,9 @@ export type VNStepType =
   | "say"
   | "thought"
   | "pause"
-  | "transition";
+  | "transition"
+  | "action"
+  | "scene_description";
 
 export interface BaseVNStep {
   stepId: string;
@@ -62,6 +64,19 @@ export interface ThoughtStep extends BaseVNStep {
   text: string;
 }
 
+export interface ActionStep extends BaseVNStep {
+  type: "action";
+  characterId?: string;
+  characterName?: string;
+  text: string;
+}
+
+export interface SceneDescriptionStep extends BaseVNStep {
+  type: "scene_description";
+  participantIds?: string[];
+  text: string;
+}
+
 export interface PauseStep extends BaseVNStep {
   type: "pause";
   durationMs?: number;
@@ -81,6 +96,8 @@ export type VNStep =
   | NarrationStep
   | SayStep
   | ThoughtStep
+  | ActionStep
+  | SceneDescriptionStep
   | PauseStep
   | TransitionStep;
 

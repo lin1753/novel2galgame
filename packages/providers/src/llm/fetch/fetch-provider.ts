@@ -163,10 +163,10 @@ export class FetchLLMProvider implements LLMProvider {
           reject(new Error(`LLM request failed: ${e.message}`));
         }
       });
-      req.setTimeout(120_000, () => {
+      req.setTimeout(60_000, () => {
         if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
         req.destroy();
-        reject(new Error("LLM request timeout (120s)"));
+        reject(new Error("LLM request timeout (60s)"));
       });
       req.write(data);
       req.end();

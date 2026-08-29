@@ -18,32 +18,67 @@ export async function removeWhiteBackground(
 ): Promise<void> {
   const threshold = options.whiteThreshold ?? 240;
   const feather = options.featherRadius ?? 2;
+  const inputBuffer = fs.readFileSync(filePath);
 
-  const input = fs.readFileSync(filePath);
-  const image = sharp(input).ensureAlpha();
+  const image = sharp(inputBuffer).ensureAlpha();
   const { data, info } = await image.raw().toBuffer({ resolveWithObject: true });
-
   const { width, height, channels } = info;
-  if (channels < 4) return; // already no alpha channel somehow
 
-  // Pass 1: set alpha to 0 for near-white pixels
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i]!;
-    const g = data[i + 1]!;
-    const b = data[i + 2]!;
-    if (r >= threshold && g >= threshold && b >= threshold) {
-      data[i + 3] = 0; // fully transparent
+  if (channels < 4) {
+    return;
+  }
+
+  // Pass 1: Flood fill from borders to find background white pixels
+  const isWhite = (i: number) => {
+    return data[i]! >= threshold && data[i + 1]! >= threshold && data[i + 2]! >= threshold;
+  };
+
+  const visited = new Uint8Array(width * height);
+  const queue: number[] = [];
+
+  for (let x = 0; x < width; x++) {
+    if (isWhite((0 * width + x) * 4)) { queue.push(0 * width + x); visited[0 * width + x] = 1; }
+    if (isWhite(((height - 1) * width + x) * 4)) { queue.push((height - 1) * width + x); visited[(height - 1) * width + x] = 1; }
+  }
+  for (let y = 0; y < height; y++) {
+    if (isWhite((y * width + 0) * 4)) { queue.push(y * width + 0); visited[y * width + 0] = 1; }
+    if (isWhite((y * width + width - 1) * 4)) { queue.push(y * width + width - 1); visited[y * width + width - 1] = 1; }
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const idx = queue[head++]!;
+    const x = idx % width;
+    const y = Math.floor(idx / width);
+
+    data[idx * 4 + 3] = 0;
+
+    const neighbors = [
+      { nx: x + 1, ny: y },
+      { nx: x - 1, ny: y },
+      { nx: x, ny: y + 1 },
+      { nx: x, ny: y - 1 },
+    ];
+    for (const { nx, ny } of neighbors) {
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        const nIdx = ny * width + nx;
+        if (!visited[nIdx]) {
+          visited[nIdx] = 1;
+          if (isWhite(nIdx * 4)) {
+            queue.push(nIdx);
+          }
+        }
+      }
     }
   }
 
   // Pass 2: edge feathering (simple box blur on alpha channel)
   if (feather > 0) {
-    const alphaOnly = Buffer.alloc(width * height);
+    const alphaOnly = new Uint8Array(width * height);
     for (let i = 0; i < width * height; i++) {
       alphaOnly[i] = data[i * 4 + 3]!;
     }
-
-    const blurred = Buffer.alloc(width * height);
+    const blurred = new Uint8Array(width * height);
     const r = feather;
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
@@ -62,11 +97,7 @@ export async function removeWhiteBackground(
         blurred[y * width + x] = Math.round(sum / count);
       }
     }
-
-    // Apply blurred alpha only at edges (where original alpha changed)
     for (let i = 0; i < width * height; i++) {
-      const orig = alphaOnly[i]!;
-      if (orig === 0 || orig === 255) continue; // skip fully transparent/opaque
       data[i * 4 + 3] = blurred[i]!;
     }
   }
@@ -75,6 +106,7 @@ export async function removeWhiteBackground(
   const output = await sharp(data, { raw: { width, height, channels: 4 } })
     .png()
     .toBuffer();
+
   fs.writeFileSync(filePath, output);
 }
 

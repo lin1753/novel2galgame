@@ -134,10 +134,25 @@ export function generateScript(scripts: VNScript[]): string {
           break;
         }
 
+        case "scene_description":
         case "narration": {
           lastTransition = null;
-          const text = escapeRenpyString((step as NarrationStep).text || "");
+          const text = escapeRenpyString((step as any).text || "");
           lines.push(`    "${text}"${withClause}`);
+          break;
+        }
+
+        case "action": {
+          lastTransition = null;
+          const s = step as any; // ActionStep
+          const char = s.characterId ? sanitizeId(s.characterId) : "narrator";
+          const text = escapeRenpyString(s.text || "");
+          if (s.characterId) {
+            // Can be styled in Ren'Py layer later
+            lines.push(`    ${char} "{i}${text}{/i}"${withClause}`);
+          } else {
+            lines.push(`    "${text}"${withClause}`);
+          }
           break;
         }
 

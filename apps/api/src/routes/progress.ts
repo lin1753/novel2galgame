@@ -43,7 +43,12 @@ export function createProgressRoutes() {
     if (!connections.has(projectId)) connections.set(projectId, new Set());
     connections.get(projectId)!.add(res);
 
+    const pingInterval = setInterval(() => {
+      res.write(":\n\n");
+    }, 15000);
+
     req.on("close", () => {
+      clearInterval(pingInterval);
       connections.get(projectId)?.delete(res);
       if (connections.get(projectId)?.size === 0) connections.delete(projectId);
     });

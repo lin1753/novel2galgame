@@ -610,11 +610,12 @@ export function createProjectRoutes(
       for (const [cid, prof] of Object.entries<any>(globalProfiles || {})) {
         if (!prof) continue;
         const name = normalizeCharName(prof.canonicalName || cid);
+        const basePrompt = prof.baseline?.basePrompt || prof.basePrompt;
         if (!charMap.has(name)) {
           charMap.set(name, {
             canonicalName: name,
             characterId: prof.characterId || cid,
-            basePrompt: prof.basePrompt,
+            basePrompt,
             appearances: new Set(),
             personalities: new Set(),
             relationships: [],
@@ -624,17 +625,35 @@ export function createProjectRoutes(
           });
         }
         const entry = charMap.get(name)!;
-        if (prof.basePrompt && !entry.basePrompt) entry.basePrompt = prof.basePrompt;
+        if (basePrompt && !entry.basePrompt) entry.basePrompt = basePrompt;
+        if (prof.baseline?.hair) entry.appearances.add(`发型: ${prof.baseline.hair}`);
+        if (prof.baseline?.face) entry.appearances.add(`面容: ${prof.baseline.face}`);
+        if (prof.baseline?.build) entry.appearances.add(`身材: ${prof.baseline.build}`);
+        if (prof.baseline?.defaultAttire) entry.appearances.add(`常服: ${prof.baseline.defaultAttire}`);
         if (prof.appearance) entry.appearances.add(prof.appearance);
         if (prof.clothing) entry.appearances.add(`服装: ${prof.clothing}`);
         if (prof.personality) entry.personalities.add(prof.personality);
         if (prof.gender || prof.age) entry.personalities.add(`${prof.gender || ""} ${prof.age ? prof.age + "岁" : ""}`.trim());
 
+        // Append history timeline events
+        if (Array.isArray(prof.history)) {
+          for (const h of prof.history) {
+            if (h.outfit || h.action) {
+              const text = [h.outfit ? `[服装演变] ${h.outfit}` : "", h.action ? `[动作] ${h.action}` : ""].filter(Boolean).join(" ");
+              entry.timeline.push({
+                chapterTitle: h.chapterId || "剧情节点",
+                chapterId: h.chapterId || "",
+                traitKind: "history",
+                text,
+              });
+            }
+          }
+        }
+
         if (Array.isArray(prof.evidence)) {
           for (const ev of prof.evidence) {
             if (ev?.quote) {
               const quote = ev.quote.trim();
-              // Only add high quality quotes
               if (quote.length > 5 && !entry.chunks.some((c) => c.text.includes(quote))) {
                 entry.chunks.push({
                   id: `${cid}_evidence_${entry.chunks.length}`,
@@ -648,7 +667,6 @@ export function createProjectRoutes(
                   traitKind: "evidence",
                   text: quote,
                 });
-                // If it's a rich appearance quote and appearances is empty, add it to appearances
                 if (entry.appearances.size === 0 && /(?:身材|发|目|眉|面|脸|五官|卷|西装|白衬衫|挺拔)/.test(quote)) {
                   entry.appearances.add(quote);
                 }
@@ -656,8 +674,8 @@ export function createProjectRoutes(
             }
           }
         }
-        if (entry.appearances.size === 0 && prof.basePrompt) {
-          entry.appearances.add(`[立绘基准] ${prof.basePrompt}`);
+        if (entry.appearances.size === 0 && basePrompt) {
+          entry.appearances.add(`[立绘基准] ${basePrompt}`);
         }
       }
     } catch (e) {

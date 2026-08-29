@@ -111,24 +111,37 @@ export class KnowledgeStore {
     return this.collections.characters.listCharacterDetails(projectId);
   }
 
-  async searchCharacters(queryText: string, limit = 5): Promise<any[]> {
+  async searchCharacters(queryText: string, limit = 5, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    return this.collections.characters.searchByVector(vector, { topK: limit });
+    return this.collections.characters.searchByVector(vector, { topK: limit, projectId });
   }
 
-  async searchCharactersHybrid(queryText: string, limit = 5, vectorWeight = 0.6): Promise<any[]> {
+  async searchCharactersHybrid(queryText: string, limit = 5, vectorWeight?: number, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    return this.collections.characters.searchHybrid(vector, queryText, { topK: limit, vectorWeight });
+    
+    // Dynamic weight adaptation based on user request:
+    // If it's a short exact name (e.g. <= 4 chars like "何亦雯" or "何总"), BM25 should dominate (0.1 vector / 0.9 BM25).
+    // If it's a scene metaphor or longer description, Vector should dominate (0.8 vector / 0.2 BM25).
+    let weight = vectorWeight;
+    if (weight === undefined) {
+      if (queryText.length <= 4) {
+        weight = 0.1; // Entity precise match
+      } else {
+        weight = 0.8; // Metaphor/semantic match
+      }
+    }
+    
+    return this.collections.characters.searchHybrid(vector, queryText, { topK: limit, vectorWeight: weight, projectId });
   }
 
-  async searchCharactersWithRerank(queryText: string, llm: any, model: string, finalK = 3, coarseK = 10): Promise<any[]> {
+  async searchCharactersWithRerank(queryText: string, llm: any, model: string, finalK = 3, coarseK = 10, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    return this.collections.characters.searchReranked(vector, queryText, llm, model, { topK: finalK, coarseK });
+    return this.collections.characters.searchReranked(vector, queryText, llm, model, { topK: finalK, coarseK, projectId });
   }
 
-  async searchScenePatterns(queryText: string, limit = 3): Promise<any[]> {
+  async searchScenePatterns(queryText: string, limit = 3, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    return this.collections.scenes.searchByVector(vector, { topK: limit });
+    return this.collections.scenes.searchAsync(vector, { topK: limit, projectId });
   }
 
   async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {

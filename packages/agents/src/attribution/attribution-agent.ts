@@ -2,6 +2,7 @@ import type { AttributedNarrativeUnit, AttributionResult, CharacterRef } from "@
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
 import { normalizeAttributionUnits } from "../shared/normalize.js";
+import { loadPrompt } from "../prompt-loader.js";
 
 export interface AttributionInput {
   chapterId: string;
@@ -11,7 +12,7 @@ export interface AttributionInput {
   characterKnowledge?: string;
 }
 
-const SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的任务是为每个叙事单元标注角色归属。
+const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的任务是为每个叙事单元标注角色归属。
 
 归属信息包括:
 - speakerId: 对话的说话人 (仅 dialogue 类型)
@@ -53,7 +54,8 @@ const SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的
   ],
   "characters": [{"characterId": "char_001", "canonicalName": "名字", "aliases": ["别名"]}],
   "aliasMap": {"别名": "char_001"},
-  "uncertainUnitIds": ["unitId"]
+  "uncertainUnitIds": ["unitId"],
+  "speakerIdToCharId": {"char_001": "char_001"}
 }`;
 
 export async function runAttributionAgent(
@@ -86,7 +88,7 @@ ${unitsText}
     const result = await provider.chatJson<AttributionResult>({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: loadPrompt("attribution", DEFAULT_SYSTEM_PROMPT) },
         { role: "user", content: userPrompt },
       ],
       temperature: 0.2,
@@ -145,6 +147,7 @@ ${unitsText}
     };
   } catch (err) {
     // LLM 调用异常时，提供保底归属结果，绝不导致全章中断
+    console.error(`[AttributionAgent] LLM failed for chapter ${chapterId}:`, err);
     console.warn(`[AttributionAgent] LLM failed, using fallback pass-through for ${chapterId}: ${err instanceof Error ? err.message : String(err)}`);
     const fallbackUnits: AttributedNarrativeUnit[] = units.map((u) => ({
       ...u,

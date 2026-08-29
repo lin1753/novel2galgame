@@ -55,12 +55,6 @@ export class BaseCollection {
 
   protected load(): void {
     let result = readJson<{ records: unknown[] }>(this.storePath);
-    if (!result.ok && result.error.message.includes("file not found")) {
-      const legacyPath = this.storePath.replace(/([/\\])rag([/\\])/, "$1rag-v2$2");
-      if (fs.existsSync(legacyPath)) {
-        result = readJson<{ records: unknown[] }>(legacyPath);
-      }
-    }
     if (result.ok) {
       this.records = Array.isArray(result.data.records)
         ? (result.data.records as VectorRecord[])

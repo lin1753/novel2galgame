@@ -21,7 +21,7 @@ import type { LLMProvider } from "@novel2gal/providers";
 import { PipelineTaskQueue } from "../task-queue/index.js";
 import type { QueueChapter } from "../task-queue/index.js";
 
-import { getActiveProfile } from "../config/index.js";
+import { getActiveProfile, resolveModelConfig } from "../config/index.js";
 
 // Active tasks: taskId -> queue, plus taskId -> projectId so cancellation
 // can be scoped to one project instead of killing every project's queues
@@ -141,7 +141,8 @@ async function processAutoExport(
     }
 
     // Step 2: Build queue chapters
-    const chaptersToProcess = chapters.slice(0, maxChapters);
+    const pendingChapters = chapters.filter((ch: any) => ch.status !== 'chapter_ready');
+    const chaptersToProcess = pendingChapters.slice(0, maxChapters);
     const queueChapters: QueueChapter[] = chaptersToProcess.map((ch: any) => ({
       chapterId: ch.chapterId,
       index: ch.index,
@@ -363,10 +364,12 @@ async function generateProjectAssets(projectId: string) {
   }
   if (!manifest) return { success: false, generated: [], errors: ["No manifest found"] };
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { success: false, generated: [], errors: ["No API key"] };
+  const apiKey = process.env.OPENAI_API_KEY || "sk-dummy";
+  const baseUrl = process.env.OPENAI_API_BASE;
+  const imageCfg = resolveModelConfig("image");
+  const model = imageCfg.model || "agnes-image-2.1-flash";
 
-  const producer = new AgnesImageProducer({ apiKey });
+  const producer = new AgnesImageProducer({ apiKey, baseUrl, model });
   const generated: string[] = [];
   const errors: string[] = [];
 

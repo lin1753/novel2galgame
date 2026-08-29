@@ -1,0 +1,75 @@
+{
+  "description": "Character Appearance Chunker & Entity Linking Regression Benchmark",
+  "version": "1.0.0",
+  "positiveCases": [
+    {
+      "id": "pos_01_heyiwen_base",
+      "novel": "伊甸园外",
+      "text": "何亦雯身材高挑，秀眉深目，一头天然略带卷曲的头发硬硬的，如野草般茂盛，也正如她的人，有一种旺盛不羁的生命力，常有人说她看起来就不好惹。",
+      "character": "何亦雯",
+      "expected": {
+        "hasAppearance": true,
+        "hairKeywords": ["卷曲", "卷发", "头发"],
+        "faceKeywords": ["秀眉", "深目"],
+        "buildKeywords": ["高挑", "身材高挑"],
+        "vibeKeywords": ["生命力", "不好惹"]
+      }
+    },
+    {
+      "id": "pos_02_shenhao_base",
+      "novel": "伊甸园外",
+      "text": "沈浩穿着一件洗得发白的白衬衫，眉清目秀，身形挺拔，眼神清澈而坚定，带着一股干净的少年气。",
+      "character": "沈浩",
+      "expected": {
+        "hasAppearance": true,
+        "clothingKeywords": ["白衬衫", "衬衫"],
+        "faceKeywords": ["眉清目秀", "清澈"],
+        "buildKeywords": ["身形挺拔", "挺拔"]
+      }
+    },
+    {
+      "id": "pos_03_zhonglan_outfit",
+      "novel": "伊甸园外",
+      "text": "钟岚身穿一袭墨绿色高定丝绸晚礼服，佩戴着耀眼的祖母绿项链，长发挽成端庄典雅的发髻，红唇微扬。",
+      "character": "钟岚",
+      "expected": {
+        "hasAppearance": true,
+        "clothingKeywords": ["晚礼服", "项链"],
+        "hairKeywords": ["发髻", "长发"],
+        "faceKeywords": ["红唇"]
+      }
+    },
+    {
+      "id": "pos_04_xuanxuan_base",
+      "novel": "伊甸园外",
+      "text": "萱萱个子不高，其貌不扬，戴着一副厚厚的黑框近视眼镜，穿着一身宽松的灰色连帽卫衣和牛仔裤。",
+      "character": "萱萱",
+      "expected": {
+        "hasAppearance": true,
+        "clothingKeywords": ["卫衣", "牛仔裤", "眼镜"],
+        "faceKeywords": ["其貌不扬", "眼镜"],
+        "buildKeywords": ["个子不高"]
+      }
+    }
+  ],
+  "negativeCases": [
+    { "id": "neg_01_peifu", "text": "何亦雯心里有点佩服亚当雷厉风行的决断力。" },
+    { "id": "neg_02_fuwuyuan", "text": "服务员小妹微笑着端上来两杯热拿铁咖啡。" },
+    { "id": "neg_03_faqi", "text": "沈浩一走，老何马上发起了一连串刨根问底的质问。" },
+    { "id": "neg_04_faxian", "text": "何亦雯推开门，突然发现桌上放着一份未拆封的文件。" },
+    { "id": "neg_05_chufa", "text": "明天一早我们就要出发去深圳参展了。" },
+    { "id": "neg_06_zhuanshen", "text": "到了公司，何亦雯立刻转身去顶楼见亚当汇报进度。" },
+    { "id": "neg_07_zishen", "text": "凭借她自身出色的专业能力，这个方案很快获得了通过。" },
+    { "id": "neg_08_gaoxing", "text": "亚当高高兴兴地提着餐盒走进了会议室。" },
+    { "id": "neg_09_zhuangxiu", "text": "楼下那家一直在装修的海南鸡饭店今天终于开业了。" },
+    { "id": "neg_10_jiazhuang", "text": "何亦雯假装在低头看手机，以此避开了走廊里尴尬的目光。" },
+    { "id": "neg_11_yiyan", "text": "何亦雯冷冷地看了他一眼，没有多说一句话。" },
+    { "id": "neg_12_daxue", "text": "沈浩在大学期间就一直在兼职做家教。" },
+    { "id": "neg_13_kaihui", "text": "整个下午大家都在会议室里讨论下半年的预算方案。" },
+    { "id": "neg_14_dadianhua", "text": "老何给远在国外的女儿打了个越洋电话。" },
+    { "id": "neg_15_zuoye", "text": "沈浩正在书桌前认真给萱萱批改昨晚的数学作业。" },
+    { "id": "neg_16_buke", "text": "周六上午照常是萱萱的英语补课时间。" },
+    { "id": "neg_17_maifan", "text": "何亦雯排队买完了晚饭，匆匆赶回了公司加班。" },
+    { "id": "neg_18_fayuan", "text": "下周一双方代表需要准时去仲裁法庭参加听证会。" }
+  ]
+}

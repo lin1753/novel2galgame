@@ -159,6 +159,87 @@ function chunkOneCharacter(
   return chunks;
 }
 
+export interface StructuredAppearance {
+  hasAppearance: boolean;
+  hair?: string;
+  face?: string;
+  build?: string;
+  clothing?: string;
+  vibe?: string;
+  quote: string;
+}
+
+/**
+ * Batch-extracts structured physical appearance attributes from a list of candidate sentences.
+ * If batch fails or partial items are corrupted, falls back gracefully per-sentence.
+ */
+export async function batchExtractStructuredAppearance(
+  candidateSentences: string[],
+  provider?: { chatJson: <T>(opts: any) => Promise<T> },
+  model?: string
+): Promise<StructuredAppearance[]> {
+  if (!candidateSentences || candidateSentences.length === 0) return [];
+  if (!provider) {
+    return candidateSentences.map((quote) => ({
+      hasAppearance: true,
+      quote,
+    }));
+  }
+
+  try {
+    const prompt = `请对以下小说句子列表进行批量分析，判断每句话是否包含人物物理外貌/服装描写，并提取结构化字段：
+句子列表:
+${candidateSentences.map((s, idx) => `[${idx}] ${s}`).join("\n")}
+
+请输出 JSON 格式:
+{
+  "results": [
+    {
+      "index": 0,
+      "hasAppearance": true,
+      "hair": "发型发色",
+      "face": "五官面容",
+      "build": "体型身材",
+      "clothing": "服装穿戴",
+      "vibe": "神态气质"
+    }
+  ]
+}`;
+
+    const raw = await provider.chatJson<{ results: Array<StructuredAppearance & { index: number }> }>({
+      model: model || "agnes-2.0-flash",
+      messages: [
+        { role: "system", content: "你是一个文学实体抽取专家。若句子纯属剧情动作（如买饭、打电话、开会、做作业），即使含有单字也必须判定 hasAppearance: false。" },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.1,
+      jsonMode: true,
+    });
+
+    const resultsMap = new Map<number, StructuredAppearance>();
+    for (const item of raw.results || []) {
+      if (typeof item.index === "number" && typeof item.hasAppearance === "boolean") {
+        resultsMap.set(item.index, {
+          ...item,
+          quote: candidateSentences[item.index] || "",
+        });
+      }
+    }
+
+    // Fill results with partial fallback if any index was missed
+    return candidateSentences.map((quote, idx) => {
+      if (resultsMap.has(idx)) return resultsMap.get(idx)!;
+      return { hasAppearance: true, quote };
+    });
+  } catch (err) {
+    console.warn(`[BatchAppearance] Batch LLM extraction failed, using heuristic fallback:`, err);
+    return candidateSentences.map((quote) => ({
+      hasAppearance: true,
+      quote,
+    }));
+  }
+}
+
 /**
  * Extract character knowledge from attribution results into semantic chunks.
  */

@@ -7,6 +7,7 @@ import { removeWhiteBackground, hasTransparency } from "./alpha-processor.js";
 export interface AgnesImageProducerConfig {
   apiKey: string;
   baseUrl?: string;
+  model?: string;
 }
 
 /** AssetProducer that uses Agnes Image API to generate real artwork */
@@ -14,10 +15,12 @@ export class AgnesImageProducer implements AssetProducer {
   readonly name = "agnes-image";
   private apiKey: string;
   private baseUrl: string;
+  private model: string;
 
   constructor(config: AgnesImageProducerConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = (config.baseUrl ?? "https://apihub.agnes-ai.com").replace(/\/+$/, "");
+    this.model = config.model ?? "agnes-image-2.1-flash";
   }
 
   async generate(entry: AssetEntry, outputDir: string): Promise<string> {
@@ -65,9 +68,9 @@ export class AgnesImageProducer implements AssetProducer {
       return "1girl, 1boy, humans, people, character, silhouette, crowd, photorealistic, photograph, 3d, cgi, ugly, blurry, lowres, dark, dirty, messy texture, oil painting, painterly brushstrokes, text, watermark, signature";
     }
     if (entry.type === "character") {
-      return "photorealistic, realistic, photograph, 3d, cgi, render, western, comic, manhwa, bad anatomy, deformed eyes, cross-eyed, extra fingers, poorly drawn hands, missing fingers, extra limbs, bad proportions, blurry, lowres, jpeg artifacts, text, signature, watermark, multiple girls, 1boy, checkerboard, grey background, shadows on background";
+      return "photorealistic, realistic, photograph, 3d, cgi, render, western, comic, manhwa, bad anatomy, deformed eyes, cross-eyed, extra fingers, poorly drawn hands, missing fingers, extra limbs, bad proportions, blurry, lowres, jpeg artifacts, text, signature, watermark, multiple girls, 1boy, checkerboard, grey background, shadows on background, painted, oil painting, messy";
     }
-    return "bad anatomy, deformed eyes, extra limbs, bad hands, lowres, blurry, jpeg artifacts, text, watermark, signature, photograph, 3d render";
+    return "bad anatomy, deformed eyes, extra limbs, bad hands, lowres, blurry, jpeg artifacts, text, watermark, signature, photograph, 3d render, painted, oil painting";
   }
 
   private buildPrompt(entry: AssetEntry): string {
@@ -77,6 +80,7 @@ export class AgnesImageProducer implements AssetProducer {
           let p = entry.prompt.replace(/painted (?:scenery|environment|background)/gi, "anime background art");
           p = p.replace(/oil painting|painterly|brushstrokes/gi, "clean lineart");
           if (!p.includes("no humans")) p += ", no humans, scenery";
+          if (!p.includes("masterpiece")) p = "masterpiece, best quality, highres, 8k wallpaper, game cg, " + p;
           return p;
         }
         return `masterpiece, best quality, highres, absurdres, 8k wallpaper, visual novel background, game cg, official art, no humans, scenery, ${entry.label}, atmospheric lighting, soft lighting bloom, vibrant rich colors, crisp lineart, wide angle`;
@@ -86,6 +90,9 @@ export class AgnesImageProducer implements AssetProducer {
           let p = entry.prompt;
           if (entry.expression && entry.expression !== "default" && !p.includes(`expression: ${entry.expression}`)) {
             p = `${p}, expression: ${entry.expression}`;
+          }
+          if (!p.includes("masterpiece")) {
+            p = `masterpiece, best quality, highres, absurdres, visual novel, official art, game cg, cel shading, crisp lineart, ${p}`;
           }
           return p;
         }
@@ -107,7 +114,7 @@ export class AgnesImageProducer implements AssetProducer {
     const negative_prompt = this.buildNegativePrompt(entry);
 
     const body = JSON.stringify({
-      model: "agnes-image-2.1-flash",
+      model: this.model,
       prompt,
       size,
       negative_prompt,

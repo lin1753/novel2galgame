@@ -11,3 +11,4 @@ export * from "./visual-prompt.js";
 export * from "./consistency.js";
 export * from "./task.js";
 export * from "./store.js";
+export * from "./canonical-entity-resolver.js";

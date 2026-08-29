@@ -440,6 +440,17 @@ export async function runChapterPipeline(
         }
       } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
     }
+
+    // RAG: ingest new character knowledge
+    if (rag && attributionData && attributionData.characters?.length > 0) {
+      try {
+        const chunks = rag.extractor.extractCharacterKnowledge(attributionData, chapterId, chapterTitle);
+        if (chunks.length > 0) {
+          await rag.knowledgeStore.ingestCharacters(chunks, project.projectId);
+          console.log(`[RAG] Ingested ${chunks.length} character chunks for ${chapterTitle}`);
+        }
+      } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
+    }
   }
 
   // Stage 3: Scene Segmentation

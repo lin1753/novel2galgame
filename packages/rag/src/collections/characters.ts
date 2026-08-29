@@ -257,6 +257,7 @@ export class CharacterCollection extends BaseCollection {
       minScore?: number;
       excludeChapterId?: string;
       minConfidence?: number;
+      projectId?: string;
     },
   ): CharacterRecord[] {
     const where: WhereClause = {};
@@ -265,6 +266,9 @@ export class CharacterCollection extends BaseCollection {
     }
     if (options?.minConfidence !== undefined) {
       where.confidence = { $gte: options.minConfidence };
+    }
+    if (options?.projectId) {
+      where.projectId = { $eq: options.projectId };
     }
 
     const results = this.search(queryVector, {
@@ -289,6 +293,7 @@ export class CharacterCollection extends BaseCollection {
       excludeChapterId?: string;
       minConfidence?: number;
       vectorWeight?: number;
+      projectId?: string;
     },
   ): CharacterRecord[] {
     const retriever = new HybridRetriever(this, {
@@ -297,6 +302,9 @@ export class CharacterCollection extends BaseCollection {
       vectorWeight: options?.vectorWeight ?? 0.6,
     });
     const results = retriever.retrieve(queryVector, queryText, (r) => {
+      if (options?.projectId && r.record.metadata.projectId !== options.projectId) {
+        return false;
+      }
       if (options?.excludeChapterId && r.record.metadata.chapterId === options.excludeChapterId) {
         return false;
       }
@@ -329,6 +337,7 @@ export class CharacterCollection extends BaseCollection {
       coarseK?: number;
       /** How many to keep after reranking. Default 3. */
       finalK?: number;
+      projectId?: string;
     },
   ): Promise<CharacterRecord[]> {
     if (this.count === 0) return [];
@@ -336,10 +345,16 @@ export class CharacterCollection extends BaseCollection {
     // Stage 1: Coarse hybrid search
     const retriever = new HybridRetriever(this, {
       topK: options?.coarseK ?? 15,
-      minScore: options?.minScore ?? 0.6,
+      minScore: options?.minScore ?? 0.5,
+      vectorWeight: 0.6, // Let reranker decide final order
     });
     const coarse = retriever.retrieve(queryVector, queryText, (r) => {
-      if (options?.excludeChapterId && r.record.metadata.chapterId === options.excludeChapterId) return false;
+      if (options?.projectId && r.record.metadata.projectId !== options.projectId) {
+        return false;
+      }
+      if (options?.excludeChapterId && r.record.metadata.chapterId === options.excludeChapterId) {
+        return false;
+      }
       if (options?.minConfidence !== undefined && (r.record.metadata.confidence as number) < options.minConfidence) return false;
       return true;
     });

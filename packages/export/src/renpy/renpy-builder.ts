@@ -78,14 +78,14 @@ export class RenPyBuilder implements GameBuilder {
 
       // 5. Generate Asset Manifest from IR and Visual Prompts
       const manifest = createEmptyManifest();
-      const { backgrounds, characters } = extractAssets(input.scripts, manifest);
+      const projectRoot = path.resolve(input.outputDir, "..", "..");
+      const { backgrounds, characters } = extractAssets(input.scripts, manifest, projectRoot);
 
       // Scan project scene visual_prompt.json files to collect rich appearance prompts
       const characterPromptMap = new Map<string, string>(); // characterId -> basePrompt
       const characterNamePromptMap = new Map<string, string>(); // canonicalName -> basePrompt
       const backgroundPromptMap = new Map<string, string>(); // backgroundId/sceneId/label -> prompt
 
-      const projectRoot = path.resolve(input.outputDir, "..", "..");
       const projectScenesDir = path.join(projectRoot, "scenes");
       if (fs.existsSync(projectScenesDir)) {
         try {
@@ -149,10 +149,10 @@ export class RenPyBuilder implements GameBuilder {
         try {
           const globalProfiles = JSON.parse(fs.readFileSync(globalProfilesPath, "utf-8"));
           for (const [cid, prof] of Object.entries<any>(globalProfiles)) {
-            if (prof?.basePrompt) {
-              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.basePrompt);
+            if (prof?.baseline?.basePrompt) {
+              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.baseline.basePrompt);
               if (prof.canonicalName && !characterNamePromptMap.has(prof.canonicalName)) {
-                characterNamePromptMap.set(prof.canonicalName, prof.basePrompt);
+                characterNamePromptMap.set(prof.canonicalName, prof.baseline.basePrompt);
               }
             }
           }

@@ -13,7 +13,9 @@ export interface VNMappingInput {
   repairContext?: string;
 }
 
-const SYSTEM_PROMPT = `你是一个中文小说转视觉小说脚本专家。你的任务是将一个场景的叙事单元转换为 VN 脚本步骤，像一位专业的 Galgame 导演一样编排演出。
+import { loadPrompt } from "../prompt-loader.js";
+
+const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说转视觉小说脚本专家。你的任务是将一个场景的叙事单元转换为 VN 脚本步骤，像一位专业的 Galgame 导演一样编排演出。
 
 VN 步骤类型:
 - bg: 背景切换 (backgroundId, backgroundLabel)
@@ -22,6 +24,8 @@ VN 步骤类型:
 - narration: 旁白/叙述文字 (text)
 - say: 角色对话 (characterId, displayName, text)
 - thought: 角色内心独白 (characterId, displayName, text)
+- action: 角色动作 (characterId, characterName, text)
+- scene_description: 场景描写 (participantIds, text)
 - pause: 暂停等待 (durationMs)
 - transition: 过场效果 (name: fade/cut/dissolve, cameraEffect)
 
@@ -84,7 +88,6 @@ export async function runVNMappingAgent(
     return { success: false, failureLevel: "recoverable", errorMessage: "No units in scene" };
   }
 
-  // 合理的批次大小（25 个单元），既能保证完整输出不超 token，又能将 API 请求数降低 90%
   const BATCH_SIZE = 25;
   const unitBatches: AttributedNarrativeUnit[][] = [];
   for (let i = 0; i < units.length; i += BATCH_SIZE) {
@@ -92,6 +95,7 @@ export async function runVNMappingAgent(
   }
 
   const allSteps: VNStep[] = [];
+  const systemPrompt = loadPrompt("vn-mapping", DEFAULT_SYSTEM_PROMPT);
 
   for (let bIdx = 0; bIdx < unitBatches.length; bIdx++) {
     const batchUnits = unitBatches[bIdx];
@@ -118,7 +122,6 @@ ${unitsText}
 
 请输出 VN 脚本步骤 JSON。确保对话原文完全保留!`;
 
-    // 构建局部角色映射表
     const charMap: Record<string, string> = {};
     for (const u of units) {
       const sid = u.attribution?.speakerId;
@@ -133,7 +136,7 @@ ${unitsText}
         const result = await provider.chatJson<{ steps: VNStep[] }>({
           model,
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
+            { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
           temperature: 0.2,
@@ -143,8 +146,6 @@ ${unitsText}
 
         const normalizedSteps = normalizeVNSteps(result.steps ?? [], charMap);
         if (normalizedSteps.length === 0) {
-          // Some providers occasionally return an empty steps array on a 200 —
-          // retry, and let the per-unit fallback kick in if it persists
           console.warn(`[vn-mapping-agent] Batch ${bIdx + 1}/${unitBatches.length} returned empty steps (attempt ${attempt + 1})`);
           if (attempt < 2) {
             await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
@@ -178,7 +179,36 @@ ${unitsText}
             type: "say",
             order: allSteps.length,
             characterId: u.attribution?.speakerId ?? "unknown",
-            displayName: u.attribution?.speakerId ?? "角色",
+            displayName: u.attribution?.speakerId ?? "未知",
+            text: u.originalText ?? "",
+            sourceUnitIds: [u.unitId],
+          });
+        } else if (u.type === "thought") {
+          allSteps.push({
+            stepId: `step_${sceneId}_${randId}`,
+            type: "thought",
+            order: allSteps.length,
+            characterId: u.attribution?.thinkerId ?? "unknown",
+            displayName: u.attribution?.thinkerId ?? "未知",
+            text: u.originalText ?? "",
+            sourceUnitIds: [u.unitId],
+          });
+        } else if (u.type === "action") {
+          allSteps.push({
+            stepId: `step_${sceneId}_${randId}`,
+            type: "action",
+            order: allSteps.length,
+            characterId: u.attribution?.actorId ?? "unknown",
+            characterName: u.attribution?.actorId ?? "未知",
+            text: u.originalText ?? "",
+            sourceUnitIds: [u.unitId],
+          });
+        } else if (u.type === "scene_description") {
+          allSteps.push({
+            stepId: `step_${sceneId}_${randId}`,
+            type: "scene_description",
+            order: allSteps.length,
+            participantIds: u.attribution?.participantIds ?? [],
             text: u.originalText ?? "",
             sourceUnitIds: [u.unitId],
           });
@@ -195,8 +225,55 @@ ${unitsText}
     }
   }
 
+  // ==== 强制容错后处理 (Post-processing) ====
+  
+  // 1. 确保开场必有 bg (背景)
+  if (allSteps.length > 0 && allSteps[0].type !== "bg") {
+    allSteps.unshift({
+      stepId: `step_${sceneId}_auto_bg`,
+      type: "bg",
+      order: -1,
+      backgroundId: `bg_${sceneId}`,
+      backgroundLabel: scene.summary?.locationHint ?? "场景",
+      sourceUnitIds: [],
+    });
+  }
+
+  // 2. 确保角色发言前已被 show (出场)
+  const shownCharacters = new Set<string>();
+  const finalizedSteps: VNStep[] = [];
+  
+  for (const step of allSteps) {
+    if (step.type === "hide") {
+      if (step.characterId) shownCharacters.delete(step.characterId);
+      finalizedSteps.push(step);
+    } else if (step.type === "show") {
+      if (step.characterId) shownCharacters.add(step.characterId);
+      finalizedSteps.push(step);
+    } else if (step.type === "say") {
+      const cid = step.characterId;
+      if (cid && cid !== "unknown" && cid !== "旁白" && !shownCharacters.has(cid)) {
+        // Auto-inject a show command before they speak
+        finalizedSteps.push({
+          stepId: `step_${sceneId}_auto_show_${cid}_${Math.random().toString(36).slice(2, 6)}`,
+          type: "show",
+          order: 0,
+          characterId: cid,
+          expression: "neutral",
+          position: "center",
+          emphasis: "focus",
+          sourceUnitIds: [],
+        });
+        shownCharacters.add(cid);
+      }
+      finalizedSteps.push(step);
+    } else {
+      finalizedSteps.push(step);
+    }
+  }
+
   // 重新对 steps 进行全局序号编排
-  allSteps.forEach((st, idx) => {
+  finalizedSteps.forEach((st, idx) => {
     st.order = idx;
     if (!st.stepId || st.stepId.startsWith("step_unknown_")) {
       st.stepId = `step_${sceneId}_${String(idx).padStart(4, "0")}`;
@@ -208,7 +285,7 @@ ${unitsText}
     data: {
       sceneId,
       chapterId,
-      steps: allSteps,
+      steps: finalizedSteps,
       mappingMode,
     },
   };

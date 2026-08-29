@@ -7,3 +7,4 @@ export * from "./vn-mapping/index.js";
 export * from "./fidelity-review/index.js";
 export * from "./visual-prompt/index.js";
 export * from "./consistency-review/index.js";
+export * from "./prompt-loader.js";

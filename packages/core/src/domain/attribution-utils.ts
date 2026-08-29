@@ -5,14 +5,18 @@
 
 import type { AttributionResult, CharacterRef } from "./attribution.js";
 
-/** A plausible character name: contains CJK, 2-6 chars, and is not a code ID */
+const GENERIC_NOUN_DENYLIST = new Set([
+  "角色", "人物", "男人", "女人", "旁白", "未知", "某人", "众人", "大家", 
+  "女孩", "男孩", "服务生", "司机", "员工", "同事", "职员", "路人"
+]);
+
+/** A plausible character name: contains CJK, 2-6 chars, and is not a code ID or generic noun */
 function isPlausibleName(name: string): boolean {
-  return (
-    /[\u4e00-\u9fff]/.test(name) &&
-    name.length >= 2 &&
-    name.length <= 6 &&
-    !name.startsWith("char_")
-  );
+  if (!name || name.length < 2 || name.length > 6) return false;
+  if (name.startsWith("char_")) return false;
+  if (!/[\u4e00-\u9fff]/.test(name)) return false;
+  if (GENERIC_NOUN_DENYLIST.has(name)) return false;
+  return true;
 }
 
 function escapeRegex(s: string): string {

@@ -1,32 +1,84 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { AssetManifest, AssetEntry, CharacterAsset } from "./types.js";
 
 /** Extract all required assets from a list of VNScripts */
 export function extractAssets(
-  scripts: Array<{ steps: Array<{ type: string; [key: string]: any }> }>,
-  existingManifest?: AssetManifest
+  scripts: Array<{ sceneId?: string; steps: Array<{ type: string; [key: string]: any }> }>,
+  existingManifest?: AssetManifest,
+  projectDir?: string
 ): { backgrounds: Map<string, string>; characters: Map<string, Set<string>> } {
   const backgrounds = new Map<string, string>(); // id → label
   const characters = new Map<string, Set<string>>(); // characterId → Set<expression>
 
   for (const script of scripts) {
+    let vpData: any = null;
+    if (projectDir && script.sceneId) {
+      const vpPath = path.join(projectDir, "scenes", script.sceneId, "visual_prompt.json");
+      if (fs.existsSync(vpPath)) {
+        try {
+          vpData = JSON.parse(fs.readFileSync(vpPath, "utf-8"));
+        } catch {}
+      }
+    }
+
     for (const step of script.steps) {
       switch (step.type) {
-        case "bg":
-          if (!backgrounds.has(step.backgroundId)) {
-            backgrounds.set(step.backgroundId, step.backgroundLabel ?? step.backgroundId);
+        case "bg": {
+          const bgId = step.backgroundId;
+          const label = step.backgroundLabel ?? bgId;
+          if (!backgrounds.has(bgId)) {
+            backgrounds.set(bgId, label);
+          }
+          if (existingManifest) {
+            if (!existingManifest.assets.background[bgId]) {
+              existingManifest.assets.background[bgId] = {
+                type: "background",
+                label,
+                file: defaultAssetPath("background", bgId),
+                status: "placeholder"
+              };
+            }
+            if (vpData?.backgroundPrompt?.finalPrompt) {
+              existingManifest.assets.background[bgId].prompt = vpData.backgroundPrompt.finalPrompt;
+            }
           }
           break;
+        }
 
-        case "show":
-          if (step.characterId) {
-            if (!characters.has(step.characterId)) {
-              characters.set(step.characterId, new Set());
+        case "show": {
+          const charId = step.characterId;
+          if (charId) {
+            if (!characters.has(charId)) {
+              characters.set(charId, new Set());
             }
-            if (step.expression) {
-              characters.get(step.characterId)!.add(step.expression);
+            const expr = step.expression || "default";
+            characters.get(charId)!.add(expr);
+
+            if (existingManifest) {
+              if (!existingManifest.assets.character[charId]) {
+                existingManifest.assets.character[charId] = {
+                  characterId: charId,
+                  expressions: {}
+                };
+              }
+              if (!existingManifest.assets.character[charId].expressions[expr]) {
+                existingManifest.assets.character[charId].expressions[expr] = {
+                  type: "character",
+                  label: expr,
+                  file: defaultAssetPath("character", charId, expr),
+                  status: "placeholder",
+                  expression: expr
+                };
+              }
+              const charVp = vpData?.characterPrompts?.find((c: any) => c.characterId === charId);
+              if (charVp?.finalPrompt) {
+                existingManifest.assets.character[charId].expressions[expr].prompt = charVp.finalPrompt;
+              }
             }
           }
           break;
+        }
       }
     }
   }

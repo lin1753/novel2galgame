@@ -260,11 +260,13 @@ export class PipelineTaskQueue {
 
     this._runChapterPipeline(chapter, abort.signal)
       .then((result) => {
-        clearTimeout(timeoutTimer);
-        this.active.delete(chapter.chapterId);
         this.results.set(chapter.chapterId, "completed");
         // Update chapter status in database
-        try { this.chapterRepo?.updateStatus(chapter.chapterId, "chapter_ready"); } catch {}
+        try { 
+          this.chapterRepo?.updateStatus(chapter.chapterId, "chapter_ready"); 
+        } catch (dbErr) {
+          console.error(`[DB Error] chapterRepo.updateStatus failed:`, dbErr);
+        }
         captureResult(result);
         this._emit({
           chapterId: chapter.chapterId,
@@ -273,12 +275,8 @@ export class PipelineTaskQueue {
           stage: "completed",
           message: `Pipeline complete: ${result?.sceneCount ?? 1} scenes`,
         });
-        this._drain();
       })
       .catch((err) => {
-        clearTimeout(timeoutTimer);
-        this.active.delete(chapter.chapterId);
-        
         const isUserCancel = !isTimedOut && err instanceof Error && (err.name === "AbortError" || err.message.startsWith("ABORTED"));
         if (isUserCancel) {
           // Cancelled by user — already handled
@@ -300,8 +298,10 @@ export class PipelineTaskQueue {
           stage: "failed",
           message: errMsg,
         });
-        
-        // Auto advance to next chapter
+      })
+      .finally(() => {
+        clearTimeout(timeoutTimer);
+        this.active.delete(chapter.chapterId);
         this._drain();
       });
   }
