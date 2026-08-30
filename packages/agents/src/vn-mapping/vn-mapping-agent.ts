@@ -1,4 +1,4 @@
-import type { VNScript, VNStep, Scene, AttributedNarrativeUnit } from "@novel2gal/core";
+import type { VNScript, VNStep, Scene, AttributedNarrativeUnit, CharacterRef } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
 import { normalizeVNSteps } from "../shared/normalize.js";
@@ -8,6 +8,7 @@ export interface VNMappingInput {
   chapterId: string;
   scene: Scene;
   units: AttributedNarrativeUnit[];
+  characters?: CharacterRef[];
   mappingMode: "standard" | "conservative";
   /** [REPAIR MODE] Issues from a failed fidelity review; instructs the LLM to fix omissions */
   repairContext?: string;
@@ -16,6 +17,8 @@ export interface VNMappingInput {
 import { loadPrompt } from "../prompt-loader.js";
 
 const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说转视觉小说脚本专家。你的任务是将一个场景的叙事单元转换为 VN 脚本步骤，像一位专业的 Galgame 导演一样编排演出。
+
+【极度重要】由于 API 输出长度存在严格限制，请你严格跳过所有分析、解释和内心独白！千万不要写“让我分析一下...”，请直接、立刻输出最终的 JSON 数组！
 
 VN 步骤类型:
 - bg: 背景切换 (backgroundId, backgroundLabel)
@@ -88,7 +91,7 @@ export async function runVNMappingAgent(
     return { success: false, failureLevel: "recoverable", errorMessage: "No units in scene" };
   }
 
-  const BATCH_SIZE = 25;
+  const BATCH_SIZE = 5;
   const unitBatches: AttributedNarrativeUnit[][] = [];
   for (let i = 0; i < units.length; i += BATCH_SIZE) {
     unitBatches.push(units.slice(i, i + BATCH_SIZE));
@@ -116,16 +119,22 @@ export async function runVNMappingAgent(
 场景摘要: ${scene.summary?.shortSummary ?? "无"}
 场景位置: ${scene.summary?.locationHint ?? "未知"}
 ${unitBatches.length > 1 ? `[批次 ${bIdx + 1}/${unitBatches.length}]` : ""}
-${input.repairContext ? `\n[REPAIR MODE] 上一次生成的 VN 脚本未通过保真度审核，请务必修复以下问题，补全所有被遗漏的叙事单元:\n${input.repairContext}\n` : ""}
+${input.repairContext ? `\n[REPAIR MODE] 上一次生成的 VN 脚本未通过保真度审核，请务必修复以下问题，补全所有被遗漏的叙事单元\n${input.repairContext}\n` : ""}
 叙事单元:
 ${unitsText}
 
-请输出 VN 脚本步骤 JSON。确保对话原文完全保留!`;
+请输出 VN 脚本步骤 JSON。确保对话原文完全保留。`;
 
     const charMap: Record<string, string> = {};
+    if (input.characters) {
+      for (const c of input.characters) {
+        charMap[c.characterId] = c.canonicalName;
+        charMap[c.canonicalName] = c.canonicalName;
+      }
+    }
     for (const u of units) {
       const sid = u.attribution?.speakerId;
-      if (sid && !sid.startsWith("char_")) {
+      if (sid && !sid.startsWith("char_") && !charMap[`char_${sid}`]) {
         charMap[`char_${sid}`] = sid;
       }
     }
@@ -139,7 +148,7 @@ ${unitsText}
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.2,
+          temperature: 0.4,
           maxTokens: 8192,
           jsonMode: true,
         });

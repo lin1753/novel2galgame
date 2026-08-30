@@ -107,6 +107,15 @@ export class PlayerController {
       case "hideCharacter":
         this.state.charactersOnScreen.delete(action.id);
         break;
+      case "showNarration":
+        this.state.currentText = { mode: "narration", text: action.text };
+        break;
+      case "showDialogue":
+        this.state.currentText = { mode: "dialogue", text: action.text, characterId: action.characterId, displayName: action.displayName };
+        break;
+      case "showThought":
+        this.state.currentText = { mode: "thought", text: action.text, characterId: action.characterId, displayName: action.displayName };
+        break;
       default:
         break;
     }

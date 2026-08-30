@@ -116,11 +116,10 @@ export function createProjectRoutes(
   });
 
   // DELETE /projects/:id - Delete project
-  router.delete("/:id", (req: Request, res: Response) => {
+  router.delete("/:id", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
 
-    // Abort any running pipelines for this project first — otherwise background
-    // nodes keep writing files and DB rows for a project that's being deleted
+    // Abort any running pipelines for this project first
     try {
       for (const ch of chapterRepo.listByProject(projectId)) {
         runningPipelines.get(ch.chapterId)?.abort();
@@ -130,32 +129,27 @@ export function createProjectRoutes(
 
     projectRepo.delete(projectId);
 
-    // Clean RAG records for this deleted project
+    // Clean RAG records (JSON + ChromaDB) for this deleted project
     try {
-      const charColl = rag?.knowledgeStore?.characters;
-      if (charColl && Array.isArray(charColl.records)) {
-        charColl.records = charColl.records.filter((r: any) => {
-          const meta = r.metadata ?? {};
-          if (meta.projectId === projectId) return false;
-          if (typeof meta.chapterId === "string" && meta.chapterId.startsWith(projectId)) return false;
-          if (typeof r.id === "string" && r.id.startsWith(projectId)) return false;
-          return true;
-        });
-        charColl.save?.();
+      if (rag?.knowledgeStore) {
+        await rag.knowledgeStore.deleteProjectData(projectId);
       }
     } catch (e) {
       console.warn("[Project] RAG clean on delete warning:", e);
     }
 
-    // Clean project files from filesystem
+    // Clean project files from filesystem asynchronously with retries for Windows locks
     try {
       const projDir = path.join(config.dataDir, "projects", projectId);
-      if (fs.existsSync(projDir)) {
-        fs.rmSync(projDir, { recursive: true, force: true });
-      }
       const cacheDir = path.join(config.dataDir, "cache", projectId);
+      
+      const rmOpts = { recursive: true, force: true, maxRetries: 3, retryDelay: 500 };
+      
+      if (fs.existsSync(projDir)) {
+        await fs.promises.rm(projDir, rmOpts);
+      }
       if (fs.existsSync(cacheDir)) {
-        fs.rmSync(cacheDir, { recursive: true, force: true });
+        await fs.promises.rm(cacheDir, rmOpts);
       }
     } catch (e) {
       console.warn("[Project] Disk clean on delete warning:", e);

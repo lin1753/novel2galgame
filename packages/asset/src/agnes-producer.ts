@@ -74,36 +74,50 @@ export class AgnesImageProducer implements AssetProducer {
   }
 
   private buildPrompt(entry: AssetEntry): string {
+    let p = "";
     switch (entry.type) {
       case "background": {
-        if (entry.prompt) {
-          let p = entry.prompt.replace(/painted (?:scenery|environment|background)/gi, "anime background art");
+        if (entry.prompt && entry.prompt.trim().length > 10) {
+          p = entry.prompt.replace(/painted (?:scenery|environment|background)/gi, "anime background art");
           p = p.replace(/oil painting|painterly|brushstrokes/gi, "clean lineart");
           if (!p.includes("no humans")) p += ", no humans, scenery";
           if (!p.includes("masterpiece")) p = "masterpiece, best quality, highres, 8k wallpaper, game cg, " + p;
-          return p;
+        } else {
+          p = `masterpiece, best quality, highres, absurdres, 8k wallpaper, visual novel background, game cg, official art, no humans, scenery, ${entry.label || "empty scenery"}, atmospheric lighting, soft lighting bloom, vibrant rich colors, crisp lineart, wide angle`;
         }
-        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, visual novel background, game cg, official art, no humans, scenery, ${entry.label}, atmospheric lighting, soft lighting bloom, vibrant rich colors, crisp lineart, wide angle`;
+        break;
       }
       case "character": {
-        if (entry.prompt) {
-          let p = entry.prompt;
+        // Skip generating if it's an "unknown" character
+        if (entry.file.includes("char_unknown") || entry.label === "未知") {
+          throw new Error("SKIP_UNKNOWN_CHARACTER");
+        }
+        if (entry.prompt && entry.prompt.trim().length > 10) {
+          p = entry.prompt;
           if (entry.expression && entry.expression !== "default" && !p.includes(`expression: ${entry.expression}`)) {
             p = `${p}, expression: ${entry.expression}`;
           }
           if (!p.includes("masterpiece")) {
             p = `masterpiece, best quality, highres, absurdres, visual novel, official art, game cg, cel shading, crisp lineart, ${p}`;
           }
-          return p;
+        } else {
+          p = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${entry.label || "character"}, expression: ${entry.expression || "neutral"}, clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background`;
         }
-        const charBase = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${entry.label}, expression: ${entry.expression || "neutral"}, clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background`;
-        return charBase;
+        break;
       }
       case "cg":
-        return `masterpiece, best quality, highres, absurdres, 8k wallpaper, cinematic visual novel CG, dramatic composition, emotional scene, ${entry.label}, beautiful cinematic lighting`;
+        p = `masterpiece, best quality, highres, absurdres, 8k wallpaper, cinematic visual novel CG, dramatic composition, emotional scene, ${entry.label}, beautiful cinematic lighting`;
+        break;
       default:
-        return `masterpiece, best quality, highres, visual novel asset, ${entry.label}, clean 2D lineart, solid white background`;
+        p = `masterpiece, best quality, highres, visual novel asset, ${entry.label}, clean 2D lineart, solid white background`;
+        break;
     }
+    
+    // Safety check for empty or too short prompt (trailing commas)
+    if (p.trim().endsWith(",")) {
+       p += " visual novel";
+    }
+    return p;
   }
 
   private async callApi(

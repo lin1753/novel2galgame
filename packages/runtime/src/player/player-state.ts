@@ -1,4 +1,5 @@
 import type { RenderAction } from "../step-engine/step-types.js";
+import type { TextDisplay } from "../renderer/text-renderer.js";
 
 export interface PlayerState {
   status: "idle" | "playing" | "paused" | "waiting" | "ended";
@@ -11,6 +12,7 @@ export interface PlayerState {
   charactersOnScreen: Map<string, { expression?: string; position?: string }>;
   currentBackground: { id: string; label?: string } | null;
   lastAction: RenderAction | null;
+  currentText: TextDisplay | null;
 }
 
 export function createPlayerState(): PlayerState {
@@ -25,5 +27,7 @@ export function createPlayerState(): PlayerState {
     charactersOnScreen: new Map(),
     currentBackground: null,
     lastAction: null,
+    currentText: null,
   };
 }
+

@@ -223,7 +223,7 @@ export async function vnMappingNode(
     }
     const vnData = await withRetry(
       retryable(() => { retryCount++; return runVNMappingAgent(
-        { sceneId: scene.sceneId, chapterId: state.chapterId, scene, units: sceneUnits, mappingMode: "standard", repairContext },
+        { sceneId: scene.sceneId, chapterId: state.chapterId, scene, units: sceneUnits, characters: state.attributionResult?.characters ?? [], mappingMode: "standard", repairContext },
         wVn,
         vn.model
       ); }),

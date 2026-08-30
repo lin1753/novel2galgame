@@ -163,10 +163,10 @@ export class FetchLLMProvider implements LLMProvider {
           reject(new Error(`LLM request failed: ${e.message}`));
         }
       });
-      req.setTimeout(180_000, () => {
+      req.setTimeout(600_000, () => {
         if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
         req.destroy();
-        reject(new Error("LLM request timeout (180s)"));
+        reject(new Error("LLM request timeout (600s)"));
       });
       req.write(data);
       req.end();
@@ -214,25 +214,45 @@ export class FetchLLMProvider implements LLMProvider {
     return response;
   }
 
-  async chatJson<T>(options: LLMRequestOptions): Promise<T> {
-    let lastError: Error | null = null;
-    // Retry up to 2 times on truncated JSON (common with free-tier APIs)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
-        const delay = 2000 * attempt;
-        console.log(`[FetchLLM] Retrying JSON parse (attempt ${attempt + 1}/3) after ${delay}ms...`);
-        await new Promise((r) => setTimeout(r, delay));
+    async chatJson<T>(options: LLMRequestOptions): Promise<T> {
+      let lastError: Error | null = null;
+      // Retry up to 2 times on network errors or truncated JSON
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          const delay = 2000 * attempt;
+          console.log(`[FetchLLM] Retrying request (attempt ${attempt + 1}/3) after ${delay}ms...`);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        
+        let response: LLMResponse;
+        try {
+          response = await this.chat({ ...options, jsonMode: true });
+        } catch (err: any) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          console.log(`[FetchLLM] Network/API error during chat: ${lastError.message}`);
+          continue; // Retry on network error like socket hang up
+        }
+
+        // finish_reason=length means the JSON is cut off by max_tokens -> repair
+        // would silently close it into partial/empty data, so retry instead
+        if (response.finishReason === "length") {
+          console.log(`[FetchLLM] Completion truncated by max_tokens (${response.content.length} chars), retrying...`);
+          lastError = new Error("LLM completion truncated by max_tokens");
+          continue;
+        }
+        
+        let content = response.content.trim();
+        // Remove <think>...</think> block (for DeepSeek R1 / agnes-2.5-flash)
+        content = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, "");
+        
+        // Extract JSON from markdown fences if present
+        const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (jsonMatch) {
+        content = jsonMatch[1].trim();
+      } else {
+        content = content.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "").trim();
       }
-      const response = await this.chat({ ...options, jsonMode: true });
-      // finish_reason=length means the JSON is cut off by max_tokens — repair
-      // would silently close it into partial/empty data, so retry instead
-      if (response.finishReason === "length") {
-        console.log(`[FetchLLM] Completion truncated by max_tokens (${response.content.length} chars), retrying...`);
-        lastError = new Error("LLM completion truncated by max_tokens");
-        continue;
-      }
-      let content = response.content.trim();
-      content = content.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/, "");
+
       try {
         return JSON.parse(content) as T;
       } catch (e) {

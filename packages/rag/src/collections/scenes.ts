@@ -33,6 +33,18 @@ export class SceneCollection extends BaseCollection {
     }
   }
 
+  /** Delete project data from both JSON and ChromaDB */
+  async deleteByProject(projectId: string): Promise<void> {
+    this.delete({ projectId: { $eq: projectId } });
+    if (this.chroma) {
+      try {
+        await this.chroma.deleteByProject(projectId);
+      } catch (e) {
+        console.warn("[RAG] ChromaDB deleteByProject warning:", e);
+      }
+    }
+  }
+
   /** Ingest scene pattern chunks. */
   ingest(
     chunks: Array<{

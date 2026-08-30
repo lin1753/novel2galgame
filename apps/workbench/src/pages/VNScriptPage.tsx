@@ -40,11 +40,11 @@ export function VNScriptPage() {
       <div className="flex items-center gap-2 mb-4">
         <Sparkles className="w-4 h-4 text-sakura" />
         <h2 className="font-semibold text-deep-purple">{script.sceneId}</h2>
-        <span className="text-xs text-muted-foreground">{script.steps.length} 步骤</span>
+        <span className="text-xs text-muted-foreground">{script.steps?.length ?? 0} 步骤</span>
       </div>
 
       <div className="space-y-1">
-        {script.steps.map((step, i) => (
+        {(script.steps || []).map((step, i) => (
           <div key={step.stepId} className="flex items-start gap-2 px-3 py-1.5 rounded-lg hover:bg-muted text-sm">
             <span className="text-[10px] text-muted-foreground w-6 text-right pt-0.5 shrink-0">{i + 1}</span>
             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${typeColors[step.type] ?? 'bg-gray-100'}`}>

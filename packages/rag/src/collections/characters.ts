@@ -64,6 +64,18 @@ export class CharacterCollection extends BaseCollection {
     }
   }
 
+  /** Delete project data from both JSON and ChromaDB */
+  async deleteByProject(projectId: string): Promise<void> {
+    this.delete({ projectId: { $eq: projectId } });
+    if (this.chroma) {
+      try {
+        await this.chroma.deleteByProject(projectId);
+      } catch (e) {
+        console.warn("[RAG] ChromaDB deleteByProject warning:", e);
+      }
+    }
+  }
+
   /** Ingest character chunks into the store. */
   ingest(chunks: CharacterRecord[], vectors: number[][]): void {
     if (chunks.length === 0) return;

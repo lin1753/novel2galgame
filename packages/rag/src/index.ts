@@ -144,6 +144,14 @@ export class KnowledgeStore {
     return this.collections.scenes.searchAsync(vector, { topK: limit, projectId });
   }
 
+  /** Globally delete all RAG records (JSON and Chroma) for a given project */
+  async deleteProjectData(projectId: string): Promise<void> {
+    await this.collections.characters.deleteByProject(projectId);
+    await this.collections.scenes.deleteByProject(projectId);
+    this.collections.narratives.delete({ projectId: { $eq: projectId } });
+    this.collections.prompts.delete({ projectId: { $eq: projectId } });
+  }
+
   async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
     for (const chunk of chunks) {
       const meta = chunk.metadata ?? {};

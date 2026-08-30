@@ -254,8 +254,12 @@ export function createAssetRoutes() {
       } else {
         res.status(400).json({ error: `Unknown asset type: ${type}` });
       }
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    } catch (err: any) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg === "SKIP_UNKNOWN_CHARACTER") {
+        return res.status(200).json({ success: true, skipped: true, message: "Skipped unknown character" });
+      }
+      res.status(500).json({ error: msg });
     }
   });
 

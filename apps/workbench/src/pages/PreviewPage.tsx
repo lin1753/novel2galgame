@@ -144,7 +144,7 @@ const controllerRef = useRef<PlayerController | null>(null)
     setStepIndex(state.currentStepIndex)
     setStatus(state.status)
     setCurrentAction(action)
-    setTextDisplay(action ? actionToDisplay(action) : null)
+    setTextDisplay(state.currentText)
     setCharacters(new Map(state.charactersOnScreen))
     if (state.currentBackground) {
       setBgId(state.currentBackground.id)

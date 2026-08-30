@@ -38,23 +38,7 @@ export function ScenePreview({ steps, currentIndex }: ScenePreviewProps) {
       setBgLabel(state.currentBackground.label ?? state.currentBackground.id)
     }
     setCharacters(new Map(state.charactersOnScreen))
-
-    const action = ctrl.getCurrentRenderAction()
-    if (action) {
-      switch (action.type) {
-        case 'showNarration':
-          setTextDisplay({ mode: 'narration', text: action.text })
-          break
-        case 'showDialogue':
-          setTextDisplay({ mode: 'dialogue', text: action.text, characterId: action.characterId, displayName: action.displayName })
-          break
-        case 'showThought':
-          setTextDisplay({ mode: 'thought', text: action.text, characterId: action.characterId, displayName: action.displayName })
-          break
-        default:
-          setTextDisplay(null)
-      }
-    }
+    setTextDisplay(state.currentText)
   }
 
   const charEntries = Array.from(characters.entries())

@@ -78,6 +78,7 @@ ${originalText}
 VN 脚本步骤:
 ${scriptText}
 
+【最终警告】请直接输出 JSON，禁止包含任何思考过程！不要输出任何多余的中文字符！
 请输出审核结果 JSON。`;
 
   try {
@@ -87,7 +88,7 @@ ${scriptText}
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.1,
+      temperature: 0.3,
       maxTokens: 8192,
       jsonMode: true,
     });

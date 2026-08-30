@@ -130,6 +130,12 @@ export class ChromaCollection {
     await collection.delete({ ids });
   }
 
+  async deleteByProject(projectId: string): Promise<void> {
+    await this.ensureCollection();
+    const collection = await this.client.getCollection({ name: this.collectionName });
+    await collection.delete({ where: { projectId } });
+  }
+
   async count(): Promise<number> {
     try {
       await this.ensureCollection();

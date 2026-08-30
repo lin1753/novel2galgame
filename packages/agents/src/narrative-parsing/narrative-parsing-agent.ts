@@ -63,7 +63,9 @@ export async function runNarrativeParsingAgent(
 ${textChunks.length > 1 ? `分段: ${chunkIdx + 1}/${textChunks.length}` : ""}
 
 文本内容:
-${chunk}`;
+${chunk}
+
+【最终警告】请直接输出 JSON，禁止包含任何思考过程！不要输出任何多余的中文字符！`;
 
     let chunkUnits: NarrativeUnit[] = [];
     try {
