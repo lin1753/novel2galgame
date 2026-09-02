@@ -83,7 +83,8 @@ class AutoExportStore {
         
         // Derive running from explicit pipeline completion events
         const isComplete = event.stage === 'complete' || event.stage === 'cancelled'
-        const running = isComplete ? false : (prev.running || Array.from(chapters.values()).some(
+        // If we receive a progress event, we know it's running (even if chapters map is empty on reload)
+        const running = isComplete ? false : (prev.running || event.status === 'progress' || Array.from(chapters.values()).some(
           (c) => c.status === 'running' || c.status === 'queued'
         ))
 
@@ -109,7 +110,29 @@ class AutoExportStore {
       if (!res.ok) return
       const data = await res.json()
       if (data.running) {
-        this.update((prev) => ({ running: true, taskId: data.taskId, logs: prev.logs.length === 0 ? ['Restored active task state'] : prev.logs }))
+        this.update((prev) => {
+          let chapters = new Map(prev.chapters)
+          let logs = prev.logs.length === 0 ? ['Restored active task state'] : prev.logs
+          if (data.snapshot) {
+            const { results, pending, active } = data.snapshot
+            // Restore from snapshot
+            pending.forEach((cid: string) => {
+              if (!chapters.has(cid)) chapters.set(cid, { chapterId: cid, chapterIndex: 0, stage: 'queued', status: 'queued' })
+            })
+            Object.entries(results).forEach(([cid, status]) => {
+              chapters.set(cid, { 
+                chapterId: cid,
+                chapterIndex: 0,
+                stage: 'done',
+                status: status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'cancelled'
+              })
+            })
+            active.forEach((cid: string) => {
+              chapters.set(cid, { chapterId: cid, chapterIndex: 0, stage: 'running', status: 'running' })
+            })
+          }
+          return { running: true, taskId: data.taskId, logs, chapters }
+        })
       }
     } catch {}
   }

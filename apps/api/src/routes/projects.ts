@@ -33,7 +33,7 @@ import type { ChapterConsistencyData } from "@novel2gal/agents";
 import { runChapterPipeline, createDefaultConfig } from "../orchestrator/index.js";
 import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
 import { buildChapterPipelineGraph } from "@novel2gal/pipeline";
-import { config } from "../config/index.js";
+import { config, resolveModelConfig } from "../config/index.js";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 import { broadcastProgress } from "./progress.js";
@@ -320,7 +320,8 @@ export function createProjectRoutes(
     }
 
     const chapterText = fs.readFileSync(sourcePath, "utf-8");
-    const model = req.body.model ?? project.config.defaultTextModel ?? "agnes-2.0-flash";
+    const resolvedTextModel = resolveModelConfig("text").model;
+    const model = req.body.model ?? project.config.defaultTextModel ?? resolvedTextModel;
 
     // Build per-agent model config
     let agentModels: AgentModelConfig | undefined;

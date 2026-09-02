@@ -93,99 +93,46 @@ export class FetchLLMProvider implements LLMProvider {
 
     const url = new URL(`${this.baseUrl}${path}`);
     const data = JSON.stringify(body);
-    const port = parseInt(url.port || (url.protocol === "https:" ? "443" : "80"), 10);
+    
+    console.log(`[FetchLLM] FETCH ${url.toString()} (${data.length} bytes)`);
 
-    // Resolve real IPv4 via Google DNS (8.8.8.8) to bypass VPN/proxy DNS hijacking
-    let connectHost = url.hostname;
-    const realIp = await rawDnsQuery(url.hostname);
-    if (realIp) {
-      connectHost = realIp;
-      console.log(`[FetchLLM] DNS bypass: ${url.hostname} → ${realIp}`);
-    }
-
-    if (signal?.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
-
-    const transport = url.protocol === "https:" ? https : http;
-    console.log(`[FetchLLM] ${url.protocol === "https:" ? "HTTPS" : "HTTP"} ${connectHost}:${port}${url.pathname} (${data.length} bytes)`);
-
-    return new Promise((resolve, reject) => {
-      const reqOpts: https.RequestOptions = {
-        hostname: connectHost,
-        port,
-        path: url.pathname,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${this.apiKey}`,
-          "Content-Length": Buffer.byteLength(data),
-        },
-      };
-      // When connecting to IP, set servername for TLS SNI
-      if (realIp && url.protocol === "https:") {
-        reqOpts.servername = url.hostname;
-      }
-
-      let abortHandler: (() => void) | null = null;
-
-      const req = transport.request(reqOpts, (res) => {
-        let responseBody = "";
-        res.on("data", (chunk) => { responseBody += chunk; });
-        res.on("end", () => {
-          if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
-          console.log(`[FetchLLM] Response: ${res.statusCode} (${responseBody.length} bytes)`);
-          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            try {
-              resolve(JSON.parse(responseBody));
-            } catch (e) {
-              reject(new Error(`Failed to parse LLM response: ${responseBody.slice(0, 200)}`));
-            }
-          } else {
-            reject(new Error(`LLM API error ${res.statusCode}: ${responseBody.slice(0, 500)}`));
-          }
-        });
-      });
-
-      if (signal) {
-        abortHandler = () => {
-          req.destroy();
-          reject(new DOMException("Aborted", "AbortError"));
-        };
-        signal.addEventListener("abort", abortHandler, { once: true });
-      }
-
-      req.on("error", (e) => {
-        if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
-        if (signal?.aborted) {
-          reject(new DOMException("Aborted", "AbortError"));
-        } else {
-          reject(new Error(`LLM request failed: ${e.message}`));
-        }
-      });
-      req.setTimeout(600_000, () => {
-        if (abortHandler && signal) signal.removeEventListener("abort", abortHandler);
-        req.destroy();
-        reject(new Error("LLM request timeout (600s)"));
-      });
-      req.write(data);
-      req.end();
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${this.apiKey}`,
+      },
+      body: data,
+      signal,
     });
+
+    const responseText = await response.text();
+    console.log(`[FetchLLM] Response: ${response.status} (${responseText.length} bytes)`);
+
+    if (response.ok) {
+      try {
+        return JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Failed to parse LLM response: ${responseText.slice(0, 200)}`);
+      }
+    } else {
+      throw new Error(`LLM API error ${response.status}: ${responseText.slice(0, 500)}`);
+    }
   }
 
   async chat(options: LLMRequestOptions): Promise<LLMResponse> {
-      const body: any = {
-        model: options.model || this.defaultModel,
-        messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
-        temperature: options.temperature ?? 0.3,
-        max_tokens: options.maxTokens ?? 4096,
-      };
-      
-      // Known issue: DeepSeek-R1 (agnes-cloud) gets stuck in infinite reasoning loops if response_format: json_object is forced.
-      // We rely entirely on the system prompt (which already demands JSON) instead.
-      if (options.jsonMode && !this.baseUrl.includes("agnes-ai")) {
-        body.response_format = { type: "json_object" };
-      }
+    const body: any = {
+      model: options.model || this.defaultModel,
+      messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: options.temperature ?? 0.3,
+      max_tokens: options.maxTokens ?? 4096,
+    };
+    
+    // Known issue: API endpoints on agnes-ai often produce invalid unescaped quotes 
+    // when response_format: json_object is forced. We rely on the system prompt instead.
+    if (options.jsonMode && !this.baseUrl.includes("agnes-ai")) {
+      body.response_format = { type: "json_object" };
+    }
 
     const data = await this.request("/chat/completions", body, options.signal);
     const choice = data.choices?.[0];
@@ -193,7 +140,6 @@ export class FetchLLMProvider implements LLMProvider {
 
     if ((choice.message?.content == null || choice.message?.content === "") && JSON.stringify(data).length > 1000) {
       console.log(`[FetchLLM] WARNING: Content is empty but payload is large. Raw data keys: ${Object.keys(data).join(",")}, Message keys: ${Object.keys(choice.message || {}).join(",")}`);
-      // Log a truncated version of the raw choice
       console.log(`[FetchLLM] Raw choice dump: ${JSON.stringify(choice).substring(0, 1000)}...`);
     }
 
@@ -228,6 +174,9 @@ export class FetchLLMProvider implements LLMProvider {
         try {
           response = await this.chat({ ...options, jsonMode: true });
         } catch (err: any) {
+          if (err?.name === "AbortError" || err?.message?.includes("aborted") || err?.message?.includes("Aborted") || err?.message?.includes("This operation was aborted")) {
+            throw err;
+          }
           lastError = err instanceof Error ? err : new Error(String(err));
           console.log(`[FetchLLM] Network/API error during chat: ${lastError.message}`);
           continue; // Retry on network error like socket hang up
@@ -259,9 +208,21 @@ export class FetchLLMProvider implements LLMProvider {
         lastError = e instanceof Error ? e : new Error(String(e));
         try {
           return JSON.parse(repairJson(content)) as T;
-        } catch {
-          // Truncated JSON — retry the whole request
-          console.log(`[FetchLLM] JSON truncated (${content.length} chars), retrying request...`);
+        } catch (repairErr) {
+          const isLikelyMidStringCorruption = lastError.message.includes("position") && !response.finishReason?.includes("length");
+          if (isLikelyMidStringCorruption) {
+            console.log(`[FetchLLM] JSON corrupted at ${lastError.message} (${content.length} chars), retrying...`);
+            const match = lastError.message.match(/position (\d+)/);
+            if (match) {
+              const pos = parseInt(match[1], 10);
+              const start = Math.max(0, pos - 40);
+              const end = Math.min(content.length, pos + 40);
+              const snippet = content.substring(start, end).replace(/\n/g, "\\n");
+              console.log(`[FetchLLM] 🔎 Culprit snippet: "...${snippet}..."`);
+            }
+          } else {
+            console.log(`[FetchLLM] JSON truncated (${content.length} chars), retrying request...`);
+          }
         }
       }
     }
@@ -277,7 +238,12 @@ function repairJson(text: string): string {
   // Quick check: if already valid
   try { JSON.parse(s); return s; } catch { /* continue */ }
 
-  // 1. If truncated inside an array of objects (like "steps": [...]), drop trailing incomplete object
+  // 1. Attempt to fix unescaped quotes inside strings (common LLM hallucination)
+  // Replaces any double quote that is NOT at the boundary of a JSON structure
+  s = s.replace(/(?<!^|[{\[:,]\s*)"(?!\s*[:,}\]]|$)/g, '\\"');
+  try { JSON.parse(s); return s; } catch { /* continue */ }
+
+  // 2. If truncated inside an array of objects (like "steps": [...]), drop trailing incomplete object
   const lastCompleteObjEnd = s.lastIndexOf("}");
   if (lastCompleteObjEnd > 0) {
     const candidate = s.slice(0, lastCompleteObjEnd + 1);

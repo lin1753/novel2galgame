@@ -207,7 +207,7 @@ ${candidateSentences.map((s, idx) => `[${idx}] ${s}`).join("\n")}
 }`;
 
     const raw = await provider.chatJson<{ results: Array<StructuredAppearance & { index: number }> }>({
-      model: model || "agnes-2.0-flash",
+      model: model || "",
       messages: [
         { role: "system", content: "你是一个文学实体抽取专家。若句子纯属剧情动作（如买饭、打电话、开会、做作业），即使含有单字也必须判定 hasAppearance: false。" },
         { role: "user", content: prompt },

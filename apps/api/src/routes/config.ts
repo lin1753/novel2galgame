@@ -41,6 +41,17 @@ export function createConfigRoutes(
     } else {
       cfg.profiles.push(profile);
     }
+
+    if (profile.defaultModel) {
+      if (!cfg.modelAssignments) cfg.modelAssignments = {} as any;
+      if (!cfg.modelAssignments!.text || cfg.modelAssignments!.text.profile === profile.name) {
+        cfg.modelAssignments!.text = {
+          profile: profile.name,
+          model: profile.defaultModel,
+        };
+      }
+    }
+
     writeProfilesConfig(cfg);
 
     // If the updated profile is the currently active one, reload it in memory
@@ -98,7 +109,7 @@ export function createConfigRoutes(
     }
     try {
       await testProvider.chat({
-        model: req.body.defaultModel ?? req.body.model ?? (testProvider as any).defaultModel ?? "agnes-2.0-flash",
+        model: req.body.defaultModel ?? req.body.model ?? (testProvider as any).defaultModel ?? "",
         messages: [{ role: "user", content: "Reply with 'ok'" }],
         maxTokens: 5,
       });

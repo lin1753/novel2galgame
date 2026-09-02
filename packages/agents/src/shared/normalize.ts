@@ -72,3 +72,18 @@ export function normalizeVNSteps(raw: unknown[], charMap?: Record<string, string
     } as VNStep;
   });
 }
+
+/**
+ * Sanitizes raw text to prevent LLMs from outputting unescaped quotes 
+ * or control characters that break JSON parsing when they regurgitate the text.
+ * Note: Only use for dynamic content injected into prompts, not for the system prompt itself.
+ */
+export function sanitizeForPrompt(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .replace(/"/g, "\u201c")   // ASCII Double quote -> Chinese Left Quote (JSON safe)
+    .replace(/'/g, "\u2018")   // ASCII Single quote -> Chinese Left Single Quote
+    .replace(/\\/g, "\\\\")    // Escape backslashes
+    .replace(/\r?\n/g, " ")    // Newlines -> Space
+    .replace(/\t/g, " ");      // Tab -> Space
+}

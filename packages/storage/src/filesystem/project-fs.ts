@@ -22,7 +22,7 @@ const DEFAULT_PROJECT_CONFIG: ProjectConfig = {
   budgetMode: "balanced",
   autoRunVisualPrompt: true,
   autoRunConsistencyReview: true,
-  defaultTextModel: "agnes-2.0-flash",
+  defaultTextModel: "",
   language: "zh-CN",
 };
 

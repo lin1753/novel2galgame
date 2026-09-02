@@ -145,6 +145,17 @@ export class PipelineTaskQueue {
     return false;
   }
 
+  /** Returns current snapshot of all queued, active, and completed tasks for frontend sync */
+  getSnapshot() {
+    return {
+      isCancelled: this.isCancelled,
+      results: Object.fromEntries(this.results),
+      pending: this.pending.map(c => c.chapterId),
+      active: Array.from(this.active.keys()),
+      maxConcurrency: this.maxConcurrency
+    };
+  }
+
   /** Cancel all running and pending chapters */
   cancelAll(): void {
     this.isCancelled = true;

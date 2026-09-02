@@ -3,5 +3,5 @@ export { readManifest, writeManifest, createEmptyManifest, setAssetEntry, setCha
 export { extractAssets, defaultAssetPath } from "./extractor.js";
 export { DefaultResolver } from "./resolver.js";
 export { isAssetCached, getMissingAssets, markAssetGenerated } from "./cache.js";
-export { AgnesImageProducer } from "./agnes-producer.js";
-export type { AgnesImageProducerConfig } from "./agnes-producer.js";
+export { OpenAIImageProducer } from "./openai-image-producer.js";
+export type { OpenAIImageProducerConfig } from "./openai-image-producer.js";

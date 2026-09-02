@@ -149,10 +149,10 @@ export class RenPyBuilder implements GameBuilder {
         try {
           const globalProfiles = JSON.parse(fs.readFileSync(globalProfilesPath, "utf-8"));
           for (const [cid, prof] of Object.entries<any>(globalProfiles)) {
-            if (prof?.baseline?.basePrompt) {
-              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.baseline.basePrompt);
+            if (prof?.basePrompt) {
+              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.basePrompt);
               if (prof.canonicalName && !characterNamePromptMap.has(prof.canonicalName)) {
-                characterNamePromptMap.set(prof.canonicalName, prof.baseline.basePrompt);
+                characterNamePromptMap.set(prof.canonicalName, prof.basePrompt);
               }
             }
           }

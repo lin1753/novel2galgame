@@ -43,9 +43,9 @@ const DEFAULT_PROFILES: ModelProfilesConfig = {
       type: "cloud",
       baseUrl: "https://apihub.agnes-ai.com/v1",
       apiKey: process.env.OPENAI_API_KEY ?? "",
-      defaultModel: process.env.DEFAULT_MODEL ?? "agnes-2.0-flash",
-      imageModel: "agnes-image-2.1-flash",
-      videoModel: "agnes-video-v2.0",
+      defaultModel: process.env.DEFAULT_MODEL ?? "",
+      imageModel: "",
+      videoModel: "",
       enabled: true,
     },
     {
@@ -93,19 +93,19 @@ export function resolveModelConfig(
   if (type === "text") {
     return {
       profile: assignment?.profile ?? c.activeProfile,
-      model: assignment?.model ?? active?.defaultModel ?? "agnes-2.0-flash",
+      model: assignment?.model ?? active?.defaultModel ?? "",
     };
   }
   if (type === "image") {
     return {
       profile: assignment?.profile ?? c.activeProfile,
-      model: assignment?.model ?? active?.imageModel ?? "agnes-image-2.1-flash",
+      model: assignment?.model ?? active?.imageModel ?? "",
     };
   }
   // video
   return {
     profile: assignment?.profile ?? c.activeProfile,
-    model: assignment?.model ?? active?.videoModel ?? "agnes-video-v2.0",
+    model: assignment?.model ?? active?.videoModel ?? "",
   };
 }
 

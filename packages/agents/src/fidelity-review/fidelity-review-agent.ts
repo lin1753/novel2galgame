@@ -1,6 +1,7 @@
 import type { FidelityReport, VNScript, NarrativeUnit } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
+import { sanitizeForPrompt } from "../shared/normalize.js";
 
 export interface FidelityReviewInput {
   sceneId: string;
@@ -57,14 +58,14 @@ export async function runFidelityReviewAgent(
 
   const scriptText = vnScript.steps
     .map((s) => {
-      if ("text" in s) return `[${s.order}](${s.type}) ${(s as { text: string }).text}`;
+      if ("text" in s) return `[${s.order}](${s.type}) ${sanitizeForPrompt((s as { text: string }).text)}`;
       if ("backgroundLabel" in s) return `[${s.order}](${s.type}) ${(s as { backgroundLabel?: string }).backgroundLabel ?? ""}`;
       return `[${s.order}](${s.type})`;
     })
     .join("\n");
 
   const originalText = originalUnits
-    .map((u) => `[${u.order}](${u.type}) ${u.originalText ?? ""}`)
+    .map((u) => `[${u.order}](${u.type}) ${sanitizeForPrompt(u.originalText)}`)
     .join("\n");
 
   const userPrompt = `请审核以下 VN 脚本的忠实度。
@@ -89,7 +90,7 @@ ${scriptText}
         { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
-      maxTokens: 8192,
+      maxTokens: 16384,
       jsonMode: true,
     });
 

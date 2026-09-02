@@ -21,10 +21,10 @@ if (apiKey) {
   provider = new FetchLLMProvider({
     apiKey,
     baseUrl: activeProfile?.baseUrl ?? (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
-    defaultModel: activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "agnes-2.0-flash",
+    defaultModel: activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "",
     name: activeProfile?.name ?? process.env.LLM_PROVIDER_NAME ?? "default",
   });
-  console.log(`LLM provider: ${provider.name} (${activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "agnes-2.0-flash"})`);
+  console.log(`LLM provider: ${provider.name} (${activeProfile?.defaultModel ?? process.env.DEFAULT_MODEL ?? ""})`);
 } else {
   console.log("WARNING: No OPENAI_API_KEY set. Chapter processing will be unavailable.");
 }
@@ -53,3 +53,5 @@ app.listen(config.port, () => {
   console.log(`API server running on http://localhost:${config.port}`);
   console.log(`Data directory: ${config.dataDir}`);
 });
+
+// Trigger reload 1
