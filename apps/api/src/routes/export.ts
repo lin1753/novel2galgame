@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { RenPyBuilder } from "@novel2gal/export";
-import { readManifest, writeManifest, AgnesImageProducer, markAssetGenerated } from "@novel2gal/asset";
+import { readManifest, writeManifest, OpenAIImageProducer, markAssetGenerated } from "@novel2gal/asset";
 import { config, getActiveProfile, readProfilesConfig } from "../config/index.js";
 
 function param(req: Request, key: string): string {
@@ -18,7 +18,7 @@ function sanitizeId(id: string): string {
 export function createExportRoutes() {
   const router = Router();
 
-  // POST /projects/:id/export/renpy â€” Export to Ren'Py project
+  // POST /projects/:id/export/renpy â€?Export to Ren'Py project
   router.post("/projects/:id/export/renpy", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const projectDir = path.join(config.dataDir, "projects", projectId);
@@ -79,13 +79,13 @@ export function createExportRoutes() {
       outputDir: exportDir,
     });
 
-    // After export, sync assets/images/ â†’ export/game/images/
+    // After export, sync assets/images/ â†?export/game/images/
     syncAssetsToExport(projectDir, exportDir);
 
     res.json(result);
   });
 
-  // POST /projects/:id/export/generate-assets â€” Generate real images from manifest into project assets dir
+  // POST /projects/:id/export/generate-assets â€?Generate real images from manifest into project assets dir
   router.post("/projects/:id/export/generate-assets", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const { type, assetId, expression, label } = req.body;
@@ -105,8 +105,8 @@ export function createExportRoutes() {
       };
       // Extract asset needs from VN scripts
       // Collect visual prompts across all scenes for character consistency
-      const characterPrompts = new Map<string, string>(); // canonicalName â†’ finalPrompt
-      const charIdToName = new Map<string, string>(); // characterId â†’ canonicalName
+      const characterPrompts = new Map<string, string>(); // canonicalName â†?finalPrompt
+      const charIdToName = new Map<string, string>(); // characterId â†?canonicalName
 
       for (const sceneId of fs.readdirSync(scenesDir)) {
         // Read visual prompt result for this scene (if exists)
@@ -126,7 +126,7 @@ export function createExportRoutes() {
           } catch {}
         }
 
-        // Read attribution data to build characterId â†’ canonicalName mapping
+        // Read attribution data to build characterId â†?canonicalName mapping
         const chaptersDir = path.join(projectDir, "chapters");
         if (fs.existsSync(chaptersDir) && charIdToName.size === 0) {
           for (const chDir of fs.readdirSync(chaptersDir)) {
@@ -168,7 +168,7 @@ export function createExportRoutes() {
               }
               const expr = (step as any).expression || "default";
               if (!manifest.assets.character[charId].expressions[expr]) {
-                // Look up visual prompt finalPrompt via characterId â†’ canonicalName mapping
+                // Look up visual prompt finalPrompt via characterId â†?canonicalName mapping
                 const canonicalName = charIdToName.get(charId) || step.displayName;
                 const vpPrompt = canonicalName ? characterPrompts.get(canonicalName) : undefined;
                 manifest.assets.character[charId].expressions[expr] = {
@@ -192,7 +192,7 @@ export function createExportRoutes() {
       return res.status(503).json({ error: "No API key configured. Set up a model profile first." });
     }
 
-    const producer = new AgnesImageProducer({ apiKey });
+    const producer = new OpenAIImageProducer({ apiKey });
     const assetsDir = path.join(projectDir, "assets", "images");
     const generated: string[] = [];
     const errors: string[] = [];
@@ -248,7 +248,7 @@ export function createExportRoutes() {
   return router;
 }
 
-/** Copy assets/images/ â†’ export/game/images/ so Ren'Py gets real images */
+/** Copy assets/images/ â†?export/game/images/ so Ren'Py gets real images */
 function syncAssetsToExport(projectDir: string, exportDir: string) {
   const assetsDir = path.join(projectDir, "assets", "images");
   const gameImagesDir = path.join(exportDir, "game", "images");

@@ -1,6 +1,7 @@
 import type { Scene, SegmentationResult, AttributedNarrativeUnit } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
+import { sanitizeForPrompt } from "../shared/normalize.js";
 
 export interface SegmentationInput {
   chapterId: string;
@@ -68,7 +69,7 @@ export async function runSceneSegmentationAgent(
         const attr = u.attribution
           ? ` [speaker=${u.attribution.speakerId ?? "?"}]`
           : "";
-        return `[unitId: ${u.unitId}] [${u.order}] (${u.type}${attr}) ${(u.originalText ?? "").slice(0, 150)}`;
+        return `[unitId: ${u.unitId}] [${u.order}] (${u.type}${attr}) ${sanitizeForPrompt(u.originalText).slice(0, 150)}`;
       })
       .join("\n");
 
@@ -79,7 +80,7 @@ export async function runSceneSegmentationAgent(
 单元数量: ${chunkUnits.length}
 合法 unitId 列表 (必须且只能使用这些 ID):
 ${chunkUnitIdsText}
-${input.sceneHints ? `\n[前几章的场景结构参考，可结合参考但以本章内容为准]:\n${input.sceneHints}\n` : ""}
+${input.sceneHints ? `\n[前几章的场景结构参考，可结合参考但以本章内容为准]:\n${sanitizeForPrompt(input.sceneHints)}\n` : ""}
 叙事单元序列:
 ${unitsText}
 
@@ -93,7 +94,7 @@ ${unitsText}
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,
-        maxTokens: 8192,
+        maxTokens: 16384,
         jsonMode: true,
       });
 

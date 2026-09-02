@@ -8,9 +8,16 @@ import path from "node:path";
  */
 export function loadPrompt(agentName: string, defaultPrompt: string): string {
   try {
-    const cwd = process.cwd();
-    // Defaulting to a 'data/prompts' folder at the monorepo root or project root
-    const promptsDir = path.join(cwd, "data", "prompts");
+    let rootDir = process.cwd();
+    // Traverse up to find the monorepo root
+    while (rootDir !== path.parse(rootDir).root) {
+      if (fs.existsSync(path.join(rootDir, "pnpm-workspace.yaml"))) {
+        break;
+      }
+      rootDir = path.dirname(rootDir);
+    }
+    
+    const promptsDir = path.join(rootDir, "data", "prompts");
     
     if (!fs.existsSync(promptsDir)) {
       fs.mkdirSync(promptsDir, { recursive: true });

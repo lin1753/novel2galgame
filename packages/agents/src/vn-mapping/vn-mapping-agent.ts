@@ -1,7 +1,7 @@
 import type { VNScript, VNStep, Scene, AttributedNarrativeUnit, CharacterRef } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
-import { normalizeVNSteps } from "../shared/normalize.js";
+import { normalizeVNSteps, sanitizeForPrompt } from "../shared/normalize.js";
 
 export interface VNMappingInput {
   sceneId: string;
@@ -107,7 +107,7 @@ export async function runVNMappingAgent(
         const attr = u.attribution
           ? ` [speaker=${u.attribution.speakerId ?? "?"}]`
           : "";
-        return `[${u.order}] (${u.type}${attr}) ${u.originalText ?? ""}`;
+        return `[${u.order}] (${u.type}${attr}) ${sanitizeForPrompt(u.originalText)}`;
       })
       .join("\n");
 
@@ -149,7 +149,7 @@ ${unitsText}
             { role: "user", content: userPrompt },
           ],
           temperature: 0.4,
-          maxTokens: 8192,
+          maxTokens: 16384,
           jsonMode: true,
         });
 

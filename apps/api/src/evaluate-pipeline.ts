@@ -18,7 +18,7 @@ import type { LLMProvider } from "@novel2gal/providers";
 // ── Config ────────────────────────────────────────────
 
 const DATASET_PATH = "../../data/eval/attribution-v3.2/test.jsonl";
-const MODEL = process.env["EVAL_MODEL"] ?? "agnes-2.0-flash";
+const MODEL = process.env["EVAL_MODEL"] ?? "";
 const MAX_CASES = parseInt(process.env["EVAL_MAX"] ?? "30", 10);
 const API_KEY = process.env["OPENAI_API_KEY"] ?? "";
 const BASE_URL = process.env["OPENAI_BASE_URL"] ?? "https://apihub.agnes-ai.com/v1";

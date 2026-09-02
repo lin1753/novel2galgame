@@ -5,7 +5,7 @@ import path from "node:path";
 import { v4 as uuid } from "uuid";
 import { runStructureAgent } from "@novel2gal/agents";
 import { RenPyBuilder } from "@novel2gal/export";
-import { readManifest, writeManifest, AgnesImageProducer, markAssetGenerated } from "@novel2gal/asset";
+import { readManifest, writeManifest, OpenAIImageProducer, markAssetGenerated } from "@novel2gal/asset";
 import { broadcastProgress } from "./progress.js";
 import { config } from "../config/index.js";
 import {
@@ -43,14 +43,15 @@ export function createAutoExportRoutes(
   const chapterRepo = new ChapterRepository(db);
   const sceneRepo = new SceneRepository(db);
 
-  // POST /projects/:id/auto-export â€” Start async full pipeline
+  // POST /projects/:id/auto-export â€?Start async full pipeline
   router.post("/projects/:id/auto-export", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const project = projectRepo.getById(projectId);
     if (!project) return res.status(404).json({ error: "Project not found" });
 
     const activeProfile = getActiveProfile();
-    const model = req.body.model ?? project.config?.defaultTextModel ?? activeProfile?.defaultModel ?? "agnes-2.0-flash";
+    const resolvedTextModel = resolveModelConfig("text").model;
+    const model = req.body.model ?? project.config?.defaultTextModel ?? resolvedTextModel;
     const maxChapters = req.body.maxChapters ?? Infinity;
     const generateAssetsFlag = req.body.generateAssets ?? false;
 
@@ -72,7 +73,7 @@ export function createAutoExportRoutes(
       });
   });
 
-  // POST /projects/:id/auto-export/cancel/:chapterId â€” Cancel a chapter
+  // POST /projects/:id/auto-export/cancel/:chapterId â€?Cancel a chapter
   router.post("/projects/:id/auto-export/cancel/:chapterId", (req: Request, res: Response) => {
     // Find the task for this project by looking through active tasks
     // Since we have a Map<taskId, queue>, we need to find the one for this project
@@ -98,7 +99,7 @@ export function createAutoExportRoutes(
     res.status(404).json({ error: "Chapter not found in active tasks" });
   });
 
-  // POST /projects/:id/auto-export/cancel â€” Cancel all
+  // POST /projects/:id/auto-export/cancel â€?Cancel all
   router.post("/projects/:id/auto-export/cancel", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     let cancelled = false;
@@ -113,12 +114,16 @@ export function createAutoExportRoutes(
     res.json({ success: true });
   });
 
-  // GET /projects/:id/auto-export/status â€” Get active task status
+  // GET /projects/:id/auto-export/status â€?Get active task status
   router.get("/projects/:id/auto-export/status", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     for (const [tid, queue] of activeTasks) {
       if (taskProject.get(tid) === projectId) {
-        return res.json({ running: true, taskId: tid });
+        return res.json({ 
+          running: true, 
+          taskId: tid,
+          snapshot: queue.getSnapshot()
+        });
       }
     }
     res.json({ running: false });
@@ -375,12 +380,13 @@ async function generateProjectAssets(projectId: string) {
   }
   if (!manifest) return { success: false, generated: [], errors: ["No manifest found"] };
 
-  const apiKey = process.env.OPENAI_API_KEY || "sk-dummy";
-  const baseUrl = process.env.OPENAI_API_BASE;
+  const profile = getActiveProfile();
+  const apiKey = process.env.OPENAI_API_KEY || profile?.apiKey || "sk-dummy";
+  const baseUrl = process.env.OPENAI_BASE_URL || profile?.baseUrl;
   const imageCfg = resolveModelConfig("image");
-  const model = imageCfg.model || "agnes-image-2.1-flash";
+  const model = imageCfg.model || profile?.imageModel || "agnes-image-2.1-flash";
 
-  const producer = new AgnesImageProducer({ apiKey, baseUrl, model });
+  const producer = new OpenAIImageProducer({ apiKey, baseUrl, model });
   const generated: string[] = [];
   const errors: string[] = [];
 

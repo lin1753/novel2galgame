@@ -271,21 +271,22 @@ const controllerRef = useRef<PlayerController | null>(null)
               closeup: 1.50,
             }
             const shotScale = char.scale ?? scaleMap[char.shotType ?? 'waist'] ?? 1.0
-            const baseHeight = 70
-            const height = `${baseHeight * shotScale}%`
-            const opacity = char.emphasis === 'dim' ? 0.6 : 1.0
-            const brightness = char.emphasis === 'dim' ? 'brightness(0.7)' : 'brightness(1.0)'
+            
+            // For dimming background characters
+            const filter = char.emphasis === 'dim' ? 'brightness(0.6) saturate(0.8)' : 'brightness(1.0)'
+            const zIndex = char.emphasis === 'dim' ? 10 : 20
 
             return (
               <div
                 key={id}
-                className={`absolute bottom-0 ${posToStyle(char.position)} transform -translate-x-1/2 transition-all duration-500 ease-out`}
+                className={`absolute bottom-0 ${posToStyle(char.position)} transition-all duration-500 ease-out`}
                 style={{
-                  width: '22%',
-                  maxWidth: '260px',
-                  height,
-                  opacity,
-                  filter: brightness,
+                  width: '26%',          // Base width relative to screen
+                  height: '80%',         // Base height relative to screen
+                  transform: `translateX(-50%) scale(${shotScale})`,
+                  transformOrigin: 'bottom center', // Scale from the bottom anchor point
+                  filter,
+                  zIndex,
                 }}
               >
                 <img

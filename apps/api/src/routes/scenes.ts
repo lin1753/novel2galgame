@@ -7,7 +7,7 @@ import { SceneRepository, ProjectRepository, readSceneJson, readChapterJson, wri
 import type { VNScript, FidelityReport, NarrativeParsingResult, AttributionResult, SegmentationResult, VisualPromptResult, Scene } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import { runVisualPromptAgent } from "@novel2gal/agents";
-import { config, getActiveProfile } from "../config/index.js";
+import { config, resolveModelConfig } from "../config/index.js";
 
 function param(req: Request, key: string): string {
   const val = req.params[key];
@@ -168,8 +168,8 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
 
       const styleTemplate = req.body.styleTemplate ?? "school-romance-anime";
       const project = projectRepo.getById(projectId);
-      const activeProfile = getActiveProfile();
-      const model = req.body.model ?? project?.config?.defaultTextModel ?? activeProfile?.defaultModel ?? "agnes-2.0-flash";
+      const resolvedTextModel = resolveModelConfig("text").model;
+      const model = req.body.model ?? project?.config?.defaultTextModel ?? resolvedTextModel;
 
       const result = await runVisualPromptAgent(
         {

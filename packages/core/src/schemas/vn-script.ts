@@ -30,6 +30,9 @@ export const showStepSchema = baseVNStepSchema.extend({
   characterId: z.string(),
   expression: z.string().optional(),
   position: z.enum(["left_far", "left", "center", "right", "right_far"]).optional(),
+  shotType: z.enum(["full_body", "thigh", "waist", "bust", "closeup"]).optional(),
+  scale: z.number().positive().optional(),
+  emphasis: z.enum(["normal", "dim"]).optional(),
 });
 
 export const hideStepSchema = baseVNStepSchema.extend({
@@ -64,6 +67,7 @@ export const pauseStepSchema = baseVNStepSchema.extend({
 export const transitionStepSchema = baseVNStepSchema.extend({
   type: z.literal("transition"),
   name: z.string().optional(),
+  cameraEffect: z.enum(["shake_heavy", "shake_light", "flash_white"]).optional(),
 });
 
 export const vnStepSchema = z.discriminatedUnion("type", [

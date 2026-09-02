@@ -240,10 +240,10 @@ function TabContent({
 
   switch (tab) {
     case 'script':
-      if (!script) return <p className="text-muted-foreground">{scriptError ? '尚未生成 VN 脚本，请先运行管线' : '加载 VN 脚本中...'}</p>
+      if (!script) return <p className="text-muted-foreground">{scriptError ? '尚未生成 VN 脚本，请先运行管线' : '加载 VN 脚本...'}</p>
       return (
         <div className="space-y-1 max-h-[500px] overflow-auto">
-          {script.steps.map((step, i) => (
+          {(script.steps || []).map((step, i) => (
             <div key={step.stepId} className="flex items-start gap-2 px-2 py-1 rounded hover:bg-muted">
               <span className="text-[10px] text-muted-foreground w-5 text-right pt-0.5 shrink-0">{i + 1}</span>
               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${typeColors[step.type] ?? 'bg-gray-100'}`}>
@@ -262,7 +262,7 @@ function TabContent({
               </span>
             </div>
           ))}
-          {script.steps.length === 0 && <p className="text-muted-foreground">空脚本（无步骤）</p>}
+          {(script.steps || []).length === 0 && <p className="text-muted-foreground">空脚本（无步骤）</p>}
         </div>
       )
 
@@ -287,7 +287,7 @@ function TabContent({
       )
 
     case 'attribution':
-      if (!attribution) return <p className="text-muted-foreground">{attributionError ? '尚未生成分说话人结果，请先运行管线' : '加载归因结果中...'}</p>
+      if (!attribution) return <p className="text-muted-foreground">{attributionError ? '尚未生成分说话人结果，请先运行管线' : '加载归因结果...'}</p>
       return (
         <div className="space-y-3 max-h-[500px] overflow-auto">
           {attribution.characters.length > 0 && (
@@ -304,7 +304,7 @@ function TabContent({
             <div key={unit.unitId} className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-muted text-xs">
               <span className="text-muted-foreground w-5 text-right shrink-0">{i + 1}</span>
               <span className="px-1.5 py-0.5 rounded bg-sakura/10 text-deep-purple font-medium shrink-0">
-                {(unit as any).speaker ?? (unit as any).characterId ?? '未知'}
+                {(unit as any).attribution?.speakerId ?? (unit as any).attribution?.actorId ?? '未知'}
               </span>
               <span className="text-foreground">{(unit as any).originalText ?? (unit as any).text ?? ''}</span>
             </div>

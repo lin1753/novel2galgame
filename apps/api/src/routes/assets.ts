@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { config, getActiveProfile } from "../config/index.js";
-import { readManifest, writeManifest, AgnesImageProducer, markAssetGenerated } from "@novel2gal/asset";
+import { readManifest, writeManifest, OpenAIImageProducer, markAssetGenerated } from "@novel2gal/asset";
 
 function param(req: Request, key: string): string {
   const val = req.params[key];
@@ -14,23 +14,38 @@ function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_一-鿿]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").toLowerCase();
 }/** Scan all VN scripts to discover backgrounds, characters, and their scene usage */
 function scanProjectAssets(projectDir: string) {
-  const bgMap = new Map<string, { id: string; label: string }>();
-  const charMap = new Map<string, { id: string; name: string; expressions: Set<string> }>();
-  const bgScenes = new Map<string, string[]>();  // bg id → scene ids
-  const charScenes = new Map<string, string[]>(); // char id → scene ids
+  const bgMap = new Map<string, { id: string; label: string; prompt?: string }>();
+  const charMap = new Map<string, { id: string; name: string; expressions: Set<string>; basePrompt?: string }>();
+  const bgScenes = new Map<string, string[]>();  // bg id �?scene ids
+  const charScenes = new Map<string, string[]>(); // char id �?scene ids
 
   const scenesDir = path.join(projectDir, "scenes");
   if (!fs.existsSync(scenesDir)) return { backgrounds: bgMap, characters: charMap, sceneUsage: { backgrounds: bgScenes, characters: charScenes } };
 
-  // 按 displayName / canonicalName 建立底层映射，消灭重复 ID 卡片
+  // Load global character profiles if available
+  const globalProfilesPath = path.join(projectDir, "character_profiles.json");
+  let globalProfiles: any = {};
+  if (fs.existsSync(globalProfilesPath)) {
+    try { globalProfiles = JSON.parse(fs.readFileSync(globalProfilesPath, "utf-8")); } catch {}
+  }
+
+  // �?displayName / canonicalName 建立底层映射，消灭重�?ID 卡片
   const nameToCanonicalId = new Map<string, string>();
 
   for (const sceneId of fs.readdirSync(scenesDir)) {
     const scriptPath = path.join(scenesDir, sceneId, "vn_script.json");
+    const vpPath = path.join(scenesDir, sceneId, "visual_prompt.json");
+    
     if (!fs.existsSync(scriptPath)) continue;
+    
+    let vpData: any = null;
+    if (fs.existsSync(vpPath)) {
+      try { vpData = JSON.parse(fs.readFileSync(vpPath, "utf-8")); } catch {}
+    }
+
     try {
       let raw = fs.readFileSync(scriptPath, "utf-8");
-      if (raw.includes("�") || raw.charCodeAt(0) === 0xFEFF) {
+      if (raw.includes("") || raw.charCodeAt(0) === 0xFEFF) {
         const buf = fs.readFileSync(scriptPath);
         try { raw = new TextDecoder("utf-8").decode(buf); } catch { raw = buf.toString("latin1"); }
       }
@@ -40,20 +55,54 @@ function scanProjectAssets(projectDir: string) {
           if (!bgMap.has(step.backgroundId)) {
             bgMap.set(step.backgroundId, { id: step.backgroundId, label: step.backgroundLabel || step.backgroundId.replace(/_/g, " ") });
           }
+          if (vpData?.backgroundPrompt?.finalPrompt) {
+            bgMap.get(step.backgroundId)!.prompt = vpData.backgroundPrompt.finalPrompt;
+          }
           if (!bgScenes.has(step.backgroundId)) bgScenes.set(step.backgroundId, []);
           if (!bgScenes.get(step.backgroundId)!.includes(sceneId)) bgScenes.get(step.backgroundId)!.push(sceneId);
         }
         if ((step.type === "show" || step.type === "say" || step.type === "thought") && step.characterId) {
           const charName = step.displayName || step.characterId;
-          // 过滤次要龙套角色或纯形容词（如"女孩"）如果已经有具名角色
-          if (!nameToCanonicalId.has(charName)) {
-            nameToCanonicalId.set(charName, step.characterId);
+          // Check global profiles for a true canonical ID based on characterId, name, or aliases
+          let resolvedId = step.characterId;
+          const charNameMatches = (prof: any) => 
+             prof.canonicalName === charName || 
+             (prof.aliasSet && prof.aliasSet.includes(charName));
+             
+          // 1. Direct hit in global profiles by ID
+          if (globalProfiles[step.characterId]) {
+            resolvedId = step.characterId;
+          } else {
+            // 2. Search by name or alias in global profiles
+            const matchedProfEntry = Object.entries(globalProfiles).find(([_, prof]: [string, any]) => charNameMatches(prof));
+            if (matchedProfEntry) {
+              resolvedId = matchedProfEntry[0];
+            } else {
+              // 3. Fallback to local name tracking
+              if (!nameToCanonicalId.has(charName)) {
+                nameToCanonicalId.set(charName, step.characterId);
+              }
+              resolvedId = nameToCanonicalId.get(charName) ?? step.characterId;
+            }
           }
-          const canonicalId = nameToCanonicalId.get(charName) ?? step.characterId;
+          const canonicalId = resolvedId;
 
           if (!charMap.has(canonicalId)) {
-            charMap.set(canonicalId, { id: canonicalId, name: charName, expressions: new Set() });
+            const canonicalName = globalProfiles[canonicalId]?.canonicalName || charName;
+            charMap.set(canonicalId, { id: canonicalId, name: canonicalName, expressions: new Set() });
           }
+          
+          // Inject basePrompt
+          const globalProfile = globalProfiles[canonicalId] || globalProfiles[step.characterId];
+          if (globalProfile?.basePrompt) {
+            charMap.get(canonicalId)!.basePrompt = globalProfile.basePrompt;
+          } else if (vpData?.characterPrompts) {
+            const charVp = vpData.characterPrompts.find((c: any) => c.characterId === step.characterId);
+            if (charVp?.finalPrompt) {
+               charMap.get(canonicalId)!.basePrompt = charVp.finalPrompt;
+            }
+          }
+
           if (step.type === "show" && step.expression) {
             charMap.get(canonicalId)!.expressions.add(step.expression);
           }
@@ -71,7 +120,7 @@ function scanProjectAssets(projectDir: string) {
 export function createAssetRoutes() {
   const router = Router();
 
-  // GET /projects/:id/assets — List all assets from VN scripts + disk
+  // GET /projects/:id/assets �?List all assets from VN scripts + disk
   router.get("/projects/:id/assets", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const projectDir = path.join(config.dataDir, "projects", projectId);
@@ -92,7 +141,7 @@ export function createAssetRoutes() {
         label: bg.label,
         file: `${safeId}.png`,
         status: pngExists ? "generated" : svgExists ? "placeholder" : "missing",
-        prompt: null as string | null,
+        prompt: bg.prompt || null,
       };
     });
 
@@ -107,7 +156,7 @@ export function createAssetRoutes() {
           expression: expr,
           file: `${safeId}/${exprSafe}.png`,
           status: pngExists ? "generated" : svgExists ? "placeholder" : "missing",
-          prompt: null as string | null,
+          prompt: ch.basePrompt ? (expr === "default" || expr === "neutral" ? ch.basePrompt : `${ch.basePrompt}, expression: ${expr}`) : null,
         };
       });
       // Always include "default" expression
@@ -118,7 +167,7 @@ export function createAssetRoutes() {
           expression: "default",
           file: `${safeId}/default.png`,
           status: pngExists ? "generated" : svgExists ? "placeholder" : "missing",
-          prompt: null as string | null,
+          prompt: ch.basePrompt || null,
         });
       }
       return { id: ch.id, name: ch.name, expressions };
@@ -152,7 +201,7 @@ export function createAssetRoutes() {
     });
   });
 
-  // POST /projects/:id/assets/generate — Generate/regenerate a specific asset
+  // POST /projects/:id/assets/generate �?Generate/regenerate a specific asset
   router.post("/projects/:id/assets/generate", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const { type, assetId, expression, label, prompt } = req.body;
@@ -160,13 +209,16 @@ export function createAssetRoutes() {
     const assetDir = path.join(projectDir, "assets", "images");
     fs.mkdirSync(assetDir, { recursive: true });
 
-    const apiKey = process.env.OPENAI_API_KEY || getActiveProfile()?.apiKey;
+    const profile = getActiveProfile();
+    const apiKey = process.env.OPENAI_API_KEY || profile?.apiKey;
     if (!apiKey) return res.status(503).json({ error: "No API key configured. Set up a model profile first." });
 
-    const producer = new AgnesImageProducer({ apiKey });
+    const baseUrl = process.env.OPENAI_BASE_URL || profile?.baseUrl;
+    const model = profile?.imageModel || "agnes-image-2.1-flash";
+    const producer = new OpenAIImageProducer({ apiKey, baseUrl, model });
     const safeId = sanitizeId(assetId);
 
-    // 精准寻找该场景/角色的 visual_prompt.json 的 finalPrompt
+    // 精准寻找该场�?角色�?visual_prompt.json �?finalPrompt
     let effectivePrompt = prompt ?? null;
 
     if (!effectivePrompt) {
@@ -175,7 +227,7 @@ export function createAssetRoutes() {
         const sceneIds = fs.readdirSync(scenesDir);
         
         if (type === "bg") {
-          // 优先寻找使用了该 backgroundId 的具体场景
+          // 优先寻找使用了该 backgroundId 的具体场�?
           let matchedSceneId: string | null = null;
           for (const scId of sceneIds) {
             const scriptFile = path.join(scenesDir, scId, "vn_script.json");
@@ -263,7 +315,7 @@ export function createAssetRoutes() {
     }
   });
 
-  // PUT /projects/:id/assets/prompt — Update prompt for an asset
+  // PUT /projects/:id/assets/prompt �?Update prompt for an asset
   router.put("/projects/:id/assets/prompt", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const { type, assetId, expression, prompt } = req.body;
@@ -297,7 +349,7 @@ export function createAssetRoutes() {
     }
   });
 
-  // GET /projects/:id/assets/image/:type/:path(*) — Serve asset image files
+  // GET /projects/:id/assets/image/:type/:path(*) �?Serve asset image files
   router.get("/projects/:id/assets/image/:type/:path(*)", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const { type, path: assetPath } = req.params;
@@ -305,14 +357,14 @@ export function createAssetRoutes() {
 
     const resolved = path.resolve(filePath);
     const allowed = path.resolve(config.dataDir, "projects", projectId, "assets", "images");
-    // Containment check via path.relative — a plain startsWith would also allow
+    // Containment check via path.relative �?a plain startsWith would also allow
     // sibling dirs sharing a prefix (e.g. .../images_evil)
     const rel = path.relative(allowed, resolved);
     if (rel.startsWith("..") || path.isAbsolute(rel)) return res.status(403).json({ error: "Forbidden" });
 
     let actualFile = resolved;
     if (!fs.existsSync(actualFile)) {
-      // 智能回退: 如果请求的 .png 还没有生成，检查是否存在对应的 .svg 占位图
+      // 智能回退: 如果请求�?.png 还没有生成，检查是否存在对应的 .svg 占位�?
       const svgFallback = resolved.replace(/\.png$/i, ".svg");
       if (fs.existsSync(svgFallback)) {
         actualFile = svgFallback;

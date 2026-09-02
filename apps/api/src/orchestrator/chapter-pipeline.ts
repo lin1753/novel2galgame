@@ -243,7 +243,7 @@ export function createDefaultConfig(): ProjectConfig {
     budgetMode: "balanced",
     autoRunVisualPrompt: true,
     autoRunConsistencyReview: false,
-    defaultTextModel: "agnes-2.0-flash",
+    defaultTextModel: "",
     language: "zh-CN",
   };
 }

@@ -20,7 +20,7 @@ import type { LLMProvider } from "@novel2gal/providers";
 import { EmbeddingService, KnowledgeStore } from "@novel2gal/rag";
 
 const DATASET = "D:/data/1/datasets/training/v3.1-narrative-type-classification/test.jsonl";
-const MODEL = process.env["EVAL_MODEL"] ?? "agnes-2.0-flash";
+const MODEL = process.env["EVAL_MODEL"] ?? "";
 const MAX_CASES = parseInt(process.env["EVAL_MAX"] ?? "10", 10);
 const API_KEY = process.env["OPENAI_API_KEY"] ?? "";
 const BASE_URL = process.env["OPENAI_BASE_URL"] ?? "https://apihub.agnes-ai.com/v1";

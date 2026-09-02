@@ -9,6 +9,7 @@ import type {
 } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
+import { sanitizeForPrompt } from "../shared/normalize.js";
 import { loadPrompt } from "../prompt-loader.js";
 
 export interface VisualPromptInput {
@@ -49,10 +50,14 @@ export const CHINESE_IDIOM_PROMPT_MAP: Record<string, string> = {
 export function cleanseVisualPrompt(prompt: string): string {
   if (!prompt) return "";
   let clean = prompt;
-  clean = clean.replace(/holding (?:a )?(?:(?:plastic|takeout|paper)\s*)+bag(?: printed with [^,]+)?/gi, "");
-  clean = clean.replace(/writing on (?:homework|paper|desk)/gi, "");
-  clean = clean.replace(/sitting (?:at|on) (?:a )?(?:desk|table|chair|sofa)/gi, "");
-  clean = clean.replace(/,\s*,+/g, ",");
+  // 1. 删除所有 "Shot from..." 开头的摄影指示句
+  clean = clean.replace(/Shot from [^.]+\./gi, "");
+  // 2. 删除提及其他角色名的句子（匹配 "beside/with/in front of [Name]"）
+  clean = clean.replace(/(?:beside|with|in front of|behind|near|next to|across from) (?:the |a )?[A-Z][a-z]+ ?[A-Z]?[a-z]*/g, "");
+  // 3. 删除交互性动作描写
+  clean = clean.replace(/(?:crouching|kneeling|leaning|sitting|lying|running|walking|speaking to|offering|carrying|holding onto)[^,.]*/gi, "");
+  // 4. 清理连续逗号
+  clean = clean.replace(/,\s*,+/g, ",").replace(/^\s*,|,\s*$/g, "");
   return clean.trim();
 }
 
@@ -68,15 +73,23 @@ const DEFAULT_SYSTEM_PROMPT = `You are an expert cinematic visual director and p
 CRITICAL RULES:
 1. OUTPUT BEAUTIFUL, COMPLETE NATURAL ENGLISH SENTENCES. DO NOT output comma-separated "Danbooru tag soup".
 2. NO CHINESE. Translate all traits to standard English natural language.
-3. FOR CHARACTERS: 
-   - You MUST select a dynamic camera angle/pose based on their story action.
-   - Describe the camera angle and pose in full sentences in "cameraAndAction" (e.g., "Shot from a dramatic low angle, the character is leaning forward aggressively with arms crossed.")
-   - DO NOT default to a boring frontal portrait!
+3. FOR CHARACTER SPRITES (立绘):
+   - Output a SOLO character portrait suitable for a visual novel sprite overlay.
+   - ALWAYS use "waist-up portrait, looking at viewer" framing.
+   - NEVER describe background scenery, furniture, rooms, or other characters.
+   - NEVER describe sitting, lying down, or complex body poses.
+   - DO NOT describe what the character is currently doing in the story scene.
+   - DO NOT mention any other character by name in the description.
+   - ONLY output their permanent visual design: face, hair, eyes, clothing.
+   - The character must be suitable for compositing over ANY background.
    - Describe their physical traits (baseAppearance) and clothes (currentOutfit) in complete sentences.
 4. FOR BACKGROUNDS:
    - Identify ONE single core location.
    - NO HUMANS IN BACKGROUND DESCRIPTIONS. Describe an empty scenery.
    - If "sceneKnowledge" (RAG) is provided, you MUST strictly reuse the architectural description of that location to maintain visual consistency, only updating the time-of-day, weather, or lighting.
+5. FOR EVIDENCE:
+   - evidence.category="appearance" MUST ONLY quote text that directly describes physical traits (hair color, eye shape, clothing, body type, height, skin tone).
+   - DO NOT quote dialogue, actions, or plot events as "appearance" evidence.
 
 OUTPUT FORMAT (JSON):
 {
@@ -87,8 +100,6 @@ OUTPUT FORMAT (JSON):
       "gender": "male" | "female",
       "baseAppearance": "A complete sentence describing physical traits (hair, eyes, skin, body type).",
       "currentOutfit": "A complete sentence describing their clothing.",
-      "cameraAndAction": "A complete sentence describing the camera angle, shot framing, and their body pose/action.",
-      "transientAction": "brief action context",
       "expression": "angry" | "smile" | "sad" | "neutral",
       "evidence": [{ "sourceUnitId": "...", "quote": "...", "category": "appearance" }]
     }
@@ -108,7 +119,7 @@ function buildUserPrompt(input: VisualPromptInput): string {
   const styleDesc = STYLE_TEMPLATES[styleTemplate] ?? styleTemplate;
 
   const characterList = characters.map(c => `- ${c.characterId}: ${c.canonicalName}`).join("\\n");
-  const unitsText = units.map(u => `[${u.unitId}] ${u.originalText}`).join("\\n");
+  const unitsText = units.map(u => `[${u.unitId}] ${sanitizeForPrompt(u.originalText)}`).join("\\n");
 
   return `Extract visual details for this scene. Ensure you generate beautiful NATURAL LANGUAGE SENTENCES, not tags.
 
@@ -117,8 +128,8 @@ Location Hint: ${scene.summary?.locationHint ?? "Unknown"}
 Time Hint: ${scene.summary?.timeHint ?? "Unknown"}
 Mood Hint: ${scene.summary?.moodHint ?? "Unknown"}
 
-${sceneKnowledge ? `[PREVIOUS SCENE RAG (CRITICAL)]: Reuse these core background descriptions for consistency:\\n${sceneKnowledge}\\n` : ""}
-${characterKnowledge ? `[CHARACTER RAG (CRITICAL)]: Reuse these appearance descriptions:\\n${characterKnowledge}\\n` : ""}
+${sceneKnowledge ? `[PREVIOUS SCENE RAG (CRITICAL)]: Reuse these core background descriptions for consistency:\\n${sanitizeForPrompt(sceneKnowledge)}\\n` : ""}
+${characterKnowledge ? `[CHARACTER RAG (CRITICAL)]: Reuse these appearance descriptions:\\n${sanitizeForPrompt(characterKnowledge)}\\n` : ""}
 
 Characters present:
 ${characterList}
@@ -152,16 +163,22 @@ export async function runVisualPromptAgent(
         { role: "user", content: userPrompt },
       ],
       temperature: 0.2,
-      maxTokens: 8192,
+      maxTokens: 16384,
       jsonMode: true,
     });
 
     const characterPrompts = (result.characterPrompts ?? []).map((cp: any) => {
+      // FORCE mapped canonicalName to prevent LLM English hallucination from NO CHINESE rule
+      const originalChar = input.characters.find(c => c.characterId === cp.characterId);
+      const canonicalName = originalChar ? originalChar.canonicalName : (cp.canonicalName || cp.characterId);
+
       const rawPromptPack = cp.promptPack ?? {};
       const baseApp = cp.baseAppearance || "";
       const outfit = cp.currentOutfit || "";
       const expr = cp.expression ? `They have a ${cp.expression} expression.` : "";
-      const pose = cp.cameraAndAction || "The character is looking at the viewer.";
+      
+      // Fixed pose constraint (do not rely on LLM for this)
+      const pose = "solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background";
 
       const assembled = [
         styleDesc,
@@ -178,12 +195,11 @@ export async function runVisualPromptAgent(
         finalPrompt: finalPrompt,
         baseAppearance: cp.baseAppearance,
         currentOutfit: cp.currentOutfit,
-        transientAction: cp.transientAction,
-        poseAndCamera: cp.cameraAndAction,
         ...rawPromptPack,
       };
       return {
         ...cp,
+        canonicalName,
         promptPack,
         finalPrompt,
         evidence: cp.evidence ?? [],
