@@ -347,6 +347,7 @@ curl -X POST http://localhost:3002/videos/generate -d '{"prompt":"sunset beach s
 - [x] Phase 7-8 IR v1.0 冻结 + 资产管线 + 章节并行 + 全链路贯通
 - [x] Phase 9 RAG v2 全链路 + 角色一致性修复
 - [x] Phase 10 全量代码质量审计(~60 bug 修复)
+- [x] Phase 11-12 视觉舞台演出(5级景别/说话聚焦/镜头动效/sharp抠图/ATL导出)+ 管线稳定性(单章顺序导出/Abort取消/L0兜底) — 详见 [docs/phase12-handover-to-claude.md](docs/phase12-handover-to-claude.md)、[docs/phase12-test-audit-report.md](docs/phase12-test-audit-report.md)
 - [ ] v1.0 可视化编辑器(AI 80% + 人工 20%)+ 更多导出目标(Godot/HTML)
 
 ## 📚 文档

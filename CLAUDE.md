@@ -6,7 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **All Novel Can Be Galgame** -- IR-driven AI Visual Novel generation platform. Converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences via a pipeline that produces a structured Intermediate Representation (VN Script IR), which can then be exported to multiple runtimes (Ren'Py, Web, etc.).
 
-**Status:** Phase 10 complete. Pipeline + Ren'Py export E2E verified. Comprehensive quality audit passed (2026-08-16).
+**Status:** Phase 12 complete (visual staging + pipeline stability). Pipeline + Ren'Py export E2E verified. Comprehensive quality audit passed (2026-08-16).
+
+## Commands
+
+pnpm workspace (pnpm@9.15.4) + Turborepo. Root scripts delegate to turbo: `pnpm build | dev | lint | test | typecheck`.
+
+- `pnpm --filter @novel2gal/api dev` — API server with tsx watch (default port 3002); `build` is `tsc`, `start` is `node dist/index.js`
+- `pnpm --filter @novel2gal/workbench dev` — Vite frontend; `build` runs `tsc -b && vite build`
+- No test runner exists (no vitest/jest anywhere). Tests are ad-hoc tsx scripts — run the file directly:
+  - `apps/api/src/__test__/integration.ts` — boots a server on port 3999 with a tmp data dir
+  - `packages/storage/src/__test__/smoke.ts` — SQLite + filesystem smoke test
+- `lint` is just `tsc --noEmit` in most packages — there is no eslint config, don't go looking for one
 
 ## Architecture Principles
 
@@ -93,13 +104,19 @@ AI capability tiers:
 - **L2 (LLM APIs):** narrative, attribution, segmentation, VN mapping, fidelity, consistency
 - **L3 (orchestrator):** routing, retries, fallback
 
+## Runtime Config
+
+- Chapter processing needs an LLM key: active profile's `apiKey`, else `OPENAI_API_KEY` (default profile `agnes-cloud` → `https://apihub.agnes-ai.com/v1`). Without a key the API starts but chapter processing is disabled (`apps/api/src/index.ts`). Local fallback profile `qwen3-8b-local` → Ollama at `localhost:11434`.
+- RAG always initializes locally (bge-small-zh embeddings, CPU-only, BM25 hybrid) — no API key needed.
+- `PORT` (default 3002) and `DATA_DIR` (defaults to `data/`). `dns.setDefaultResultOrder("ipv4first")` in `apps/api/src/index.ts` is load-bearing (proxy/VPN IPv6 TLS issues) — don't remove.
+
 ## Key Design Constraints
 
 - VN scripts use 8 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`
 - Dialogue retention >= 95%; non-original text <= 5%
 - Three-level state machines: Project / Chapter / Scene
 - Hybrid storage: SQLite indexes + filesystem content
-- Chapter IDs are project-scoped: `{projectId}_chapter_{index}` (avoids global UNIQUE conflicts)
+- Chapter IDs are project-scoped: `{projectId}_chapter_{index}` (avoids global UNIQUE conflicts). Note the layering: the L0 structure agent emits bare `chapter_0001`, and the orchestrator (`apps/api/src/orchestrator/chapter-pipeline.ts`) prefixes the projectId when persisting. `formatChapterId()` in `packages/core/src/constants/ids.ts` is currently unused — don't assume it's the source of IDs.
 - RAG data must be project-scoped via `projectId` filter on every consumer (prevents cross-project pollution)
 - Dual pipeline: LangGraph (primary) + monolithic orchestrator (legacy) share the same SQLite DB
 

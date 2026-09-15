@@ -6,7 +6,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 **All Novel Can Be Galgame** -- a locally-deployable AI workbench that converts Chinese romance-oriented txt novels into playable visual novel (galgame) experiences. It is a narrative-to-VN converter, not a creative rewriting tool: the output must faithfully preserve plot, dialogue, character relationships, and emotional tone from the source text.
 
-**Status:** Phase 10 complete. Pipeline + Ren'Py export E2E verified. Comprehensive quality audit passed (2026-08-16).
+**Status:** Phase 12 complete (visual staging + pipeline stability). Pipeline + Ren'Py export E2E verified. Comprehensive quality audit passed (2026-08-16).
 
 ## Architecture
 
@@ -62,7 +62,7 @@ AI capability tiers:
 - Dialogue retention must be >= 95%; non-original text added must be <= 5%
 - Three-level state machines: Project / Chapter / Scene
 - Hybrid storage: SQLite for indexes/status queries, filesystem for content
-- Chapter IDs are project-scoped: `{projectId}_chapter_{index}`
+- Chapter IDs are project-scoped: `{projectId}_chapter_{index}`. Note the layering: the L0 structure agent emits bare `chapter_0001`, and the orchestrator (`apps/api/src/orchestrator/chapter-pipeline.ts`) prefixes the projectId when persisting.
 - RAG data must be project-scoped via `projectId` filter on every consumer (prevents cross-project pollution)
 - Dual pipeline: LangGraph (primary) + monolithic orchestrator (legacy) share the same SQLite DB
 

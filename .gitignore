@@ -31,11 +31,9 @@ data/config/model-profiles.json
 .omc/
 
 # Local test artifacts (eval DBs, e2e output, RenPy export trials)
-scratch/
+test/
 samplegame/
 data/rag/
 data/test_image_experiments/
-samplegame/
 docker/
 scripts/
-test/
