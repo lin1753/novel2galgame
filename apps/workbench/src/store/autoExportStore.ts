@@ -7,8 +7,10 @@ export interface ChapterProgress {
   chapterId: string
   chapterIndex: number
   stage: string
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retry_scheduled'
   message?: string
+  /** 1-based attempt number from the backend (present on running/retry events) */
+  attempt?: number
 }
 
 export interface AutoExportState {
@@ -76,7 +78,10 @@ class AutoExportStore {
             ...existing,
             stage: event.stage,
             status: (event.status === 'progress' ? 'running' : event.status) as ChapterProgress['status'],
-            message: event.message,
+            message: event.stage === 'retry_scheduled' && event.attempt != null
+              ? `第 ${event.attempt} 次尝试失败，${event.message ?? '等待重试…'}`
+              : event.message,
+            attempt: event.attempt ?? existing.attempt,
           })
         }
         const logs = [...prev.logs, msg].slice(-200)
@@ -85,7 +90,7 @@ class AutoExportStore {
         const isComplete = event.stage === 'complete' || event.stage === 'cancelled'
         // If we receive a progress event, we know it's running (even if chapters map is empty on reload)
         const running = isComplete ? false : (prev.running || event.status === 'progress' || Array.from(chapters.values()).some(
-          (c) => c.status === 'running' || c.status === 'queued'
+          (c) => c.status === 'running' || c.status === 'queued' || c.status === 'retry_scheduled'
         ))
 
         return { 
@@ -114,21 +119,25 @@ class AutoExportStore {
           let chapters = new Map(prev.chapters)
           let logs = prev.logs.length === 0 ? ['Restored active task state'] : prev.logs
           if (data.snapshot) {
-            const { results, pending, active } = data.snapshot
+            const { results, pending, active, retryWaiting } = data.snapshot
             // Restore from snapshot
             pending.forEach((cid: string) => {
               if (!chapters.has(cid)) chapters.set(cid, { chapterId: cid, chapterIndex: 0, stage: 'queued', status: 'queued' })
             })
             Object.entries(results).forEach(([cid, status]) => {
-              chapters.set(cid, { 
+              chapters.set(cid, {
                 chapterId: cid,
                 chapterIndex: 0,
                 stage: 'done',
-                status: status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'cancelled'
+                status: status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : status === 'retry_scheduled' ? 'running' : 'cancelled'
               })
             })
             active.forEach((cid: string) => {
               chapters.set(cid, { chapterId: cid, chapterIndex: 0, stage: 'running', status: 'running' })
+            })
+            // Chapters inside their retry delay show as retrying, not stuck running
+            ;(retryWaiting as string[] | undefined)?.forEach((cid: string) => {
+              chapters.set(cid, { chapterId: cid, chapterIndex: 0, stage: 'retry_scheduled', status: 'running', message: '等待自动重试…' })
             })
           }
           return { running: true, taskId: data.taskId, logs, chapters }
@@ -192,7 +201,10 @@ class AutoExportStore {
               ...existing,
               stage: event.stage,
               status: (event.status === 'progress' ? 'running' : event.status) as ChapterProgress['status'],
-              message: event.message,
+              message: event.stage === 'retry_scheduled' && event.attempt != null
+                ? `第 ${event.attempt} 次尝试失败，${event.message ?? '等待重试…'}`
+                : event.message,
+              attempt: event.attempt ?? existing.attempt,
             })
           }
           const logs = [...prev.logs, msg].slice(-200)
