@@ -440,17 +440,6 @@ export async function runChapterPipeline(
         }
       } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
     }
-
-    // RAG: ingest new character knowledge
-    if (rag && attributionData && attributionData.characters?.length > 0) {
-      try {
-        const chunks = rag.extractor.extractCharacterKnowledge(attributionData, chapterId, chapterTitle);
-        if (chunks.length > 0) {
-          await rag.knowledgeStore.ingestCharacters(chunks, project.projectId);
-          console.log(`[RAG] Ingested ${chunks.length} character chunks for ${chapterTitle}`);
-        }
-      } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
-    }
   }
 
   // Stage 3: Scene Segmentation
@@ -685,8 +674,11 @@ export async function runChapterPipeline(
         try {
           const globalProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
           for (const [cid, prof] of Object.entries(globalProfiles)) {
-            if (prof.basePrompt) {
-              knowledgeParts.push(`角色"${prof.canonicalName || cid}": [全局母版] ${prof.basePrompt}`);
+            const basePrompt = (prof as any).baseline?.basePrompt || (prof as any).basePrompt;
+            if (basePrompt) {
+              const g = (prof as any).gender;
+              const genderTag = g === "female" ? " [性别: 女]" : g === "male" ? " [性别: 男]" : "";
+              knowledgeParts.push(`角色"${(prof as any).canonicalName || cid}"${genderTag}: [全局母版] ${basePrompt}`);
             }
           }
         } catch {}
@@ -698,13 +690,19 @@ export async function runChapterPipeline(
             for (const name of charNames) {
               const results = await rag.knowledgeStore.searchCharacters(name, 3);
               const appearances = new Set<string>();
+              let hitGender: string | undefined;
               for (const r of results ?? []) {
                 if (Array.isArray(r.appearance)) r.appearance.forEach((a: string) => appearances.add(a));
                 else if (typeof r.appearance === "string") appearances.add(r.appearance);
                 if (r.embedText) appearances.add(r.embedText);
+                if (!hitGender && (r.gender === "female" || r.gender === "male")) hitGender = r.gender;
+                else if (!hitGender && typeof r.metadata?.gender === "string" && (r.metadata.gender === "female" || r.metadata.gender === "male")) hitGender = r.metadata.gender;
               }
               if (appearances.size > 0) {
-                knowledgeParts.push(`角色"${name}": ${Array.from(appearances).join("; ")}`);
+                const attrGender = attrCharacters.find((c: any) => c.canonicalName === name)?.gender;
+                const g = hitGender ?? (attrGender === "female" || attrGender === "male" ? attrGender : undefined);
+                const genderTag = g === "female" ? " [性别: 女]" : g === "male" ? " [性别: 男]" : "";
+                knowledgeParts.push(`角色"${name}"${genderTag}: ${Array.from(appearances).join("; ")}`);
               }
             }
           } catch (e) {
@@ -734,21 +732,49 @@ export async function runChapterPipeline(
         if (vpResult.success && vpResult.data) {
           writeVisualPromptResult(dataDir, project.projectId, scene.sceneId, vpResult.data);
 
-          // Update Project-level Global Character Profiles
+          // Update Project-level Global Character Profiles (Master-compatible shape).
+          // Baseline is write-once: only created when no baseline/basePrompt exists yet.
+          // Gender only upgrades unknown->known, never overwrites a known value.
           try {
             const existingProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
             let profilesUpdated = false;
             for (const cp of (vpResult.data.characterPrompts || []) as any[]) {
               if (cp.characterId && (cp.finalPrompt || cp.promptPack?.appearancePrompt)) {
                 const prompt = cp.finalPrompt || cp.promptPack?.appearancePrompt || "";
-                if (prompt && (!existingProfiles[cp.characterId] || !existingProfiles[cp.characterId].basePrompt)) {
+                if (!prompt) continue;
+                const existing = existingProfiles[cp.characterId];
+                const hasBaseline = !!(existing?.baseline?.basePrompt || existing?.basePrompt);
+                const attrGender = attrCharacters.find((c: any) => c.characterId === cp.characterId)?.gender;
+                const incomingGender = cp.gender === "female" || cp.gender === "male"
+                  ? cp.gender
+                  : attrGender === "female" || attrGender === "male"
+                    ? attrGender
+                    : "unknown";
+                if (!hasBaseline) {
                   existingProfiles[cp.characterId] = {
                     characterId: cp.characterId,
                     canonicalName: cp.canonicalName || cp.characterId,
+                    aliasSet: existing?.aliasSet ?? [],
+                    gender: incomingGender,
+                    baseline: {
+                      version: 1,
+                      basePrompt: prompt,
+                      firstSeenChapter: chapterId,
+                      lockedAt: new Date().toISOString(),
+                    },
+                    // Legacy readers use top-level basePrompt — keep it in sync on create
                     basePrompt: prompt,
+                    history: existing?.history ?? [],
                     evidence: cp.evidence || [],
                     updatedAt: new Date().toISOString(),
                   };
+                  profilesUpdated = true;
+                } else if (
+                  (existing.gender === undefined || existing.gender === "unknown") &&
+                  (incomingGender === "female" || incomingGender === "male")
+                ) {
+                  existing.gender = incomingGender;
+                  existing.updatedAt = new Date().toISOString();
                   profilesUpdated = true;
                 }
               }

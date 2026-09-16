@@ -21,6 +21,8 @@ export interface CharacterRecordBase {
   chapterId: string;
   firstSeenIn: string;
   confidence: number;
+  /** Explicit gender from attribution/Bible ("female" | "male" | "unknown"). Optional for backward compat. */
+  gender?: string;
   _score?: number;
 }
 
@@ -111,6 +113,7 @@ export class CharacterCollection extends BaseCollection {
           chapterId: c.chapterId,
           firstSeenIn: c.firstSeenIn,
           confidence: c.confidence,
+          ...(c.gender ? { gender: c.gender } : {}),
           ...variantMeta,
         },
         updatedAt: new Date().toISOString(),
@@ -144,6 +147,7 @@ export class CharacterCollection extends BaseCollection {
       chapterId: (c.metadata.chapterId as string) ?? "",
       firstSeenIn: (c.metadata.firstSeenIn as string) ?? "",
       confidence,
+      ...(((c.metadata.gender as string | undefined) ? { gender: c.metadata.gender as string } : {}) as { gender?: string }),
     });
     const records: CharacterRecord[] = chunks.map((c) => {
       switch (c.type) {
@@ -227,6 +231,7 @@ export class CharacterCollection extends BaseCollection {
       chapterId: (m.chapterId as string) ?? "",
       firstSeenIn: (m.firstSeenIn as string) ?? "",
       confidence: (m.confidence as number) ?? 0.5,
+      ...(((m.gender as string | undefined) ? { gender: m.gender as string } : {}) as { gender?: string }),
       _score: r.score,
     };
     switch (chunkType) {

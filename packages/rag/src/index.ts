@@ -158,6 +158,7 @@ export class KnowledgeStore {
       const appearance: string[] = chunk.appearance ?? meta.appearance ?? [];
       const personality: string[] = chunk.personality ?? meta.personality ?? [];
       const relationships: string[] = chunk.relationships ?? meta.relationships ?? [];
+      const gender: string | undefined = chunk.gender ?? meta.gender;
       const chunkType = chunk.type
         ?? (chunk.characterId?.endsWith("_appearance") ? "appearance"
           : chunk.characterId?.endsWith("_relationship") ? "relationship"
@@ -188,6 +189,7 @@ export class KnowledgeStore {
           appearance,
           personality,
           relationships,
+          ...(gender ? { gender } : {}),
         },
       }]);
     }

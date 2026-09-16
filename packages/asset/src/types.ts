@@ -12,6 +12,7 @@ export interface AssetEntry {
   provider?: string;      // which producer generated it
   prompt?: string;        // prompt used for generation
   expression?: string;    // for character assets: expression name (e.g., "smile", "angry")
+  gender?: "female" | "male" | "unknown"; // for character assets: explicit gender signal (optional, backward compat)
 }
 
 export interface CharacterAsset {

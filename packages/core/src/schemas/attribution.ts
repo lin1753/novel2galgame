@@ -5,6 +5,7 @@ export const characterRefSchema = z.object({
   characterId: z.string(),
   canonicalName: z.string(),
   aliases: z.array(z.string()),
+  gender: z.enum(["female", "male", "unknown"]).optional(),
 });
 
 export const attributionInfoSchema = z.object({

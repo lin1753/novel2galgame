@@ -84,6 +84,7 @@ export class RenPyBuilder implements GameBuilder {
       // Scan project scene visual_prompt.json files to collect rich appearance prompts
       const characterPromptMap = new Map<string, string>(); // characterId -> basePrompt
       const characterNamePromptMap = new Map<string, string>(); // canonicalName -> basePrompt
+      const characterGenderMap = new Map<string, string>(); // characterId/canonicalName -> gender
       const backgroundPromptMap = new Map<string, string>(); // backgroundId/sceneId/label -> prompt
 
       const projectScenesDir = path.join(projectRoot, "scenes");
@@ -104,6 +105,14 @@ export class RenPyBuilder implements GameBuilder {
                       }
                       if (cp.canonicalName && !characterNamePromptMap.has(cp.canonicalName)) {
                         characterNamePromptMap.set(cp.canonicalName, prompt);
+                      }
+                    }
+                    if (cp.gender === "female" || cp.gender === "male") {
+                      if (cp.characterId && !characterGenderMap.has(cp.characterId)) {
+                        characterGenderMap.set(cp.characterId, cp.gender);
+                      }
+                      if (cp.canonicalName && !characterGenderMap.has(cp.canonicalName)) {
+                        characterGenderMap.set(cp.canonicalName, cp.gender);
                       }
                     }
                   }
@@ -149,10 +158,17 @@ export class RenPyBuilder implements GameBuilder {
         try {
           const globalProfiles = JSON.parse(fs.readFileSync(globalProfilesPath, "utf-8"));
           for (const [cid, prof] of Object.entries<any>(globalProfiles)) {
-            if (prof?.basePrompt) {
-              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.basePrompt);
+            const basePrompt = prof?.baseline?.basePrompt || prof?.basePrompt;
+            if (basePrompt) {
+              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, basePrompt);
               if (prof.canonicalName && !characterNamePromptMap.has(prof.canonicalName)) {
-                characterNamePromptMap.set(prof.canonicalName, prof.basePrompt);
+                characterNamePromptMap.set(prof.canonicalName, basePrompt);
+              }
+            }
+            if (prof?.gender === "female" || prof?.gender === "male") {
+              if (!characterGenderMap.has(cid)) characterGenderMap.set(cid, prof.gender);
+              if (prof.canonicalName && !characterGenderMap.has(prof.canonicalName)) {
+                characterGenderMap.set(prof.canonicalName, prof.gender);
               }
             }
           }
@@ -160,6 +176,30 @@ export class RenPyBuilder implements GameBuilder {
       }
 
       const characterNameMap = new Map(input.characters.map((c) => [c.characterId, c.canonicalName]));
+      // input.characters carry attribution gender — lowest-priority signal for the fallback
+      const inputGenderMap = new Map(
+        input.characters
+          .filter((c) => (c as { gender?: unknown }).gender === "female" || (c as { gender?: unknown }).gender === "male")
+          .map((c) => [c.characterId, (c as { gender?: string }).gender as string]),
+      );
+      const inputNameGenderMap = new Map(
+        input.characters
+          .filter((c) => (c as { gender?: unknown }).gender === "female" || (c as { gender?: unknown }).gender === "male")
+          .map((c) => [c.canonicalName, (c as { gender?: string }).gender as string]),
+      );
+
+      /** Gender-aware danbooru token for the no-basePrompt fallback (Bible > vp > attribution > unknown). */
+      function genderToken(charId: string, charName: string): string {
+        const g =
+          characterGenderMap.get(charId) ??
+          characterGenderMap.get(charName) ??
+          inputGenderMap.get(charId) ??
+          inputNameGenderMap.get(charName);
+        if (g === "male") return "1man";
+        if (g === "female") return "1girl";
+        console.warn(`[RenPyBuilder] Gender unknown for character ${charName} (${charId}); using neutral "1person" fallback — check Bible/attribution gender`);
+        return "1person";
+      }
 
       for (const [id, label] of backgrounds) {
         let bgPrompt = backgroundPromptMap.get(id) || (label ? backgroundPromptMap.get(label) : undefined);
@@ -188,6 +228,11 @@ export class RenPyBuilder implements GameBuilder {
         };
         const charName = characterNameMap.get(charId) || charId;
         const basePrompt = characterPromptMap.get(charId) || (charName ? characterNamePromptMap.get(charName) : undefined);
+        const charGender =
+          characterGenderMap.get(charId) ??
+          characterGenderMap.get(charName) ??
+          inputGenderMap.get(charId) ??
+          inputNameGenderMap.get(charName);
 
         for (const expr of expressions) {
           let prompt: string;
@@ -196,7 +241,7 @@ export class RenPyBuilder implements GameBuilder {
               ? basePrompt
               : `${basePrompt}, expression: ${expr}`;
           } else {
-            prompt = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${expr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
+            prompt = `masterpiece, best quality, highres, absurdres, ${genderToken(charId, charName)}, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${expr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
           }
 
           manifest.assets.character[charId].expressions[expr] = {
@@ -206,6 +251,7 @@ export class RenPyBuilder implements GameBuilder {
             status: "placeholder",
             expression: expr,
             prompt,
+            ...(charGender ? { gender: charGender as "female" | "male" } : {}),
           };
         }
       }

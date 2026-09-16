@@ -1,4 +1,5 @@
 import type { AttributedNarrativeUnit, AttributionResult, CharacterRef } from "@novel2gal/core";
+import { countPronounGender, normalizeGender } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
 import { normalizeAttributionUnits, sanitizeForPrompt } from "../shared/normalize.js";
@@ -31,6 +32,8 @@ const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家�
 6. 不确定的归属标记 uncertain=true
 7. 保持原文不变, 只添加归属信息
 8. 必须在 characters 数组中提取并列出所有出现过的角色实体。
+9. 必须为每个角色判定性别 gender：根据 他/她 代词、名字与上下文推断（女性常用"她/小姐/女士/姑娘/妻子/女儿"，男性常用"他/先生/少爷/丈夫/儿子"）。
+   无法判定时填 "unknown"，绝不允许省略 gender 字段。
 
 输出 JSON 格式 (必须严格遵守字段):
 {
@@ -52,7 +55,7 @@ const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家�
       }
     }
   ],
-  "characters": [{"characterId": "char_001", "canonicalName": "名字", "aliases": ["别名"]}],
+  "characters": [{"characterId": "char_001", "canonicalName": "名字", "aliases": ["别名"], "gender": "female" | "male" | "unknown"}],
   "aliasMap": {"别名": "char_001"},
   "uncertainUnitIds": ["unitId"],
   "speakerIdToCharId": {"char_001": "char_001"}
@@ -112,7 +115,12 @@ ${unitsText}
       });
 
       const rawLlmUnits = normalizeAttributionUnits(result?.units ?? []);
-      const chunkCharacters = result?.characters ?? [];
+      const chunkCharacters: CharacterRef[] = (result?.characters ?? []).map((c: any) => ({
+        characterId: c.characterId,
+        canonicalName: c.canonicalName,
+        aliases: c.aliases ?? [],
+        ...(normalizeGender(c.gender) ? { gender: normalizeGender(c.gender)! } : {}),
+      }));
       
       // Merge newly discovered characters into our running list so subsequent chunks know about them
       for (const char of chunkCharacters) {
@@ -180,6 +188,40 @@ ${unitsText}
     const sid = u.attribution?.speakerId;
     if (sid && !finalSpeakerIdToCharId[sid]) {
       finalSpeakerIdToCharId[sid] = charMap.get(sid) ?? sid;
+    }
+  }
+
+  // Gender backfill: pronoun-count heuristic for characters the LLM left unknown.
+  // Priority: LLM gender > pronoun count (he/她 counts in units) > unknown + warning.
+  for (const char of finalCharacters) {
+    if (normalizeGender(char.gender)) continue;
+    const texts: string[] = [];
+    for (const u of finalAlignedUnits) {
+      const a = u.attribution;
+      const involved =
+        !!a &&
+        (a.speakerId === char.characterId ||
+          a.actorId === char.characterId ||
+          a.thinkerId === char.characterId ||
+          (a.participantIds ?? []).includes(char.characterId));
+      const text = u.originalText ?? "";
+      if (!text) continue;
+      if (involved) {
+        texts.push(text);
+      } else if (
+        text.includes(char.canonicalName) ||
+        (char.aliases ?? []).some((al) => al && text.includes(al))
+      ) {
+        texts.push(text);
+      }
+    }
+    const inferred = countPronounGender(texts);
+    if (inferred) {
+      char.gender = inferred;
+      console.log(`[AttributionAgent] Gender backfill for ${char.canonicalName} (${char.characterId}): ${inferred} (pronoun count)`);
+    } else {
+      char.gender = "unknown";
+      console.warn(`[AttributionAgent] Gender unknown for ${char.canonicalName} (${char.characterId}); needs manual review`);
     }
   }
 

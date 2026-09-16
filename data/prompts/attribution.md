@@ -17,6 +17,7 @@
 6. 不确定的归属标记 uncertain=true
 7. 保持原文不变, 只添加归属信息
 8. 必须在 characters 数组中提取并列出所有出现过的角色实体。
+9. 必须为每个角色判定性别 gender：根据 他/她 代词、名字与上下文推断（女性常用"她/小姐/女士/姑娘/妻子/女儿"，男性常用"他/先生/少爷/丈夫/儿子"）。无法判定时填 "unknown"，绝不允许省略 gender 字段。
 9. 【JSON 语法警告】如果在输出 originalText 时里面包含半角双引号 ( " ) 或反斜杠 ( \ )，必须严格转义（如 \" 或 \\），否则解析会彻底崩溃！
 
 输出 JSON 格式 (必须严格遵守字段名):
@@ -39,7 +40,7 @@
       }
     }
   ],
-  "characters": [{"characterId": "char_001", "canonicalName": "名字", "aliases": ["别名"]}],
+  "characters": [{"characterId": "char_001", "canonicalName": "名字", "aliases": ["别名"], "gender": "female | male | unknown"}],
   "aliasMap": {"别名": "char_001"},
   "uncertainUnitIds": ["unitId"]
 }
