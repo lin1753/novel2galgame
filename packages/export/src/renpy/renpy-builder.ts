@@ -12,6 +12,7 @@ function sanitizeManifestId(id: string): string {
 import path from "node:path";
 import type { GameBuilder, ExportInput, ExportResult, ExportStats } from "../common/export-types.js";
 import { validateIR } from "@novel2gal/ir";
+import { normalizeExpression } from "@novel2gal/agents";
 import { extractAssets, createEmptyManifest, writeManifest, DefaultResolver } from "@novel2gal/asset";
 import { generateScript } from "./script-generator.js";
 import { generateCharacters, generateCharacterImagesFromManifest } from "./character-generator.js";
@@ -52,6 +53,11 @@ export class RenPyBuilder implements GameBuilder {
       // 3. Generate characters.rpy with expression-based image statements
       const charContent = generateCharacters(input.characters);
       // Collect expressions from scripts
+      // Scan vn-mapping output as-is: expression strings here are the raw IR
+      // aliases (downstream compat — vn_mapping output is NOT rewritten to
+      // canonical labels). Show lines in script.rpy and the image statements
+      // below both use these raw aliases so they keep resolving to each
+      // other; normalization lives in the manifest loop further down only.
       const charExpressions = new Map<string, Set<string>>();
       for (const script of input.scripts) {
         for (const step of script.steps) {
@@ -235,21 +241,29 @@ export class RenPyBuilder implements GameBuilder {
           inputNameGenderMap.get(charName);
 
         for (const expr of expressions) {
+          // M5: normalization happens at manifest/build time only — the
+          // vn-mapping IR output is left untouched (downstream compat).
+          // `expression` field + file slug use the normalized label; `label`
+          // keeps the original alias for display/traceability.
+          const { label: normExpr, mapped } = normalizeExpression(expr);
+          if (!mapped) {
+            console.warn(`[RenPyBuilder] Unknown expression "${expr}" for character ${charId} (${charName}); using raw name — consider adding it to EXPRESSION_MAP`);
+          }
           let prompt: string;
           if (basePrompt) {
-            prompt = (!expr || expr === "default" || expr === "neutral")
+            prompt = (!normExpr || normExpr === "default" || normExpr === "neutral")
               ? basePrompt
-              : `${basePrompt}, expression: ${expr}`;
+              : `${basePrompt}, expression: ${normExpr}`;
           } else {
-            prompt = `masterpiece, best quality, highres, absurdres, ${genderToken(charId, charName)}, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${expr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
+            prompt = `masterpiece, best quality, highres, absurdres, ${genderToken(charId, charName)}, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${normExpr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
           }
 
-          manifest.assets.character[charId].expressions[expr] = {
+          manifest.assets.character[charId].expressions[normExpr] = {
             type: "character",
             label: expr,
-            file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(expr)}.png`,
+            file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(normExpr)}.png`,
             status: "placeholder",
-            expression: expr,
+            expression: normExpr,
             prompt,
             ...(charGender ? { gender: charGender as "female" | "male" } : {}),
           };

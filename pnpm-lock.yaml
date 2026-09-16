@@ -200,6 +200,9 @@ importers:
 
   packages/export:
     dependencies:
+      '@novel2gal/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@novel2gal/asset':
         specifier: workspace:*
         version: link:../asset

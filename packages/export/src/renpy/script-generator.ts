@@ -1,4 +1,5 @@
 import type { VNScript, VNStep, SayStep, ThoughtStep, BgStep, ShowStep, HideStep, NarrationStep, PauseStep, TransitionStep } from "@novel2gal/core";
+import { normalizeExpression } from "@novel2gal/agents";
 
 const VALID_POSITIONS = new Set(["left_far", "left", "center", "right", "right_far"]);
 
@@ -108,7 +109,10 @@ export function generateScript(scripts: VNScript[]): string {
           } else {
             pos = lastPosition.get(id);
           }
-          const expr = s.expression ? ` ${sanitizeId(s.expression)}` : "";
+          // M5: normalize the expression tag so `show` matches the image
+          // statement tags + manifest file slugs (both normalized). Raw
+          // aliases pass through unchanged when unmapped.
+          const expr = s.expression ? ` ${sanitizeId(normalizeExpression(s.expression).label)}` : "";
           
           // Build transform chain: position, shot type, emphasis, enter effect
           const transforms: string[] = [];
@@ -129,7 +133,14 @@ export function generateScript(scripts: VNScript[]): string {
         }
 
         case "hide": {
-          lines.push(`    hide ${sanitizeId((step as HideStep).characterId)} with dissolve`);
+          const h = step as HideStep;
+          // Hide steps have no exitEffect field (IR v1.0 frozen), so all
+          // exits use the exit_fade_out *transform* (DDLC thide equivalent:
+          // easein .25 shrink+sink+fade). It is emitted via `at`, mirroring
+          // the show transform chain above — NOT as a `with` clause, because
+          // `with` only accepts transitions (dissolve/fade/vpunch), and a
+          // bare transform name there is a Ren'Py syntax error.
+          lines.push(`    hide ${sanitizeId(h.characterId)} at exit_fade_out`);
           flushTransitionAsStatement();
           break;
         }

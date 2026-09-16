@@ -31,6 +31,7 @@ const STYLE_TEMPLATES: Record<string, string> = {
   "school-romance-anime": "Hyper-detailed Kyoto Animation style, masterpiece, best quality, beautiful intricate details, soft cinematic lighting, pure solid white background.",
   "fresh-japanese": "High-budget beautiful delicate Japanese illustration, masterpiece, best quality, soft cinematic lighting, pure solid white background.",
   "ancient-xianxia": "Hyper-realistic Chinese wuxia fantasy illustration, masterpiece, best quality, intricate traditional Hanfu details, cinematic lighting, pure solid white background.",
+  "ancient-modern": "Detailed realistic ancient Chinese romance illustration, masterpiece, best quality, characters in traditional Hanfu casual wear, natural black hair, NO fantasy hair colors, NO kimono, cinematic lighting, pure solid white background.",
   "gothic-fantasy": "High-budget dramatic fantasy illustration, masterpiece, best quality, intricate gothic details, cinematic chiaroscuro lighting, pure solid white background.",
   "default": "Hyper-realistic commercial 3D CG, masterpiece, best quality, ultra-detailed, beautiful dramatic cinematic lighting, pure solid white background.",
 };
@@ -189,6 +190,48 @@ export function collectUncoveredAppearanceTerms(texts: string[]): string[] {
     if (!covered) uncovered.add(term);
   }
   return [...uncovered];
+}
+
+/**
+ * M3 genre-aware style mapping. Keys are genreHint values (ProjectConfig.genreHint).
+ * unknown/empty genre falls back to 'urban-romance' (600+ modern romance user base
+ * default — NOT school-romance-anime).
+ */
+export const GENRE_STYLE_MAP: Record<string, string> = {
+  modern: "modern-workplace",
+  ancient: "ancient-modern",
+  xianxia: "ancient-xianxia",
+  school: "school-romance-anime",
+};
+
+/**
+ * Map a genreHint to a STYLE_TEMPLATES key. Known key maps directly;
+ * unknown/empty returns 'urban-romance'.
+ */
+export function styleForGenre(genreHint?: string): string {
+  if (genreHint && GENRE_STYLE_MAP[genreHint]) return GENRE_STYLE_MAP[genreHint];
+  return "urban-romance";
+}
+
+const GENRE_RULES: Array<{ genre: string; pattern: RegExp }> = [
+  // xianxia checked before ancient: 修仙/宗门 vocabulary may co-occur with 古代/穿越
+  { genre: "xianxia", pattern: /江湖|宗门|修仙|灵气|渡劫|御剑|金丹|元婴|仙门|魔尊|仙君/ },
+  { genre: "ancient", pattern: /王爷|后宫|皇上|穿越|古代|皇后|太子|公主|格格|王妃|朕|娘娘|嫔妃/ },
+  { genre: "school", pattern: /校园|同学|高中|大学|校草|校花|同桌|教室|同班/ },
+  { genre: "modern", pattern: /总裁|银行|职场|公司|豪门|都市|现代|秘书|董事长|集团/ },
+];
+
+/**
+ * M3 genre detection: pure regex keyword rules over title + optional sample
+ * text (chapter opening). No LLM call. Default 'modern' (user base is
+ * 600+ modern romance novels). Order: xianxia → ancient → school → modern.
+ */
+export function detectGenreHint(title: string, sampleText?: string): string {
+  const haystack = `${title ?? ""}\n${sampleText ?? ""}`;
+  for (const { genre, pattern } of GENRE_RULES) {
+    if (pattern.test(haystack)) return genre;
+  }
+  return "modern";
 }
 
 export const GENDER_ANCHORS = {
