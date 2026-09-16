@@ -1,5 +1,5 @@
 import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
-import { extractCharactersFromUnits } from "@novel2gal/core";
+import { extractCharactersFromUnits, CanonicalEntityResolver } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,
@@ -37,6 +37,25 @@ import fs from "node:fs";
 import path from "node:path";
 
 const now = () => new Date().toISOString();
+
+// M4: group-tableau detection (plan §3.6.4). Names that denote a crowd rather
+// than a single sprite-able character. The attribution post-process sets
+// (char as any).isGroup; RenPyBuilder skips flagged IDs for sprite entries.
+const GROUP_NAME_RE = /^(众|诸|大家|.*豪杰|人群|众人|弟子们|观众)/;
+const GROUP_NAME_CONTAINS_RE = /豪杰|众人|大家/;
+function isGroupCharacterName(name: string, gender: unknown): boolean {
+  if (!name) return false;
+  if (GROUP_NAME_RE.test(name)) return true;
+  if ((gender === undefined || gender === "unknown") && GROUP_NAME_CONTAINS_RE.test(name)) return true;
+  return false;
+}
+function markGroupFlag(char: any): void {
+  if (!char || (char as any).isGroup) return;
+  if (isGroupCharacterName(char.canonicalName ?? "", (char as any).gender)) {
+    (char as any).isGroup = true;
+    console.log(`[M4] Group character flagged: ${char.canonicalName} (${char.characterId}) — routes to CG/background path, no solo sprite`);
+  }
+}
 
 /** Metrics collected during a single agent call */
 interface CallMetrics { durationMs: number; promptTokens: number; completionTokens: number; retryCount: number }
@@ -423,12 +442,97 @@ export async function runChapterPipeline(
         speakerIdToCharId: {},
       };
     }
-    writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
-
     // Post-process: extract character list from units if LLM returned empty characters
     if (attributionData && extractCharactersFromUnits(attributionData, knownCharacters)) {
       console.log(`[Attribution] Post-processed ${attributionData.characters.length} characters from units`);
     }
+
+    // M4: CanonicalEntityResolver hookup + mojibake ID guard + group flag.
+    // matched_existing → rewrite characterId to target + merge aliases (units,
+    // aliasMap and speakerIdToCharId remapped); pending_confirmation → warn +
+    // keep original (no auto-merge). Any error → keep original IDs.
+    // Mojibake-suspect IDs warn only, ID is kept.
+    try {
+      const MOJIBAKE_RE = /[^\x00-\x7F一-鿿_a-zA-Z0-9]/;
+      if (Array.isArray(attributionData?.characters)) {
+        let existingProfilesMap: Record<string, any> = {};
+        try {
+          const stored = readCharacterProfiles(dataDir, project.projectId) || {};
+          for (const [cid, prof] of Object.entries<any>(stored)) {
+            if (!prof) continue;
+            existingProfilesMap[cid] = {
+              characterId: (prof as any).characterId ?? cid,
+              canonicalName: (prof as any).canonicalName ?? cid,
+              aliasSet: Array.isArray((prof as any).aliasSet) ? (prof as any).aliasSet : [],
+            };
+          }
+        } catch {}
+        const hasKnownProfiles = Object.keys(existingProfilesMap).length > 0;
+        // Co-occurrence signal: segmentation runs later, so treat this chapter
+        // as one pseudo-scene — distinct speakers here must not merge.
+        const speakerIds = new Set<string>();
+        for (const u of attributionData.units ?? []) {
+          const a = (u as any).attribution ?? {};
+          if (a.speakerId) speakerIds.add(a.speakerId);
+          for (const pid of a.participantIds ?? []) speakerIds.add(pid);
+        }
+        const coScenes = [{
+          sceneId: chapterId,
+          characterIds: attributionData.characters.map((c: any) => c.characterId),
+          speakerIds: Array.from(speakerIds),
+        }];
+        const renames = new Map<string, string>();
+        for (const char of attributionData.characters as any[]) {
+          if (!char?.characterId) continue;
+          if (MOJIBAKE_RE.test(char.characterId)) {
+            console.warn(`[M4] Mojibake-suspect characterId kept as-is: ${char.characterId} (${char.canonicalName ?? "?"}) in ${chapterId} — check aliasMap for duplicates`);
+          }
+          markGroupFlag(char);
+          if (!hasKnownProfiles) continue;
+          const rawId = char.characterId as string;
+          const rawName = (char.canonicalName ?? rawId) as string;
+          const result = CanonicalEntityResolver.resolve(rawName, rawId, existingProfilesMap, { chapterId, scenes: coScenes });
+          if (result.action === "matched_existing" && result.characterId !== rawId) {
+            const target = existingProfilesMap[result.characterId];
+            renames.set(rawId, result.characterId);
+            char.characterId = result.characterId;
+            char.canonicalName = result.canonicalName;
+            const aliases: string[] = Array.isArray(char.aliases) ? char.aliases : (char.aliases = []);
+            if (rawName && rawName !== result.canonicalName && !aliases.includes(rawName)) aliases.push(rawName);
+            if (target && Array.isArray(target.aliasSet)) {
+              for (const a of target.aliasSet) if (a && !aliases.includes(a)) aliases.push(a);
+            }
+            console.log(`[M4] Resolver merged ${rawName} (${rawId}) → ${result.canonicalName} (${result.characterId}): ${result.reason}`);
+          } else if (result.action === "pending_confirmation") {
+            console.warn(`[M4] Resolver pending_confirmation for ${rawName} (${rawId}) → candidate ${result.canonicalName} (${result.characterId}): ${result.reason} — kept original, no auto-merge`);
+          }
+        }
+        if (renames.size > 0) {
+          for (const u of attributionData.units ?? []) {
+            const a = (u as any).attribution;
+            if (!a) continue;
+            if (a.speakerId && renames.has(a.speakerId)) a.speakerId = renames.get(a.speakerId);
+            if (a.actorId && renames.has(a.actorId)) a.actorId = renames.get(a.actorId);
+            if (a.thinkerId && renames.has(a.thinkerId)) a.thinkerId = renames.get(a.thinkerId);
+            if (Array.isArray(a.participantIds)) a.participantIds = a.participantIds.map((p: string) => renames.get(p) ?? p);
+          }
+          if (attributionData.aliasMap) {
+            for (const [k, v] of Object.entries(attributionData.aliasMap)) {
+              if (typeof v === "string" && renames.has(v)) attributionData.aliasMap[k] = renames.get(v)!;
+            }
+          }
+          if (attributionData.speakerIdToCharId) {
+            for (const [k, v] of Object.entries(attributionData.speakerIdToCharId)) {
+              if (typeof v === "string" && renames.has(v)) attributionData.speakerIdToCharId[k] = renames.get(v)!;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[M4] CanonicalEntityResolver hookup failed, kept original IDs:`, e);
+    }
+
+    writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
 
     onChapterFlags?.(chapterId, { attributionDone: true });
 
@@ -759,21 +863,30 @@ export async function runChapterPipeline(
           // Update Project-level Global Character Profiles (Master-compatible shape).
           // Baseline is write-once: only created when no baseline/basePrompt exists yet.
           // Gender only upgrades unknown->known, never overwrites a known value.
+          // M4: gender contradiction warns (no baseline mutation); isGroup
+          // propagates into the locked profile; newly locked baselines upsert
+          // a type:'bible' chunk (confidence 1.0) for cross-chapter retrieval.
           try {
             const existingProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
             let profilesUpdated = false;
+            const newlyLocked: Array<{ cid: string; profile: any }> = [];
             for (const cp of (vpResult.data.characterPrompts || []) as any[]) {
               if (cp.characterId && (cp.finalPrompt || cp.promptPack?.appearancePrompt)) {
                 const prompt = cp.finalPrompt || cp.promptPack?.appearancePrompt || "";
                 if (!prompt) continue;
                 const existing = existingProfiles[cp.characterId];
                 const hasBaseline = !!(existing?.baseline?.basePrompt || existing?.basePrompt);
-                const attrGender = attrCharacters.find((c: any) => c.characterId === cp.characterId)?.gender;
+                const attrChar = attrCharacters.find((c: any) => c.characterId === cp.characterId) as any;
                 const incomingGender = cp.gender === "female" || cp.gender === "male"
                   ? cp.gender
-                  : attrGender === "female" || attrGender === "male"
-                    ? attrGender
+                  : attrChar?.gender === "female" || attrChar?.gender === "male"
+                    ? attrChar.gender
                     : "unknown";
+                const cpIsGroup = (attrChar as any)?.isGroup === true
+                  || isGroupCharacterName(cp.canonicalName || "", incomingGender);
+                if (cpIsGroup) {
+                  console.log(`[M4] Group character flagged: ${cp.canonicalName} (${cp.characterId}) — routes to CG/background path, no solo sprite`);
+                }
                 if (!hasBaseline) {
                   existingProfiles[cp.characterId] = {
                     characterId: cp.characterId,
@@ -791,21 +904,71 @@ export async function runChapterPipeline(
                     history: existing?.history ?? [],
                     evidence: cp.evidence || [],
                     updatedAt: new Date().toISOString(),
+                    ...(cpIsGroup ? { isGroup: true } : {}),
                   };
                   profilesUpdated = true;
-                } else if (
-                  (existing.gender === undefined || existing.gender === "unknown") &&
-                  (incomingGender === "female" || incomingGender === "male")
-                ) {
-                  existing.gender = incomingGender;
-                  existing.updatedAt = new Date().toISOString();
-                  profilesUpdated = true;
+                  newlyLocked.push({ cid: cp.characterId, profile: existingProfiles[cp.characterId] });
+                } else {
+                  if (
+                    (existing.gender === undefined || existing.gender === "unknown") &&
+                    (incomingGender === "female" || incomingGender === "male")
+                  ) {
+                    existing.gender = incomingGender;
+                    existing.updatedAt = new Date().toISOString();
+                    profilesUpdated = true;
+                  } else if (
+                    (existing.gender === "female" || existing.gender === "male") &&
+                    (incomingGender === "female" || incomingGender === "male") &&
+                    existing.gender !== incomingGender
+                  ) {
+                    // M4 conflict handling: baseline is write-once — warn only, never mutate.
+                    console.warn(`[M4] Gender conflict for ${existing.canonicalName ?? cp.characterId} (${cp.characterId}): locked baseline=${existing.gender} (first seen ${existing.baseline?.firstSeenChapter ?? "?"}) vs incoming=${incomingGender} in ${chapterId} — kept baseline, needs review (possible ID reuse/coref error)`);
+                  }
+                  if (cpIsGroup && (existing as any).isGroup !== true) {
+                    (existing as any).isGroup = true;
+                    existing.updatedAt = new Date().toISOString();
+                    profilesUpdated = true;
+                  }
                 }
               }
             }
             if (profilesUpdated) {
               writeCharacterProfiles(dataDir, project.projectId, existingProfiles);
               console.log(`[RAG] Updated project character profiles with ${Object.keys(existingProfiles).length} characters`);
+            }
+            // M4 profiles → RAG writeback: one stable type:'bible' chunk per
+            // newly locked character. chapterId = locked firstSeenChapter and
+            // embedText = basePrompt + gender + attire are both stable, so the
+            // ingestCharacters recordId scheme
+            // (`${chapterId}_${characterId}_bible_${hash}`) upserts on re-runs.
+            if (newlyLocked.length > 0 && rag) {
+              try {
+                const bibleChunks = newlyLocked.map(({ cid, profile }) => {
+                  const basePrompt: string = profile.baseline?.basePrompt ?? profile.basePrompt ?? "";
+                  const gender: string = profile.gender ?? "unknown";
+                  const attire: string = profile.baseline?.defaultAttire ?? "";
+                  const embedText = [basePrompt, `性别: ${gender}`, attire].filter((s) => s && s.trim().length > 0).join(" | ");
+                  return {
+                    characterId: cid,
+                    canonicalName: profile.canonicalName ?? cid,
+                    type: "bible",
+                    isBible: true,
+                    embedText,
+                    text: embedText,
+                    chapterId: profile.baseline?.firstSeenChapter ?? chapterId,
+                    firstSeenIn: profile.baseline?.firstSeenChapter ?? chapterId,
+                    gender,
+                    confidence: 1.0,
+                    appearance: basePrompt ? [basePrompt] : [],
+                    personality: [],
+                    relationships: [],
+                  };
+                });
+                await rag.knowledgeStore.ingestCharacters(bibleChunks, project.projectId);
+                console.log(`[M4] Wrote back ${bibleChunks.length} bible chunk(s) for ${chapterTitle}`);
+              } catch (e) {
+                console.warn(`[M4] Bible chunk writeback failed:`, e);
+              }
             }
           } catch (e) {
             console.warn(`[RAG] Failed to update global character profiles:`, e);

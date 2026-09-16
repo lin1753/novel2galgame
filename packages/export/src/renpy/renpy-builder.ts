@@ -92,6 +92,11 @@ export class RenPyBuilder implements GameBuilder {
       const characterNamePromptMap = new Map<string, string>(); // canonicalName -> basePrompt
       const characterGenderMap = new Map<string, string>(); // characterId/canonicalName -> gender
       const backgroundPromptMap = new Map<string, string>(); // backgroundId/sceneId/label -> prompt
+      // M4: group characters (isGroup) belong to the CG/background path, not
+      // sprite entries. Populated from input.characters below + the locked
+      // global profiles lookup (export routes rebuild input.characters from
+      // vn_script steps, so the profiles file is the reliable channel).
+      const groupCharIds = new Set<string>();
 
       const projectScenesDir = path.join(projectRoot, "scenes");
       if (fs.existsSync(projectScenesDir)) {
@@ -177,6 +182,12 @@ export class RenPyBuilder implements GameBuilder {
                 characterGenderMap.set(prof.canonicalName, prof.gender);
               }
             }
+            // M4: locked profiles are the reliable isGroup channel (export routes
+            // rebuild input.characters from vn_script steps, dropping the flag).
+            if ((prof as any)?.isGroup === true) {
+              groupCharIds.add(cid);
+              if (prof.canonicalName) groupCharIds.add(`name:${prof.canonicalName}`);
+            }
           }
         } catch {}
       }
@@ -228,6 +239,19 @@ export class RenPyBuilder implements GameBuilder {
       }
 
       for (const [charId, expressions] of characters) {
+        // M4: group tableau belongs to the CG/background path — skip solo
+        // sprite entries for isGroup characters (flagged in locked profiles;
+        // input.characters may also carry the flag from the pipeline).
+        const charNamePre = characterNameMap.get(charId) || charId;
+        const inputChar = input.characters.find((c) => c.characterId === charId) as any;
+        if (
+          groupCharIds.has(charId) ||
+          (charNamePre && groupCharIds.has(`name:${charNamePre}`)) ||
+          inputChar?.isGroup === true
+        ) {
+          console.log(`[RenPyBuilder] Skipping sprite entries for group character ${charNamePre} (${charId}) — group tableau belongs to CG/background path`);
+          continue;
+        }
         manifest.assets.character[charId] = {
           characterId: charId,
           expressions: {},

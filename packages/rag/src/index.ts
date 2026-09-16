@@ -172,6 +172,13 @@ export class KnowledgeStore {
       }
       const contentHashStr = (contentHash >>> 0).toString(36);
       const chapterId = chunk.chapterId ?? meta.chapterId ?? pid ?? "";
+      // M4: bible chunks (type:'bible') reuse this recordId scheme — chapterId
+      // must be the locked firstSeenChapter + stable embedText so re-runs upsert.
+      // CharacterCollection's chunkType union is closed
+      // (identity/appearance/personality/relationship), so the bible marker
+      // travels as metadata.type='bible' + isBible flag, never as a union member.
+      const isBibleChunk = chunkType === "bible" || chunk.isBible === true || meta.isBible === true;
+      const bibleConfidence = chunk.confidence ?? meta.confidence ?? (isBibleChunk ? 1.0 : undefined);
       const recordId = `${chapterId}_${chunk.characterId}_${chunkType}_${contentHashStr}`;
       await this.collections.characters.upsert([{
         id: recordId,
@@ -190,6 +197,8 @@ export class KnowledgeStore {
           personality,
           relationships,
           ...(gender ? { gender } : {}),
+          ...(isBibleChunk ? { chunkType, isBible: true } : {}),
+          ...(bibleConfidence !== undefined ? { confidence: bibleConfidence } : {}),
         },
       }]);
     }
