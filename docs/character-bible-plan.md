@@ -1,7 +1,7 @@
 # 角色圣经 (Character Bible) + RAG 动态维护 + Galgame 立绘演出 — 方案设计
 
-> **状态**：方案制定中（待评估执行）
-> **日期**：2026-09-15
+> **状态**：✅ M1–M5 已执行完毕（分支 `feature/character-bible`，commits `e3a9f0d/7155fa6/39cabd0/7544315`）；M6/M7 待执行
+> **日期**：2026-09-15（方案）→ 2026-09-16（执行）
 > **背景**：Phase 12 视觉审计发现图像 prompt 断层（性别翻转、成语直译、风格错配、跨表情漂移）；用户要求先收集 DDLC 真机 + Gemini 行业调研 + 当前管线证据，再制定详细方案
 > **分支**：`feature/character-bible`
 > **联网搜索**：Exa API key 失效（401），本次方案基于 DDLC 真机解包 + 三份行业文档 + 真实项目数据三方证据制定，未引入外部网页信息
@@ -209,15 +209,13 @@ Image Producer（显式 gender token + 风格模板 + 负面约束）
 
 ## 四、工作量评估
 
-| 模块 | 内容 | 规模 |
-|------|------|------|
-| M1 性别链路 | core 类型 + attribution prompt + RAG meta + agent 组装校验 + profiles 写读 + builder/producer fallback | 中（~6 文件，后端为主） |
-| M2 词典接线 | 扩词典 25–30 + 组装前替换 + 输出复检 + 外置 prompt 同步 + 未覆盖告警 | 小（~3 文件） |
-| M3 题材风格 | genre 判定（规则+缓存）+ 模板映射 + 默认变更 + 配置页暴露（待查） | 小–中 |
-| M4 RAG 双向 | bible chunk 回写 + 冲突规则 + resolver 接入 + mojibake 拦截 + 群像标记 | 中（~4 文件） |
-| M5 演出对齐 | 表情规范化映射 + Agnes 尺寸确认 + templates 入退场核查 | 小（核查为主） |
-| M6 数据迁移 | migrate dry-run 审计 → apply → 删除 67636322d213 的 UTF-16 空档（外部污染，非写入 bug，不修路径） | 运维动作，按项目执行 |
-| M7 验证 | tsc + 单章管线重跑 + 抽查 manifest prompt 含性别/无直译 + 生图目视 | 测试动作 |
+| M1 性别链路 | core 类型 + attribution prompt + RAG meta + agent 组装校验 + profiles 写读 + builder/producer fallback | 中（~6 文件，后端为主） | ✅ `e3a9f0d`（tsc×7 包 clean，behavior 21/21 + smoke 24/24） |
+| M2 词典接线 | 扩词典 25–30 + 组装前替换 + 输出复检 + 外置 prompt 同步 + 未覆盖告警 | 小（~3 文件） | ✅ `e3a9f0d`（词典 10→30，最长匹配+白名单+9 残留正则+未覆盖告警） |
+| M3 题材风格 | genre 判定（规则+缓存）+ 模板映射 + 默认变更 + 配置页暴露（待查） | 小–中 | ✅ `7155fa6`（纯函数）+ `39cabd0`（管线接线，explicit>genre>urban-romance，dry-run 6/6）；配置页入口未做（F4.3） |
+| M4 RAG 双向 | bible chunk 回写 + 冲突规则 + resolver 接入 + mojibake 拦截 + 群像标记 | 中（~4 文件） | ✅ `7544315`（bible 回写 confidence 1.0 + resolver 合并/共现阻断 smoke 3/3 + isGroup 跳立绘）；未做：bible 检索加权、pending 持久化队列、群像 CG 路径 |
+| M5 演出对齐 | 表情规范化映射 + Agnes 尺寸确认 + templates 入退场核查 | 小（核查为主） | ✅ `7155fa6`（expression-map 16 标签/83 别名 + exit_fade_out/slide_out + hide 改 `at` 语法 + show/image/manifest 三处一致规范化）；另修 agent 遗留 bug：hide `with exit_fade_out` 非法 + image/show 表达式不一致 |
+| M6 数据迁移 | migrate dry-run 审计 → apply → 删除 67636322d213 的 UTF-16 空档（外部污染，非写入 bug，不修路径） | 运维动作，按项目执行 | ⬜ 待执行 |
+| M7 验证 | tsc + 单章管线重跑 + 抽查 manifest prompt 含性别/无直译 + 生图目视 | 测试动作 | ⬜ 待执行（tsc 部分已随各 commit 验证） |
 
 **建议执行顺序**：M1 → M2 → M5（核查）→ M3 → M4 → M6 → M7。M1/M2 可独立先行；M4 依赖 M1 的 gender/Bible 结构。
 
