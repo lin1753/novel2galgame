@@ -27,6 +27,8 @@ import {
   runVNMappingAgent,
   runFidelityReviewAgent,
   runVisualPromptAgent,
+  detectGenreHint,
+  styleForGenre,
 } from "@novel2gal/agents";
 import type { AgentResult } from "@novel2gal/agents";
 import { v4 as uuid } from "uuid";
@@ -564,6 +566,28 @@ export async function runChapterPipeline(
     }, i);
   }
 
+  // M3 genre-aware style resolution.
+  // Precedence: explicit config > genre-mapped > urban-romance fallback
+  // (styleForGenre returns 'urban-romance' for unknown/empty genre).
+  // Explicit wins: any real STYLE_TEMPLATES key in visualStyleTemplate is kept
+  // as-is. Only missing/empty/'default' triggers genre detection.
+  const explicitStyle = project.config.visualStyleTemplate?.trim();
+  let resolvedStyleTemplate: string;
+  if (!explicitStyle || explicitStyle === "default") {
+    const detectedGenre = detectGenreHint(project.title ?? "", chapterText.slice(0, 2000));
+    resolvedStyleTemplate = styleForGenre(detectedGenre);
+    if (!project.config.genreHint) {
+      project.config.genreHint = detectedGenre;
+      try {
+        writeProjectState(dataDir, project);
+      } catch (e) {
+        console.warn(`[VisualPrompt] Failed to persist detected genreHint:`, e);
+      }
+    }
+  } else {
+    resolvedStyleTemplate = explicitStyle;
+  }
+
   // Stage 4+5: VN Mapping + Fidelity Review per scene (parallel with concurrency limit)
   const sceneConcurrency = 3;
   const attrUnits = attributionData.units;
@@ -723,7 +747,7 @@ export async function runChapterPipeline(
             scene,
             units: sceneUnits,
             characters: attrCharacters,
-            styleTemplate: project.config.visualStyleTemplate,
+            styleTemplate: resolvedStyleTemplate,
             characterKnowledge,
           },
           vp.provider,
