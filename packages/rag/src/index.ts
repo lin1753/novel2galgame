@@ -181,7 +181,12 @@ export class KnowledgeStore {
       // travels as metadata.type='bible' + isBible flag, never as a union member.
       const isBibleChunk = chunkType === "bible" || chunk.isBible === true || meta.isBible === true;
       const bibleConfidence = chunk.confidence ?? meta.confidence ?? (isBibleChunk ? 1.0 : undefined);
+      // JSON id keeps the content-hash suffix (dedupes same content across
+      // re-runs with slightly different text); Chroma id is the hash-less
+      // canonical scheme shared with ingestChunks + backfill-chroma so all
+      // three write paths converge on the same record.
       const recordId = `${chapterId}_${chunk.characterId}_${chunkType}_${contentHashStr}`;
+      const chromaId = `${chapterId}_${chunk.characterId}_${chunkType}`;
       await this.collections.characters.upsert([{
         id: recordId,
         vector,
@@ -203,10 +208,10 @@ export class KnowledgeStore {
           ...(bibleConfidence !== undefined ? { confidence: bibleConfidence } : {}),
         },
       }]);
-      // A5 dual-write: same record into Chroma with the SAME id so re-ingest
-      // upserts on both stores symmetrically. chromaUpsert is fire-and-forget.
+      // A5 dual-write: same record into Chroma under the canonical hash-less
+      // id. chromaUpsert is fire-and-forget; a Chroma outage never blocks.
       (this.collections.characters as any).chromaUpsert?.([{
-        id: recordId,
+        id: chromaId,
         vector,
         metadata: {
           type: chunkType,
@@ -233,19 +238,34 @@ export class KnowledgeStore {
     for (const chunk of chunks) {
       const embedText = chunk.embedText ?? `${chunk.chapterTitle} 场景数:${chunk.sceneCount}`;
       const vector = await this.getEmbedding(embedText);
-      await this.collections.scenes.upsert([{
+      const record = {
         id: chunk.chapterId,
         vector,
         updatedAt: new Date().toISOString(),
         metadata: {
+          type: "scene_pattern",
           chapterId: chunk.chapterId,
           chapterTitle: chunk.chapterTitle,
           sceneCount: chunk.sceneCount,
           locationHints: chunk.locationHints ?? [],
           characterDistribution: chunk.characterDistribution ?? {},
+          embedText,
           text: embedText,
         },
-      }]);
+      };
+      // JSON store
+      this.collections.scenes.upsert([record]);
+      // A5 dual-write: same id (chapterId) into Chroma, fire-and-forget.
+      const scenes = this.collections.scenes as any;
+      if (scenes.chroma) {
+        try {
+          void scenes.chroma.upsert([record]).catch((err: unknown) => {
+            console.warn("[RAG] ChromaDB scene dual-write failed (JSON stays source for this run):", err);
+          });
+        } catch (err) {
+          console.warn("[RAG] ChromaDB scene dual-write failed (JSON stays source for this run):", err);
+        }
+      }
     }
   }
 

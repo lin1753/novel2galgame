@@ -260,7 +260,11 @@ export function createDefaultConfig(): ProjectConfig {
   return {
     fidelityMode: "standard",
     segmentationMode: "standard",
-    visualStyleTemplate: "school-romance-anime",
+    // Empty = "let the pipeline detect genre" (M3). The chapter pipeline
+    // resolves empty/'default' via detectGenreHint → styleForGenre and
+    // persists the detected genreHint. 'school-romance-anime' stays
+    // available as an explicit override via project config.
+    visualStyleTemplate: "",
     budgetMode: "balanced",
     autoRunVisualPrompt: true,
     autoRunConsistencyReview: false,

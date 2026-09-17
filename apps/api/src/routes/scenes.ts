@@ -6,7 +6,7 @@ import type { createDatabase } from "@novel2gal/storage";
 import { SceneRepository, ProjectRepository, readSceneJson, readChapterJson, writeVisualPromptResult } from "@novel2gal/storage";
 import type { VNScript, FidelityReport, NarrativeParsingResult, AttributionResult, SegmentationResult, VisualPromptResult, Scene } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
-import { runVisualPromptAgent } from "@novel2gal/agents";
+import { runVisualPromptAgent, styleForGenre } from "@novel2gal/agents";
 import { config, resolveModelConfig } from "../config/index.js";
 
 function param(req: Request, key: string): string {
@@ -166,8 +166,15 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
       const sceneUnits = attrResult.units.filter((u) => unitIds.includes(u.unitId));
       if (sceneUnits.length === 0) return res.status(400).json({ error: "No units found for this scene" });
 
-      const styleTemplate = req.body.styleTemplate ?? "school-romance-anime";
+      // M3: explicit request > project config template > genre-mapped style.
+      // Same precedence as the chapter pipeline; detectGenreHint result is
+      // persisted in config.genreHint by the pipeline, so single-scene reruns
+      // resolve consistently with chapter runs.
       const project = projectRepo.getById(projectId);
+      const configStyle = project?.config?.visualStyleTemplate?.trim();
+      const styleTemplate = req.body.styleTemplate
+        ?? (configStyle && configStyle !== "default" ? configStyle : undefined)
+        ?? styleForGenre(project?.config?.genreHint);
       const resolvedTextModel = resolveModelConfig("text").model;
       const model = req.body.model ?? project?.config?.defaultTextModel ?? resolvedTextModel;
 
