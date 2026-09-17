@@ -113,12 +113,13 @@ export class KnowledgeStore {
 
   async searchCharacters(queryText: string, limit = 5, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    return this.collections.characters.searchByVector(vector, { topK: limit, projectId });
+    // Chroma-first (A5): HNSW vector search with JSON fallback built in
+    return this.collections.characters.searchByVectorAsync(vector, { topK: limit, projectId });
   }
 
   async searchCharactersHybrid(queryText: string, limit = 5, vectorWeight?: number, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    
+
     // Dynamic weight adaptation based on user request:
     // If it's a short exact name (e.g. <= 4 chars like "何亦雯" or "何总"), BM25 should dominate (0.1 vector / 0.9 BM25).
     // If it's a scene metaphor or longer description, Vector should dominate (0.8 vector / 0.2 BM25).
@@ -130,8 +131,9 @@ export class KnowledgeStore {
         weight = 0.8; // Metaphor/semantic match
       }
     }
-    
-    return this.collections.characters.searchHybrid(vector, queryText, { topK: limit, vectorWeight: weight, projectId });
+
+    // A5: Chroma-first vector leg + JSON BM25 keyword leg
+    return this.collections.characters.searchHybridAsync(vector, queryText, { topK: limit, vectorWeight: weight, projectId });
   }
 
   async searchCharactersWithRerank(queryText: string, llm: any, model: string, finalK = 3, coarseK = 10, projectId?: string): Promise<any[]> {

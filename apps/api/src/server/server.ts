@@ -70,5 +70,36 @@ export function createServer(
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // GET /health/rag — Chroma connectivity + collection counts (issue-tracker A5).
+  // Frontend/ops can poll this instead of digging through silent-fallback warns.
+  app.get("/health/rag", async (_req, res) => {
+    const result: Record<string, unknown> = {
+      chroma: { reachable: false },
+      json: {},
+    };
+    try {
+      const chars = (rag as any)?.knowledgeStore?.collections?.characters;
+      const scenes = (rag as any)?.knowledgeStore?.collections?.scenes;
+      if (chars?.chroma || scenes?.chroma) {
+        const [charCount, sceneCount] = await Promise.all([
+          chars?.chroma?.count?.() ?? Promise.resolve(null),
+          scenes?.chroma?.count?.() ?? Promise.resolve(null),
+        ]);
+        (result.chroma as any).reachable = true;
+        (result.chroma as any).characters = charCount;
+        (result.chroma as any).scenes = sceneCount;
+      } else {
+        (result.chroma as any).reachable = false;
+        (result.chroma as any).reason = "no chroma client configured (CHROMA_URL unset / init failed)";
+      }
+      (result.json as any).characters = chars?.records?.length ?? 0;
+      (result.json as any).scenes = scenes?.records?.length ?? 0;
+      res.json(result);
+    } catch (err) {
+      (result.chroma as any).error = err instanceof Error ? err.message : String(err);
+      res.status(503).json(result);
+    }
+  });
+
   return app;
 }
