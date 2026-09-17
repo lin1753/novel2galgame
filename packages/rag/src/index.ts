@@ -203,6 +203,29 @@ export class KnowledgeStore {
           ...(bibleConfidence !== undefined ? { confidence: bibleConfidence } : {}),
         },
       }]);
+      // A5 dual-write: same record into Chroma with the SAME id so re-ingest
+      // upserts on both stores symmetrically. chromaUpsert is fire-and-forget.
+      (this.collections.characters as any).chromaUpsert?.([{
+        id: recordId,
+        vector,
+        metadata: {
+          type: chunkType,
+          projectId: pid,
+          characterId: chunk.characterId,
+          canonicalName: chunk.canonicalName,
+          chapterId,
+          firstSeenIn: chunk.firstSeenIn ?? meta.firstSeenIn,
+          embedText,
+          text: chunk.text ?? embedText,
+          appearance,
+          personality,
+          relationships,
+          ...(gender ? { gender } : {}),
+          ...(isBibleChunk ? { chunkType, isBible: true } : {}),
+          ...(bibleConfidence !== undefined ? { confidence: bibleConfidence } : {}),
+        },
+        updatedAt: new Date().toISOString(),
+      }]);
     }
   }
 

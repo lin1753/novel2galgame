@@ -66,6 +66,22 @@ export class CharacterCollection extends BaseCollection {
     }
   }
 
+  /**
+   * Chroma dual-write (issue-tracker A5 write leg). Upserts the same
+   * records into Chroma using the deterministic ID scheme; fire-and-forget
+   * with a warn so a Chroma outage never blocks the pipeline ingest.
+   */
+  protected chromaUpsert(records: VectorRecord[]): void {
+    if (!this.chroma || records.length === 0) return;
+    try {
+      void this.chroma.upsert(records).catch((err: unknown) => {
+        console.warn("[RAG] ChromaDB character dual-write failed (JSON stays source for this run):", err);
+      });
+    } catch (err) {
+      console.warn("[RAG] ChromaDB character dual-write failed (JSON stays source for this run):", err);
+    }
+  }
+
   /** Delete project data from both JSON and ChromaDB */
   async deleteByProject(projectId: string): Promise<void> {
     this.delete({ projectId: { $eq: projectId } });
