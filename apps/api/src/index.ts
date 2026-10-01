@@ -10,8 +10,30 @@ import { createServer } from "./server/server.js";
 import { config, getActiveProfile } from "./config/index.js";
 import { EmbeddingService, KnowledgeStore } from "@novel2gal/rag";
 import { extractCharacterKnowledge, extractScenePatterns } from "@novel2gal/rag";
+import { auditExternalPrompts, AGENT_PROMPT_DEFAULTS } from "@novel2gal/agents";
 
 const db = createDatabase(config.dataDir);
+
+// E6 startup prompt-consistency gate: warn loudly when an external
+// data/prompts/*.md has drifted from the code default (it silently wins over
+// the code prompt at runtime — E0 lesson). Canonical flow: change the code
+// DEFAULT first, then sync the .md.
+try {
+  const audit = auditExternalPrompts(AGENT_PROMPT_DEFAULTS);
+  const drifted = audit.filter((e) => e.drifted);
+  const missing = audit.filter((e) => !e.fileExists);
+  if (missing.length > 0) {
+    console.log(`[Prompt Gate] ${missing.length} prompt file(s) will be created from code defaults on first use: ${missing.map((e) => e.agentName).join(", ")}`);
+  }
+  if (drifted.length > 0) {
+    console.warn(`[Prompt Gate] ⚠️ ${drifted.length} external prompt file(s) differ from code defaults (external file wins at runtime — sync after changing code): ${drifted.map((e) => e.agentName).join(", ")}`);
+  }
+  if (drifted.length === 0 && missing.length === 0) {
+    console.log(`[Prompt Gate] OK — all ${audit.length} prompt files match code defaults`);
+  }
+} catch (e) {
+  console.warn("[Prompt Gate] audit skipped:", (e as Error).message);
+}
 
 // Use active profile if available, fall back to env vars
 const activeProfile = getActiveProfile();
