@@ -214,8 +214,8 @@ Image Producer（显式 gender token + 风格模板 + 负面约束）
 | M3 题材风格 | genre 判定（规则+缓存）+ 模板映射 + 默认变更 + 配置页暴露（待查） | 小–中 | ✅ `7155fa6`（纯函数）+ `39cabd0`（管线接线，explicit>genre>urban-romance，dry-run 6/6）；配置页入口未做（F4.3） |
 | M4 RAG 双向 | bible chunk 回写 + 冲突规则 + resolver 接入 + mojibake 拦截 + 群像标记 | 中（~4 文件） | ✅ `7544315`（bible 回写 confidence 1.0 + resolver 合并/共现阻断 smoke 3/3 + isGroup 跳立绘）；未做：bible 检索加权、pending 持久化队列、群像 CG 路径 |
 | M5 演出对齐 | 表情规范化映射 + Agnes 尺寸确认 + templates 入退场核查 | 小（核查为主） | ✅ `7155fa6`（expression-map 16 标签/83 别名 + exit_fade_out/slide_out + hide 改 `at` 语法 + show/image/manifest 三处一致规范化）；另修 agent 遗留 bug：hide `with exit_fade_out` 非法 + image/show 表达式不一致 |
-| M6 数据迁移 | migrate dry-run 审计 → apply → 删除 67636322d213 的 UTF-16 空档（外部污染，非写入 bug，不修路径） | 运维动作，按项目执行 | ⬜ 待执行 |
-| M7 验证 | tsc + 单章管线重跑 + 抽查 manifest prompt 含性别/无直译 + 生图目视 | 测试动作 | ⬜ 待执行（tsc 部分已随各 commit 验证） |
+| M6 数据迁移 | migrate dry-run 审计 → apply → 删除 67636322d213 的 UTF-16 空档（外部污染，非写入 bug，不修路径） | 运维动作，按项目执行 | ✅ 已执行（2026-10-01）：前置修复 resolver（编号 ID 坍缩 + 模糊匹配改 pending）与迁移脚本（pending 无损保留 / evidence 保留 / gender 回填 / 顶层 basePrompt 镜像 / segmentation.json 正确文件名 / isGroup）；3 项目 dry-run 审 → apply；断言 16/16 过（众豪杰/白裙女子分离、女生A/B 保留、英文幽灵并入、evidence 无损） |
+| M7 验证 | tsc + 单章管线重跑 + 抽查 manifest prompt 含性别/无直译 + 生图目视 | 测试动作 | ✅ 已执行（2026-10-01）：tsc 13 包 clean；62ec ch0011 单章全管线重跑 chapter_ready；E0/E6 prompt 门禁上线（7 agent 全接线 loadPrompt + 启动 hash 审计 + apps/api/data/prompts 死副本删除）；manifest 抽查与生图目视见 session log |
 
 **建议执行顺序**：M1 → M2 → M5（核查）→ M3 → M4 → M6 → M7。M1/M2 可独立先行；M4 依赖 M1 的 gender/Bible 结构。
 
