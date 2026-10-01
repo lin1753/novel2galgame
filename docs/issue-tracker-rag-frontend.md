@@ -49,6 +49,8 @@
 |---|------|------|---------|
 | D1 | **LangGraph 节点 vs 内联两套 RAG 调用**：`rag-query-node.ts` 用精确名匹配+BM25（`keywordSearch(name, {limit:5, where})`），monolithic 用 hybrid+LLM rerank。改检索策略要改两处 | `rag-query-node.ts:19-29` vs `chapter-pipeline.ts:379-391` | 抽统一函数 `queryCharacterKnowledge(store, name, chapterId, projectId)` 放 `packages/rag`，两边调用；单章 run 走 LangGraph、auto-export 走 monolithic 的现状保留 |
 | D2 | **attribution 已知角色收集逻辑重复三份**：LangGraph attribution-node（records 直读）、monolithic（hybrid+rerank）、`listCharacterDetails`——去重规则（最短 ID、中文名过滤）各写一遍 | 三处各自定义 | 同上，收敛到统一函数 |
+| D3 | **（M7 实测新发现）单章 run（LangGraph）整段缺 M1–M5 接线**：visual-prompt-node 硬编码 `styleTemplate: "school-romance-anime"`（M3 失效）；无 profile 锁定/bible 回写（M4 失效）；无 resolver/群像标记（M4 失效）；无 gender 锚点注入。即从"单章重跑"入口看不到任何 Bible 修复 | M7 run 走 auto-export（monolithic，全接线）才验收通过；`packages/pipeline/src/nodes/visual-prompt-node.ts:59` vs `chapter-pipeline.ts:866-976` | 二选一：(a) LangGraph 节点补齐同等接线（工作量大）；(b) `POST /chapters/:id/run` 直接改走 monolithic `runChapterPipeline`（复用已有实现，删 LangGraph 单章路径）——倾向 (b)，LangGraph 仅保留检查点恢复价值，但当前未配 checkpointer |
+| D4 | **（M7 实测新发现）LLM 性别误标依赖 M4 守卫兜底**：ch0011 实测 Agnes 把 丁池 标 female、女人 标 male，M4 冲突守卫正确拦截（baseline 未动），但说明 attribution prompt 的性别判定质量有限；每章都会产生告警噪声 | ch0011 运行日志 3 次 `[M4] Gender conflict` 守卫触发 | 短期接受（守卫即设计行为）；中期在 attribution prompt 增加代词显式统计要求 + Bible gender 直接注入 user prompt（当前只靠 system prompt 规则） |
 
 ---
 
@@ -56,7 +58,7 @@
 
 | # | 问题 | 证据 | 修复方向 |
 |---|------|------|---------|
-| E0 | **P0：`visual-prompt.md` 覆盖代码修复**：文件是旧版（含 cameraAndAction/transientAction/动态机位），`loadPrompt` 优先读文件→代码里 B-1/B-5/C-2 三项修复生产零生效，实测 basePrompt 仍有场景动作污染 | 文件第6-9行 vs 代码 `DEFAULT_SYSTEM_PROMPT`；实测"站在柜台后拿扇子" | 用代码版覆盖此文件（立即做）。另加启动一致性门禁（hash 对比 warn），见 E6 |
+| E0 | ✅ **已修（841adaf）**：~~visual-prompt.md 覆盖代码修复~~ 实际漂移比记录更广（vn-mapping.md 丢 Phase12 硬化+10 步类型、attribution.md 丢 ID 红线+speakerIdToCharId 契约）。已全部从代码 DEFAULT 重生成，file ≡ code | 曾实测"站在柜台后拿扇子"；M7 重跑后 manifest 207/207 prompt 含性别锚、0 直译残留 | 保持：改 prompt 先改代码 DEFAULT，再跑 sync（见 E6） |
 | E1 | `attribution.md` 无 gender 输出、无群像标记 | 无 gender 字段 | 加 gender 输出要求（M1）；群像标记 isGroup；minor 编号规则明确（全书递增） |
 | E2 | `narrative-parsing.md` 与 `sanitizeForPrompt` 规则重复 | 第6行转义条款 | 保留（对 LLM 有效），精简并注明代码侧有同等清洗；补 action→participantIds 衔接说明 |
 | E3 | `scene-segmentation.md` 地点命名无规范、mood 自由文本 | 无命名条款 | "地点用小说原文词，不编英文名"；mood 给词汇表（对接 cameraEffect 映射） |
