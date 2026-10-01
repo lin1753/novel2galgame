@@ -60,6 +60,21 @@ export interface EntityResolveResult {
 }
 
 /**
+ * Group-tableau detection (bible plan §3.6.4). Names that denote a crowd
+ * rather than a single sprite-able character. Shared by the chapter
+ * pipeline and the legacy-profiles migration so both flag identically.
+ */
+const GROUP_NAME_RE = /^(众|诸|大家|.*豪杰|人群|众人|弟子们|观众)/;
+const GROUP_NAME_CONTAINS_RE = /豪杰|众人|大家/;
+
+export function isGroupCharacterName(name: string, gender?: unknown): boolean {
+  if (!name) return false;
+  if (GROUP_NAME_RE.test(name)) return true;
+  if ((gender === undefined || gender === "unknown") && GROUP_NAME_CONTAINS_RE.test(name)) return true;
+  return false;
+}
+
+/**
  * Standard Levenshtein distance calculation
  */
 export function calculateLevenshteinDistance(a: string, b: string): number {
@@ -102,14 +117,17 @@ export function calculateStringSimilarity(a: string, b: string): number {
 }
 
 /**
- * Common Chinese Pinyin / Romaji approximations for novel character naming
+ * Common Chinese Pinyin / Romaji approximations for novel character naming.
+ * NOTE: numeric tails are semantically significant (char_minor_001 vs
+ * char_minor_002 are distinct characters by design \u2014 attribution prompt rule 5).
+ * Stripping them collapsed every numbered minor onto one profile
+ * (real 2c31 casualty: \u4f17\u8c6a\u6770 auto-merged into \u767d\u88d9\u5973\u5b50), so they are preserved.
  */
 export function normalizeEntityString(str: string): string {
   return (str || "")
     .trim()
     .toLowerCase()
     .replace(/^char_/, "")
-    .replace(/_[0-9]+$/, "")
     .replace(/[^a-z0-9\u4e00-\u9fff]/gi, "");
 }
 
@@ -180,7 +198,13 @@ export class CanonicalEntityResolver {
       }
     }
 
-    // Level 2: Fuzzy similarity match with Co-occurrence Hard Block
+    // Level 2: Fuzzy similarity match with Co-occurrence Hard Block.
+    // Numbered minor IDs (char_minor_001 vs char_minor_002) are explicitly
+    // distinct entities — normalization strips the numeric tail, so letting
+    // them through fuzzy matching collapses all minors into one profile
+    // (real 2c31/83e4 dry-run casualty: 众豪杰 merged into 白裙女子).
+    // Minor-vs-minor linking must go through exact match only (Level 1).
+    const inputIsNumberedMinor = /_(?:\d{2,3})$/.test((rawId || "").trim());
     let bestMatch: MasterCharacterProfile | null = null;
     let highestSimilarity = 0;
     let matchMethod: "levenshtein" | "pinyin" = "levenshtein";
@@ -194,6 +218,9 @@ export class CanonicalEntityResolver {
 
       const candidateStrings = [prof.canonicalName, prof.characterId, ...(prof.aliasSet || [])];
       for (const target of candidateStrings) {
+        // A numbered minor never fuzzy-links to another numbered minor —
+        // only exact ID/name matches (handled in Level 1) may merge them.
+        if (inputIsNumberedMinor && /_(?:\d{2,3})$/.test((target || "").trim())) continue;
         const normTarget = normalizeEntityString(target);
         const simName = calculateStringSimilarity(normInputName, normTarget);
         const simId = calculateStringSimilarity(normInputId, normTarget);
@@ -208,13 +235,28 @@ export class CanonicalEntityResolver {
     }
 
     if (bestMatch && highestSimilarity >= 0.88) {
+      // Plan §3.6 / C-1: fuzzy similarity alone must NOT auto-merge — a wrong
+      // merge is unrecoverable (baseline is write-once), a missed one is a
+      // manual confirm. 0.88–1.0 fuzzy hits go to pending_confirmation unless
+      // the raw ID itself is an exact member of the target's aliasSet (that
+      // case was already returned by Level 1).
+      const generatedId = `char_${normInputId || normInputName || Date.now()}`;
       return {
-        action: "matched_existing",
-        characterId: bestMatch.characterId,
-        canonicalName: bestMatch.canonicalName,
-        profile: bestMatch,
+        action: "pending_confirmation",
+        characterId: generatedId,
+        canonicalName: cleanName || bestMatch.canonicalName,
         confidence: highestSimilarity,
-        reason: `Fuzzy similarity ${highestSimilarity.toFixed(2)} with ${bestMatch.canonicalName} (no co-occurrence conflict)`,
+        reason: `High similarity ${highestSimilarity.toFixed(2)} with ${bestMatch.canonicalName} — queued for creator review, no auto-merge`,
+        pendingProposal: {
+          candidateId: generatedId,
+          candidateName: cleanName,
+          targetCharacterId: bestMatch.characterId,
+          targetCanonicalName: bestMatch.canonicalName,
+          similarityScore: highestSimilarity,
+          matchedBy: matchMethod,
+          sourceChapterId: options.chapterId || "",
+          createdAt: new Date().toISOString(),
+        },
       };
     }
 
