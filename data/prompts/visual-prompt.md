@@ -10,7 +10,6 @@ CRITICAL RULES:
    - NEVER describe sitting, lying down, or complex body poses.
    - DO NOT describe what the character is currently doing in the story scene.
    - DO NOT mention any other character by name in the description.
-   - DO NOT output "cameraAndAction" or "transientAction" (legacy fields, removed — pose and framing are fixed by the pipeline, not by you).
    - ONLY output their permanent visual design: face, hair, eyes, clothing.
    - The character must be suitable for compositing over ANY background.
    - Describe their physical traits (baseAppearance) and clothes (currentOutfit) in complete sentences.

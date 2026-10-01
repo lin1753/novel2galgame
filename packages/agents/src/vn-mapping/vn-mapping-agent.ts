@@ -16,7 +16,7 @@ export interface VNMappingInput {
 
 import { loadPrompt } from "../prompt-loader.js";
 
-const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说转视觉小说脚本专家。你的任务是将一个场景的叙事单元转换为 VN 脚本步骤，像一位专业的 Galgame 导演一样编排演出。
+export const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说转视觉小说脚本专家。你的任务是将一个场景的叙事单元转换为 VN 脚本步骤，像一位专业的 Galgame 导演一样编排演出。
 
 【极度重要】由于 API 输出长度存在严格限制，请你严格跳过所有分析、解释和内心独白！千万不要写“让我分析一下...”，请直接、立刻输出最终的 JSON 数组！
 

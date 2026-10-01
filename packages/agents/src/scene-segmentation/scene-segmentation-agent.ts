@@ -2,6 +2,7 @@ import type { Scene, SegmentationResult, AttributedNarrativeUnit } from "@novel2
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
 import { sanitizeForPrompt } from "../shared/normalize.js";
+import { loadPrompt } from "../prompt-loader.js";
 
 export interface SegmentationInput {
   chapterId: string;
@@ -10,7 +11,7 @@ export interface SegmentationInput {
   sceneHints?: string;
 }
 
-const SYSTEM_PROMPT = `你是一个中文小说场景分割专家。你的任务是将章节的叙事单元序列分割为不同的场景 (Scene)。
+export const SYSTEM_PROMPT = `你是一个中文小说场景分割专家。你的任务是将章节的叙事单元序列分割为不同的场景 (Scene)。
 
 场景边界判定依据:
 - location_change: 场所变化
@@ -42,7 +43,11 @@ const SYSTEM_PROMPT = `你是一个中文小说场景分割专家。你的任务
     }
   ],
   "sceneUnitMap": {"scene_0001_0001": ["u1", "u2"]}
-}`;
+}
+
+【强制格式约束】
+你输出的 JSON 字符串值中严禁出现未转义的控制字符和英文双引号 (")！
+如果内容中包含对话，必须将其替换为中文双引号 (“ ”) 或转义为 \\"。绝不允许产生破坏 JSON 语法的格式，否则将导致系统崩溃！`;
 
 const CHUNK_SIZE = 50;
 
@@ -52,6 +57,7 @@ export async function runSceneSegmentationAgent(
   model: string
 ): Promise<AgentResult<SegmentationResult>> {
   const { chapterId, units } = input;
+  const systemPrompt = loadPrompt("scene-segmentation", SYSTEM_PROMPT);
 
   if (!units || units.length === 0) {
     return { success: false, failureLevel: "hard", errorMessage: "No units to segment" };
@@ -90,7 +96,7 @@ ${unitsText}
       const result = await provider.chatJson<SegmentationResult>({
         model,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,

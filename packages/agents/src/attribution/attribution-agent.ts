@@ -13,7 +13,7 @@ export interface AttributionInput {
   characterKnowledge?: string;
 }
 
-const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的任务是为每个叙事单元标注角色归属。
+export const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的任务是为每个叙事单元标注角色归属。
 
 归属信息包括:
 - speakerId: 对话的说话人 (当 dialogue 类型)
@@ -59,7 +59,12 @@ const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家�
   "aliasMap": {"别名": "char_001"},
   "uncertainUnitIds": ["unitId"],
   "speakerIdToCharId": {"char_001": "char_001"}
-}`;
+}
+
+【强制格式约束】
+你输出的 JSON 字符串值中严禁出现未转义的控制字符和英文双引号 (")！
+originalText 里的半角双引号必须替换为中文双引号 (“ ”) 或转义为 \\"，反斜杠必须转义为 \\\\。
+绝不允许产生破坏 JSON 语法的格式，否则将导致系统崩溃！`;
 
 const CHUNK_SIZE = 20;
 

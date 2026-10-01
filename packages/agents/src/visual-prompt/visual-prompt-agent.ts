@@ -311,7 +311,7 @@ export function cleanseBackgroundPrompt(prompt: string): string {
   return clean.trim();
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are an expert cinematic visual director and prompt engineer. Your task is to extract visual information from the story units and generate strictly formatted natural language descriptions for an advanced AI image model (like DALL-E 3 or Midjourney).
+export const DEFAULT_SYSTEM_PROMPT = `You are an expert cinematic visual director and prompt engineer. Your task is to extract visual information from the story units and generate strictly formatted natural language descriptions for an advanced AI image model (like DALL-E 3 or Midjourney).
 
 CRITICAL RULES:
 1. OUTPUT BEAUTIFUL, COMPLETE NATURAL ENGLISH SENTENCES. DO NOT output comma-separated "Danbooru tag soup".
