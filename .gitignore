@@ -36,4 +36,5 @@ samplegame/
 data/rag/
 data/test_image_experiments/
 docker/
-scripts/
+# Root-level model download scripts only — apps/api/src/scripts is tracked source
+/scripts/
