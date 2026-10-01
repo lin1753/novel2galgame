@@ -28,6 +28,8 @@
 | B2 | **`narratives.json`/`prompts.json` 永久空文件**：对应集合的 ingest 入口在全仓库零调用，`multiPathRetrieve`/`CEReranker`/`createRAGTools` 同样零调用——v2 设计的"叙事模式/提示词模板/双重 rerank/LangGraph tools"四件套从未接线 | 19 字节空文件；grep 零调用 | 二选一：(a) 标注为"预留未实现"并从 KnowledgeStore 构造中移除，避免误导；(b) 真正接线（需设计 narrative 提取 agent，超出现有管线，建议选 a） |
 | B3 | **JSON 落盘定位**：用户要求"写入检索不能写在本地文件"——当前 JSON 是唯一真实存储。Chroma 修好后，JSON 降级为**本地缓存/审计日志**（保留，但不再是 source of truth）；删除项目时 `deleteProjectData` 已同时清两边，保持 | `projects.ts:133-136` 已双清 | 回填后文档明确：Chroma=主存储，JSON=降级缓存；`BaseCollection` 保留作 Chroma 不可用时的只读 fallback |
 | B4 | **重复 ingest（白烧 token）**：`chapter-pipeline.ts:434-453` 整块"RAG ingest character knowledge"复制粘贴了两次，每章 embedding 翻倍 | 双 block 并列 | 删除第二块（立即做，低风险） |
+| B5 | **（M7 目视新发现）同角色表情差分外观漂移**：songnianxi smirk vs neutral 是短发动漫风 vs 长发写实风——同一 basePrompt 生成的差分立绘外观不一致 | Haiku 目视 13 张抽样，2/10 立绘 FAIL 皆此类 | 生图 prompt 中强化外观复述（把 baseAppearance 完整重复进每次差分请求）+ 评估 Agnes 是否支持 seed 固定；至少要求同角色差分全部生成后再目视抽检 |
+| B6 | **（M7 目视新发现）fallback 立绘风格不统一**：无 bible 角色走 `1girl` 短模板，与 bible 立绘混搭出现写实/插画/动画风三档 | char_mysterious_woman（动画风）vs dingchi（写实）同项目 | fallback 模板改为项目级 genreHint 对应的 STYLE_TEMPLATES（M3 的 styleForGenre 已有映射，接线即可）；顺带评估 flustered 等表情词出图表情偏平静的问题 |
 
 ---
 
