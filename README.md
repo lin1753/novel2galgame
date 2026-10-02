@@ -217,7 +217,7 @@ packages/
   export/       Ren'Py Builder
   runtime/      Web VN 播放引擎
   evaluation/   评测框架
-docs/           设计文档 + 训练日志 + 模型卡 + 审计报告
+docs/           设计/计划/交接/审计/调研/训练 六类归档(见 docs/README.md)
 data/           项目数据、测试小说、评测数据集
 xl/             训练代码、数据集、评测结果
 ```
@@ -322,7 +322,7 @@ curl -X POST http://localhost:3002/videos/generate -d '{"prompt":"sunset beach s
 | [qwen3-8b-attribution-assist-lora](https://huggingface.co/mikuhhn1239/qwen3-8b-attribution-assist-lora) | 角色归因 | 86.7% |
 | [qwen3-8b-scene-segmentation-lora](https://huggingface.co/mikuhhn1239/qwen3-8b-scene-segmentation-lora) | 场景边界检测 | 30.5% F1 |
 
-**训练硬件:** 8× NVIDIA A800-80GB | **方法:** LoRA r=64 α=128 | **详细:** [model_cards.md](docs/model_cards.md) · [TRAINING_LOG.md](docs/TRAINING_LOG.md)
+**训练硬件:** 8× NVIDIA A800-80GB | **方法:** LoRA r=64 α=128 | **详细:** [model_cards.md](docs/training/model_cards.md) · [TRAINING_LOG.md](docs/training/TRAINING_LOG.md)
 
 ## 📊 质量与评测
 
@@ -347,18 +347,19 @@ curl -X POST http://localhost:3002/videos/generate -d '{"prompt":"sunset beach s
 - [x] Phase 7-8 IR v1.0 冻结 + 资产管线 + 章节并行 + 全链路贯通
 - [x] Phase 9 RAG v2 全链路 + 角色一致性修复
 - [x] Phase 10 全量代码质量审计(~60 bug 修复)
-- [x] Phase 11-12 视觉舞台演出(5级景别/说话聚焦/镜头动效/sharp抠图/ATL导出)+ 管线稳定性(单章顺序导出/Abort取消/L0兜底) — 详见 [docs/phase12-handover-to-claude.md](docs/phase12-handover-to-claude.md)、[docs/phase12-test-audit-report.md](docs/phase12-test-audit-report.md)
+- [x] Phase 11-12 视觉舞台演出(5级景别/说话聚焦/镜头动效/sharp抠图/ATL导出)+ 管线稳定性(单章顺序导出/Abort取消/L0兜底) — 详见 [docs/handovers/phase12-handover-to-claude.md](docs/handovers/phase12-handover-to-claude.md)、[docs/audits/phase12-test-audit-report.md](docs/audits/phase12-test-audit-report.md)
+- [x] Phase 13 角色圣经双脑 RAG: Chroma 主存储修复 + 性别链路/成语词典/题材风格/RAG 双向/表情规范化(M1-M5) + prompt 一致性门禁(E0/E6) + 3 项目数据迁移(M6) + 单章全管线验收(M7: 207/207 性别锚点/0 直译残留/守卫实弹拦截) — 详见 [docs/plans/character-bible-plan.md](docs/plans/character-bible-plan.md)、[docs/plans/issue-tracker-rag-frontend.md](docs/plans/issue-tracker-rag-frontend.md)
 - [ ] v1.0 可视化编辑器(AI 80% + 人工 20%)+ 更多导出目标(Godot/HTML)
 
 ## 📚 文档
 
 | 文档 | 内容 |
 |------|------|
-| [PROGRESS.md](PROGRESS.md) | Phase 1-10 完整开发记录 |
+| [PROGRESS.md](PROGRESS.md) | Phase 1-13 完整开发记录 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
 | [INTERVIEW_PREP.md](INTERVIEW_PREP.md) | RAG 系统设计深度讲解 |
-| [docs/model_cards.md](docs/model_cards.md) | LoRA 模型卡 |
-| [docs/](docs/) | 10 份设计文档 + 审计报告 |
+| [docs/training/model_cards.md](docs/training/model_cards.md) | LoRA 模型卡 |
+| [docs/README.md](docs/README.md) | 分类索引：design/plans/handovers/audits/research/training |
 
 ## 🤝 贡献
 

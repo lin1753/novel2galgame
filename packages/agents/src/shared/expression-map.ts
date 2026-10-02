@@ -1,6 +1,6 @@
 /**
  * Expression normalization map — M5 staging alignment.
- * Source: docs/character-bible-plan.md Appendix A (16 canonical labels;
+ * Source: docs/plans/character-bible-plan.md Appendix A (16 canonical labels;
  * aliases ranked by measured VN-script frequency across 353 raw names,
  * occurrence counts noted per group below).
  *

@@ -122,20 +122,22 @@ AI capability tiers:
 
 ## Design Documents
 
-All specs are in the `docs/` directory as `.txt` files. Key documents for implementation:
+Specs live in `docs/` organized by category (see `docs/README.md` for the full index). v1 design specs are `.txt` files in `docs/design/`:
 
 | Document | When to read |
 |----------|-------------|
-| `产品定位与原则` | Before any feature work -- core "what we do / don't do" |
-| `项目目录结构 + 数据结构草案` | Before writing code -- all TypeScript interfaces, SQLite schemas, API routes |
-| `Agent 协作工作流与状态流转设计` | Before implementing agents -- pipeline flow, state machines, cache layers, failure/recovery |
-| `AI 能力分层与模型路由方案` | Before implementing agent calls -- L0-L3 layering, model routing, budget modes, fallbacks |
-| `P0 研发任务拆解` | Task-level implementation plan with acceptance criteria per module |
-| `核心 Agent 评测指标与验收标准` | Evaluation thresholds per agent (e.g., Structure F1 >= 0.95, Attribution >= 0.87) |
-| `本地工作台产品信息架构与页面流程` | UI implementation -- 12 page designs with layouts and interactions |
-| `MVP 功能清单与优先级排期` | P0/P1/P2 feature prioritization across 8 modules |
-| `MVP 范围与里程碑拆解` | 5-phase timeline (12-20 weeks), success criteria, risks |
-| `700+ 恋爱向 txt 小说的数据治理与评测方案` | Data pipeline, dataset curation, Gold Set annotation |
+| `docs/design/产品定位与原则.txt` | Before any feature work -- core "what we do / don't do" |
+| `docs/design/项目目录结构与数据结构草案.txt` | Before writing code -- all TypeScript interfaces, SQLite schemas, API routes |
+| `docs/design/Agent协作工作流与状态流转设计.txt` | Before implementing agents -- pipeline flow, state machines, cache layers, failure/recovery |
+| `docs/design/AI能力分层与模型路由方案.txt` | Before implementing agent calls -- L0-L3 layering, model routing, budget modes, fallbacks |
+| `docs/design/P0研发任务拆解.txt` | Task-level implementation plan with acceptance criteria per module |
+| `docs/design/核心Agent评测指标与验收标准.txt` | Evaluation thresholds per agent (e.g., Structure F1 >= 0.95, Attribution >= 0.87) |
+| `docs/design/本地工作台产品信息架构与页面流程.txt` | UI implementation -- 12 page designs with layouts and interactions |
+| `docs/design/MVP功能清单与优先级排期.txt` | P0/P1/P2 feature prioritization across 8 modules |
+| `docs/design/MVP范围与里程碑拆解.txt` | 5-phase timeline (12-20 weeks), success criteria, risks |
+| `docs/design/700+恋爱向txt小说的数据治理与评测方案.txt` | Data pipeline, dataset curation, Gold Set annotation |
+
+Other key locations: implementation plans + issue tracker in `docs/plans/` (character-bible, issue-tracker-rag-frontend), AI handovers in `docs/handovers/`, audit reports in `docs/audits/`, Galgame industry research in `docs/research/`, SFT training logs in `docs/training/`.
 
 ## MVP Acceptance Targets
 

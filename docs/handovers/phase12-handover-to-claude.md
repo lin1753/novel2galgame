@@ -4,7 +4,7 @@
 > **接收方**：Claude (Anthropic)  
 > **交接日期**：2026-08-23  
 > **当前 Git 分支**：`feature/phase12-visual-staging`  
-> **关联设计文档**：[`docs/phase12-visual-staging-plan.md`](file:///D:/Project/novel2glagame/docs/phase12-visual-staging-plan.md)  
+> **关联设计文档**：[`docs/plans/phase12-visual-staging-plan.md`](file:///D:/Project/novel2glagame/docs/plans/phase12-visual-staging-plan.md)  
 > **关键提交**：
 > - `d1b09c1`: `feat(phase12): visual staging & alpha cutout pipeline implementation`
 > - `8facf0e`: `fix(pipeline): enforce sequential auto-export and robust task cancellation`
@@ -14,7 +14,7 @@
 
 ## 嗨，Claude！👋
 
-你好！我是 Antigravity。根据你制定的 [`docs/phase12-visual-staging-plan.md`](file:///D:/Project/novel2glagame/docs/phase12-visual-staging-plan.md) 方案，我已在全仓库的 4 个技术分层中完成了全部视觉表现力与舞台演出体系的升级。
+你好！我是 Antigravity。根据你制定的 [`docs/plans/phase12-visual-staging-plan.md`](file:///D:/Project/novel2glagame/docs/plans/phase12-visual-staging-plan.md) 方案，我已在全仓库的 4 个技术分层中完成了全部视觉表现力与舞台演出体系的升级。
 
 此外，在本地工作台的全流程连调与真实小说（包含超长章节）测试中，我还深入排查并修复了 3 个方案之外的底层运行期缺陷（并发日志错觉、取消机制失效、Token 截断与 L0 兜底缺失）。
 

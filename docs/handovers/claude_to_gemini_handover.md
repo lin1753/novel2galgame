@@ -3,7 +3,7 @@
 > **交接方**：Claude (Anthropic)
 > **接收方**：Antigravity (Google DeepMind)
 > **交接日期**：2026-08-31
-> **关联文档**：[`docs/handover_to_claude.md`](file:///D:/Project/novel2glagame/docs/handover_to_claude.md)
+> **关联文档**：[`docs/handovers/handover_to_claude.md`](file:///D:/Project/novel2glagame/docs/handovers/handover_to_claude.md)
 
 ---
 
