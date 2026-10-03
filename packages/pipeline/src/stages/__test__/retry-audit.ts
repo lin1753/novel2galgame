@@ -38,10 +38,10 @@ console.log("\nTarget after stage-2 convergence (single retry home in provider):
 console.log("  4 attempts (provider-only, Retry-After honored, full jitter, token bucket) — orchestration layers removed.");
 
 // Cross-check the counts against actual source (fail loudly if source drifts)
-const fp = fs.readFileSync("packages/providers/src/llm/fetch/fetch-provider.ts", "utf8");
+const fp = fs.readFileSync("../../packages/providers/src/llm/fetch/fetch-provider.ts", "utf8");
 if (!fp.includes("for (let attempt = 0; attempt < 3; attempt++)")) throw new Error("provider loop shape changed — update this audit");
-const cp = fs.readFileSync("apps/api/src/orchestrator/chapter-pipeline.ts", "utf8");
+const cp = fs.readFileSync("../../apps/api/src/orchestrator/chapter-pipeline.ts", "utf8");
 if (!cp.includes("const maxRetries = opts?.maxRetries ?? 3")) throw new Error("mono withRetry shape changed — update this audit");
-const vm = fs.readFileSync("packages/agents/src/vn-mapping/vn-mapping-agent.ts", "utf8");
+const vm = fs.readFileSync("../../packages/agents/src/vn-mapping/vn-mapping-agent.ts", "utf8");
 if (!vm.includes("for (let attempt = 0; attempt < 3; attempt++)")) throw new Error("vn-mapping loop shape changed — update this audit");
 console.log("\nSource cross-check: PASS (loop shapes match the audit).");
