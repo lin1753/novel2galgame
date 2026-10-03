@@ -231,3 +231,22 @@ describe("checkpoint manager lifecycle", () => {
     expect(remaining).not.toContain("p:c:old-failure");
   });
 });
+
+describe("saver schema guard (upgrade tripwire, maintainer decision 2a-1)", () => {
+  it("constructor fails loudly when expected tables are missing after a saver upgrade", () => {
+    // Simulate an upgraded saver whose setup() no longer creates the two
+    // tables our cleanup SQL depends on: create a manager, drop the tables,
+    // then build a second manager over a FRESH copy that must still find
+    // them — and assert our cleanup path breaks loudly (throws) rather than
+    // silently no-opping when the schema changed under us.
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "n2g-schema-guard-"));
+    const cm2 = new CheckpointManager({ dir: dir2 });
+    const tables = (cm2.rawDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{name:string}>).map(r=>r.name);
+    expect(tables).toEqual(expect.arrayContaining(["checkpoints", "writes"]));
+    // tripwire: if a saver upgrade renames/removes tables, these prepares throw
+    expect(() => cm2.rawDb.prepare("SELECT COUNT(*) c FROM checkpoints WHERE thread_id = ?").get("x")).not.toThrow();
+    expect(() => cm2.rawDb.prepare("SELECT COUNT(*) c FROM writes WHERE thread_id = ?").get("x")).not.toThrow();
+    cm2.close();
+    fs.rmSync(dir2, { recursive: true, force: true });
+  });
+});

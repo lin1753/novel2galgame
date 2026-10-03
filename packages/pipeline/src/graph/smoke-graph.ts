@@ -11,8 +11,12 @@ import { abortableDelay } from "../stages/lib.js";
  *   counter: increments executionsBeforeInterrupt, then (optionally) holds
  *            for holdMs — the hold is ABORTABLE, simulating an in-flight
  *            LLM request (proves the abort signal reaches node work).
- *   gate:    calls interrupt() when shouldInterrupt — the node whose
- *            re-execution behavior we must characterize.
+ *   gate:    calls interrupt() when shouldInterrupt. MEASURED 0.2.74
+ *            semantics (interrupt-reexecution.test.ts): the WHOLE gate
+ *            body re-executes on resume — code before interrupt() runs
+ *            twice, and its state writes from the interrupted run are
+ *            discarded (only node-complete writes commit). RULE: inside an
+ *            interrupt node, interrupt() must come BEFORE any side effect.
  *   finish:  sets result from resumedWith (proving resume values flow).
  *
  * NOT wired to any route. Real chapter graph lands in 2b.
@@ -31,8 +35,13 @@ async function counterNode(state: typeof SmokeState.State): Promise<Partial<type
 }
 
 async function gateNode(state: typeof SmokeState.State): Promise<Partial<typeof SmokeState.State>> {
-  const answer = state.shouldInterrupt ? interrupt({ question: "continue?" }) : "no-interrupt";
-  return { resumedWith: answer as string | null };
+  // MAINTAINER CORRECTION TEST (2026-10-03): this increment sits BEFORE
+  // interrupt() inside the interrupt node. If resume re-executes the whole
+  // gate node, gateNodeEntries becomes 2 — the measured number drives the
+  // documentation rule about side effects inside interrupt nodes.
+  const entries = state.gateNodeEntries + 1;
+  const answer = state.shouldInterrupt ? interrupt({ question: "continue?", entries }) : "no-interrupt";
+  return { gateNodeEntries: entries, resumedWith: answer as string | null };
 }
 
 async function finishNode(state: typeof SmokeState.State): Promise<Partial<typeof SmokeState.State>> {

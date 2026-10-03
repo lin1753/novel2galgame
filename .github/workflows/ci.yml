@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
 
 jobs:
@@ -19,3 +19,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+
+  # Windows job: better-sqlite3 native-module proof (maintainer decision
+  # 2a-2). Full build is skipped here; only the packages whose tests touch
+  # the native module run: pipeline (SqliteSaver smoke) and storage.
+  verify-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @novel2gal/core --filter @novel2gal/ir --filter @novel2gal/providers --filter @novel2gal/agents --filter @novel2gal/storage --filter @novel2gal/rag --filter @novel2gal/asset --filter @novel2gal/runtime --filter @novel2gal/export --filter @novel2gal/evaluation run build
+      - run: pnpm --filter @novel2gal/storage --filter @novel2gal/pipeline test

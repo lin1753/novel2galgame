@@ -15,6 +15,14 @@ export const SmokeState = Annotation.Root({
   executionsBeforeInterrupt: Annotation<number>({ default: () => 0, reducer: (_p, n) => n }),
   executionsAfterInterrupt: Annotation<number>({ default: () => 0, reducer: (_p, n) => n }),
 
+  /**
+   * Correction test (maintainer 2026-10-03): code INSIDE the interrupt node,
+   * BEFORE interrupt(), may re-execute on resume. This counter is bumped at
+   * the top of the gate node — the measured value after resume is the fact
+   * the documentation rule is written from.
+   */
+  gateNodeEntries: Annotation<number>({ default: () => 0, reducer: (_p, n) => n }),
+
   /** Controlled by tests: when true, the interrupt node fires interrupt(). */
   shouldInterrupt: Annotation<boolean>({ default: () => false, reducer: (_p, n) => n }),
 

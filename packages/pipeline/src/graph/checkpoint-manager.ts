@@ -19,6 +19,19 @@ interface SqliteDb {
 /**
  * Chapter-graph checkpoint management (stage 2a).
  *
+ * ── Dependency note (maintainer-approved override, 2026-10-03) ──────────────
+ * @langchain/langgraph-checkpoint-sqlite@0.1.4 declares better-sqlite3@^9.5.0
+ * as a runtime dependency. 9.x has NO prebuilt binary for Node 22 on win32
+ * and compiling it requires Visual Studio Build Tools (absent on this
+ * machine and unwanted for a zero-threshold local product). The root
+ * package.json pins pnpm.overrides["better-sqlite3"] = "11.10.0" — the same
+ * proven build the storage package ships. SqliteSaver only uses
+ * prepare/exec/pragma/transaction, all stable across 9→11 (round-trip
+ * verified in smoke tests, both Windows local and Ubuntu CI run 37110264131).
+ * WHEN UPGRADING the saver package: re-check its declared better-sqlite3
+ * range AND re-run src/graph/__test__/smoke.test.ts — the schema-guard test
+ * below fails if the expected tables are missing.
+ *
  * Storage: a dedicated SQLite file (checkpoints.db) — NOT app.db — opened
  * with WAL by SqliteSaver.setup() automatically (verified: pragma
  * journal_mode returns 'wal').
