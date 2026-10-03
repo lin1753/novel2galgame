@@ -12,7 +12,8 @@
   },
   "pnpm": {
     "overrides": {
-      "sharp": "0.33.5"
+      "sharp": "0.33.5",
+      "better-sqlite3": "11.10.0"
     }
   },
   "devDependencies": {

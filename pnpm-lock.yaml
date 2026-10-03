@@ -6,6 +6,7 @@ settings:
 
 overrides:
   sharp: 0.33.5
+  better-sqlite3: 11.10.0
 
 importers:
 
@@ -245,11 +246,17 @@ importers:
   packages/pipeline:
     dependencies:
       '@langchain/core':
-        specifier: ^0.3.0
+        specifier: 0.3.80
         version: 0.3.80(openai@4.104.0(zod@3.25.76))
       '@langchain/langgraph':
-        specifier: ^0.2.0
+        specifier: 0.2.74
         version: 0.2.74(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76)))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod-to-json-schema@3.25.2(zod@3.25.76))
+      '@langchain/langgraph-checkpoint':
+        specifier: 0.0.18
+        version: 0.0.18(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76)))
+      '@langchain/langgraph-checkpoint-sqlite':
+        specifier: 0.1.4
+        version: 0.1.4(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76)))(@langchain/langgraph-checkpoint@0.0.18(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76))))
       '@novel2gal/agents':
         specifier: workspace:*
         version: link:../agents
@@ -351,7 +358,7 @@ importers:
         specifier: workspace:*
         version: link:../core
       better-sqlite3:
-        specifier: ^11.7.0
+        specifier: 11.10.0
         version: 11.10.0
     devDependencies:
       '@types/better-sqlite3':
@@ -904,6 +911,13 @@ packages:
   '@langchain/core@0.3.80':
     resolution: {integrity: sha512-vcJDV2vk1AlCwSh3aBm/urQ1ZrlXFFBocv11bz/NBUfLWD5/UDNMzwPdaAd2dKvNmTWa9FM2lirLU3+JCf4cRA==}
     engines: {node: '>=18'}
+
+  '@langchain/langgraph-checkpoint-sqlite@0.1.4':
+    resolution: {integrity: sha512-AHCTkeiLg3dM4wSuU2Li6PKMs0W1YEaIehwKTrn6Rru+yPfQIAqAzdq1sbvZjizcdYdrbKFjC/h4UwznYF/CLA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@langchain/core': '>=0.2.31 <0.4.0'
+      '@langchain/langgraph-checkpoint': ~0.0.15
 
   '@langchain/langgraph-checkpoint@0.0.18':
     resolution: {integrity: sha512-IS7zJj36VgY+4pf8ZjsVuUWef7oTwt1y9ylvwu0aLuOn1d0fg05Om9DLm3v2GZ2Df6bhLV1kfWAM0IAl9O5rQQ==}
@@ -2423,7 +2437,6 @@ packages:
 
   uuid@9.0.1:
     resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   vary@1.1.2:
@@ -2946,6 +2959,12 @@ snapshots:
       - '@opentelemetry/exporter-trace-otlp-proto'
       - '@opentelemetry/sdk-trace-base'
       - openai
+
+  '@langchain/langgraph-checkpoint-sqlite@0.1.4(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76)))(@langchain/langgraph-checkpoint@0.0.18(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76))))':
+    dependencies:
+      '@langchain/core': 0.3.80(openai@4.104.0(zod@3.25.76))
+      '@langchain/langgraph-checkpoint': 0.0.18(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76)))
+      better-sqlite3: 11.10.0
 
   '@langchain/langgraph-checkpoint@0.0.18(@langchain/core@0.3.80(openai@4.104.0(zod@3.25.76)))':
     dependencies:
