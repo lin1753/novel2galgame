@@ -1,0 +1,198 @@
+{
+ "sceneId": "project_62ec436e1938_chapter_0004_scene_0001",
+ "chapterId": "project_62ec436e1938_chapter_0004",
+ "steps": [
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_auto_bg",
+   "type": "bg",
+   "order": 0,
+   "backgroundId": "bg_project_62ec436e1938_chapter_0004_scene_0001",
+   "backgroundLabel": "未知",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_btn5g1",
+   "type": "narration",
+   "order": 1,
+   "text": "第2章 算账",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0001"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_v9o2c1",
+   "type": "narration",
+   "order": 2,
+   "text": "刚刚见识了这女人的\"武力\"，妇女有点被唬住，但又不肯示弱，憋了半天才哼哧哼哧说出一句：\"你谁啊！\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0002"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_auto_show_char_songnianxi_uz4r",
+   "type": "show",
+   "order": 3,
+   "characterId": "char_songnianxi",
+   "expression": "neutral",
+   "position": "center",
+   "emphasis": "focus",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_4huub2",
+   "type": "say",
+   "order": 4,
+   "characterId": "char_songnianxi",
+   "displayName": "char_songnianxi",
+   "text": "\"我谁都不是，就是个卖水果的，\"宋念夕长腿一迈，走过去弯腰，利落抽出扎在榴莲上的水果刀，抬手指了指自己的眼睛：\"但我有眼睛，会看，管不住自己的小孩乱跑，闹到警察那去，就是妨碍交通，还害得人家电动车摔了，万一坏了，得赔。\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0003"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_auto_show_char_minor_wufu_3bmu",
+   "type": "show",
+   "order": 5,
+   "characterId": "char_minor_wufu",
+   "expression": "neutral",
+   "position": "center",
+   "emphasis": "focus",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_y6a7za",
+   "type": "say",
+   "order": 6,
+   "characterId": "char_minor_wufu",
+   "displayName": "char_minor_wufu",
+   "text": "妇女涨红了脸：\"你…你胡说…\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0004"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_hto4v1",
+   "type": "say",
+   "order": 7,
+   "characterId": "char_songnianxi",
+   "displayName": "char_songnianxi",
+   "text": "宋念夕拿过一旁的湿布擦拭着水果刀，闻言抬了抬眼皮子，轻笑了一声：\"我是不是胡说，咱们去派出所一趟不就知道了。\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0005"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_xamj3x",
+   "type": "narration",
+   "order": 8,
+   "text": "这种无理取闹的人其实就是外强中干，你一硬气，她就弱了，怕自己真要闹到派出所那赔钱，妇女支支吾吾了一会，唾了一口晦气，赶紧麻溜地抱着自己小孩走了。",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0006"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_5nntvw",
+   "type": "narration",
+   "order": 9,
+   "text": "丁池全程看着，看着这女人三言两语就将对方堵得说不出话来。",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0007"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_4gi5zh",
+   "type": "narration",
+   "order": 10,
+   "text": "长得漂亮，身手利落，不慌不忙，嘴巴还利索。",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0008"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_d6fjz2",
+   "type": "thought",
+   "order": 11,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "好厉害的一个女人。",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0009"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_yw54hf",
+   "type": "action",
+   "order": 12,
+   "characterId": "char_dingchi",
+   "characterName": "char_dingchi",
+   "text": "压下自己心里莫名其妙突然涌起的微妙好感，丁池从刚刚被这狐狸眼勾得晕头转向中回过神来，扬起笑准备道谢：\"谢谢老板娘……\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_chapter_0004_0010"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_vfqha4",
+   "type": "narration",
+   "order": 13,
+   "text": "她一直很会利用自己的长相优势，自己有一双笑眼，甜甜笑着的时候会让人有如沐春风的感觉，这个方法不说百用百管用，但是只要不是刚刚那种过于无理取闹的人，都会下意识给她一点便利。",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_0004_0001"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_cq67bu",
+   "type": "action",
+   "order": 14,
+   "characterId": "char_songnianxi",
+   "characterName": "char_songnianxi",
+   "text": "丁池深谙此道，一脸的笑意刚刚堆出来，宋念夕就抬起手：\"停。\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_0004_0002"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_5k451g",
+   "type": "say",
+   "order": 15,
+   "characterId": "char_songnianxi",
+   "displayName": "char_songnianxi",
+   "text": "她的眸光在丁池脸上停顿了一瞬，唇角微扬：\"小妹妹，一是一，二是二，你的车子撞翻了我的水果摊子，这笔账该怎么算？\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_0004_0003"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_auto_show_char_dingchi_vrwe",
+   "type": "show",
+   "order": 16,
+   "characterId": "char_dingchi",
+   "expression": "neutral",
+   "position": "center",
+   "emphasis": "focus",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_9bic9t",
+   "type": "say",
+   "order": 17,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "丁池：\"………\"",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_0004_0004"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0004_scene_0001_2y29x9",
+   "type": "thought",
+   "order": 18,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "她心里叫苦，看来今天不但白干，估计还得倒贴钱！",
+   "sourceUnitIds": [
+    "unit_62ec436e1938_0004_0005"
+   ]
+  }
+ ],
+ "mappingMode": "standard"
+}

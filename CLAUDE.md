@@ -42,12 +42,12 @@ Ren'Py Export  Web Preview ← two runtimes, same IR
 Asset Manifest → Asset Producer (Agnes/Flux/GPT Image) → Export
 ```
 
-### 2. IR v1.0 Freeze
+### 2. IR v1.1 (unified 2026-10-03 — do NOT revert to 8)
 
 VN Script IR is the frozen contract between Pipeline and everything else.
-- 8 step types (bg/show/hide/narration/say/thought/pause/transition) — immutable in v1.0
+- 10 step types: bg/show/hide/narration/say/thought/pause/transition + **action + scene_description** (added in v1.1 — these existed in production data since Phase 12-13; the v1.0 8-type enum never parsed real pipeline output). Fidelity issues include **type_mismatch**. Reverting to 8 breaks corpus tests in packages/ir/src/__test__/corpus.test.ts.
 - Zod schema in `packages/ir/` is the authoritative definition
-- Agents only output IR v1.0 fields; new fields require version bump
+- Agents only output IR v1.1 fields; new fields require version bump (v1.1 is additive: ActionStep {characterId?, characterName?, text}, SceneDescriptionStep {participantIds?, text}; transition name/cameraEffect are nullish — LLMs emit null, 16 occurrences in 49 real scripts)
 - Exporters/Editors depend only on IR schema, never on Agent internals
 
 ### 3. Asset Pipeline
@@ -84,7 +84,7 @@ TypeScript monorepo (pnpm workspaces + Turborepo):
 - `packages/agents/` -- 7 AI agent implementations (pipeline core, frozen)
 - `packages/pipeline/` -- LangGraph StateGraph orchestration with checkpoint resume
 - `packages/rag/` -- RAG v2 knowledge retrieval (ChromaDB + BM25 + vector hybrid + reranker)
-- `packages/ir/` -- VN Script IR v1.0 Zod schema (single source of truth)
+- `packages/ir/` -- VN Script IR v1.1 Zod schema (single source of truth; real-data corpus tests committed)
 - `packages/runtime/` -- Web-based VN playback engine (preview runtime)
 - `packages/export/` -- Game export builders (Ren'Py, HTML, etc.)
 - `packages/asset/` -- Asset pipeline (extract manifest → generate images → cache → export)
@@ -112,7 +112,7 @@ AI capability tiers:
 
 ## Key Design Constraints
 
-- VN scripts use 8 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`
+- VN scripts use 10 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`, `action`, `scene_description`
 - Dialogue retention >= 95%; non-original text <= 5%
 - Three-level state machines: Project / Chapter / Scene
 - Hybrid storage: SQLite indexes + filesystem content

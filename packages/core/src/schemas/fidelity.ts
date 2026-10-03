@@ -10,6 +10,7 @@ export const fidelityIssueTypeSchema = z.enum([
   "dialogue_rewrite",
   "content_omission",
   "wrong_attribution",
+  "type_mismatch",
   "order_changed",
   "unsupported_addition",
   "semantic_drift",
@@ -31,6 +32,5 @@ export const fidelityReportSchema = z.object({
   passed: z.boolean(),
   severity: z.enum(["pass", "minor", "major", "critical"]),
   issues: z.array(fidelityIssueSchema),
-  patchSuggestions: z.array(z.string()).optional(),
   reviewedAt: z.string(),
 });

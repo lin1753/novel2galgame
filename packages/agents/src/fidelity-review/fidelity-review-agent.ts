@@ -108,7 +108,6 @@ ${scriptText}
         passed: result.passed ?? false,
         severity: result.severity ?? "critical",
         issues: result.issues ?? [],
-        patchSuggestions: result.patchSuggestions,
         reviewedAt: new Date().toISOString(),
       },
     };

@@ -28,6 +28,13 @@ export function executeStep(step: VNStep): RenderAction {
       return { type: "wait", durationMs: step.durationMs ?? 1000 };
     case "transition":
       return { type: "transition", name: step.name, cameraEffect: step.cameraEffect };
+    case "scene_description":
+      // IR v1.1: environmental description reads as narration to the player
+      return { type: "showNarration", text: (step as { text?: string }).text ?? "" };
+    case "action":
+      // IR v1.1: character action line — rendered as narration (italic
+      // styling is the player layer's concern)
+      return { type: "showNarration", text: (step as { text?: string }).text ?? "" };
     default:
       // Unknown step types are tolerated by validation (warning-level) —
       // a no-op action keeps the player from crashing on action.type

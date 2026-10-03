@@ -15,37 +15,23 @@ const {
  * (the single home for field definitions) and add only stage-boundary fields:
  * degradation markers and the per-stage inputs the orchestrator supplies.
  *
- * REALITY CHECK (stage-1 finding): the frozen IR v1.0 enum (8 step types) is
- * narrower than what the pipeline has produced since Phase 12-13 — real
- * projects on disk contain `action` and `scene_description` steps, and the
- * fidelity reports contain `type_mismatch` issues. The core/IR zod schemas
- * have therefore never been used to parse real pipeline data (they would
- * reject it). This module's job is boundary validation, not re-freezing the
- * contract, so:
- *   - step types are validated against the 10-type de-facto set
- *   - objects are .passthrough() so downstream consumers keep receiving the
- *     fields they rely on (promptPack, gender, isGroup, speakerIdToCharId)
- * The IR v1.0 freeze decision itself is flagged for the maintainer, not
- * changed here.
+ * IR v1.1 (2026-10-03): core and IR schemas now carry the 10-type de-facto
+ * step set and the type_mismatch issue type — matching production data that
+ * has contained them since Phase 12-13. The stage-1 runtime compat layer
+ * (separate enums) is deleted; core/IR are the single source of truth.
+ * Stage schemas only add: passthrough at boundaries where downstream
+ * consumers rely on fields the domain schemas don't model (promptPack,
+ * gender, speakerIdToCharId) and the degraded marker.
  */
 
-/** De-facto step-type union (IR v1.0's 8 + the 2 Phase-12-13 additions). */
-export const runtimeStepTypeSchema = z.enum([
-  "bg", "show", "hide", "narration", "say", "thought", "pause", "transition",
-  "action", "scene_description",
-]);
-
-/** De-facto fidelity issue-type union (core 6 + type_mismatch from the prompt). */
-export const runtimeFidelityIssueTypeSchema = z.enum([
-  "dialogue_rewrite", "content_omission", "wrong_attribution", "type_mismatch",
-  "order_changed", "unsupported_addition", "semantic_drift",
-]);
-
-const runtimeFidelityReportSchema = fidelityReportSchema.extend({
+const fidelityOutputCoreSchema = fidelityReportSchema.extend({
   issues: z.array(
     z.object({
       issueId: z.string(),
-      type: runtimeFidelityIssueTypeSchema,
+      type: z.enum([
+        "dialogue_rewrite", "content_omission", "wrong_attribution", "type_mismatch",
+        "order_changed", "unsupported_addition", "semantic_drift",
+      ]),
       severity: z.enum(["minor", "major", "critical"]),
       message: z.string(),
       relatedUnitIds: z.array(z.string()).optional(),
@@ -55,8 +41,10 @@ const runtimeFidelityReportSchema = fidelityReportSchema.extend({
   ),
 }).passthrough();
 
-const runtimeVNScriptSchema = VNScriptSchema.extend({
-  steps: z.array(z.object({ type: runtimeStepTypeSchema }).passthrough().and(z.record(z.any()))),
+const vnScriptStageSchema = VNScriptSchema.extend({
+  // Steps are the IR discriminated union already; pass raw steps through
+  // (validateIR covers deep validation — stage boundary checks the envelope).
+  steps: z.array(z.record(z.any()).and(z.object({ type: z.string() }).passthrough())),
 }).passthrough();
 
 // ── Stage 1: narrative parsing ──
@@ -117,7 +105,7 @@ export const vnMappingInputSchema = z.object({
   mappingMode: z.enum(["standard", "conservative"]),
   repairContext: z.string().optional(),
 });
-export const vnMappingOutputSchema = runtimeVNScriptSchema.extend({
+export const vnMappingOutputSchema = vnScriptStageSchema.extend({
   degraded: z.string().optional(), // "l0_vn_mapping"
 });
 
@@ -125,10 +113,10 @@ export const vnMappingOutputSchema = runtimeVNScriptSchema.extend({
 export const fidelityInputSchema = z.object({
   sceneId: z.string(),
   chapterId: z.string(),
-  vnScript: runtimeVNScriptSchema,
+  vnScript: vnScriptStageSchema,
   originalUnits: narrativeParsingResultSchema.shape.units,
 });
-export const fidelityOutputSchema = runtimeFidelityReportSchema;
+export const fidelityOutputSchema = fidelityOutputCoreSchema;
 
 // ── Stage 7: visual prompt (per scene) ──
 export const visualPromptInputSchema = z.object({

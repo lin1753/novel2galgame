@@ -65,8 +65,25 @@ export const PauseStepSchema = z.object({
 export const TransitionStepSchema = z.object({
   ...BaseStepFields,
   type: z.literal("transition"),
-  name: z.string().optional(),
-  cameraEffect: z.enum(["none", "shake_light", "shake_heavy", "zoom_in_slow", "zoom_punch", "flash_white"]).optional(),
+  name: z.string().nullish(),
+  // LLMs emit cameraEffect: null (16 occurrences across 49 real scripts);
+  // v1.1 accepts null. Consumers all use truthy checks, so null ≈ absent.
+  cameraEffect: z.enum(["none", "shake_light", "shake_heavy", "zoom_in_slow", "zoom_punch", "flash_white"]).nullish(),
+});
+
+export const ActionStepSchema = z.object({
+  ...BaseStepFields,
+  type: z.literal("action"),
+  characterId: z.string().optional(),
+  characterName: z.string().optional(),
+  text: z.string(),
+});
+
+export const SceneDescriptionStepSchema = z.object({
+  ...BaseStepFields,
+  type: z.literal("scene_description"),
+  participantIds: z.array(z.string()).optional(),
+  text: z.string(),
 });
 
 // ===== Discriminated Union =====
@@ -80,6 +97,8 @@ export const VNStepSchema = z.discriminatedUnion("type", [
   ThoughtStepSchema,
   PauseStepSchema,
   TransitionStepSchema,
+  ActionStepSchema,
+  SceneDescriptionStepSchema,
 ]);
 
 // ===== VNScript =====
@@ -95,4 +114,6 @@ export const VNScriptSchema = z.object({
 
 // ===== IR Version =====
 
-export const IR_VERSION = "1.0" as const;
+/** v1.1 (additive): action + scene_description step types — the de-facto
+ * production set since Phase 12-13; unified with real corpus 2026-10-03. */
+export const IR_VERSION = "1.1" as const;

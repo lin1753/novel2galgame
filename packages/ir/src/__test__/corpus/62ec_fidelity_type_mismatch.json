@@ -1,0 +1,83 @@
+{
+ "sceneId": "project_62ec436e1938_chapter_0003_scene_0001",
+ "chapterId": "project_62ec436e1938_chapter_0003",
+ "passed": false,
+ "severity": "critical",
+ "issues": [
+  {
+   "issueId": "issue_001",
+   "type": "content_omission",
+   "severity": "minor",
+   "message": "VN步骤[2]遗漏了原始单元[0]中的'第二回送盖码饭迟到也被一个卷发女人骂，第三回'背景交代信息。",
+   "relatedUnitIds": [
+    "0"
+   ],
+   "relatedStepIds": [
+    "2"
+   ],
+   "suggestion": "补充删除的过渡信息，或在场景开头用旁白简述前情。"
+  },
+  {
+   "issueId": "issue_002",
+   "type": "wrong_attribution",
+   "severity": "critical",
+   "message": "VN步骤[6]将原始单元[3]大妈的内心活动（因丁池长得俊俏而生出双标心态）错误地改写为丁池自己的内心活动'哼，要不是我长得俊俏，早被骂死了……'，严重扭曲了原文含义。",
+   "relatedUnitIds": [
+    "3",
+    "4"
+   ],
+   "relatedStepIds": [
+    "6"
+   ],
+   "suggestion": "将步骤[6]改为正确归属——保留大妈的内心活动（或将其整合进相关narration中），而非作为丁池的thought出现。"
+  },
+  {
+   "issueId": "issue_003",
+   "type": "wrong_attribution",
+   "severity": "major",
+   "message": "VN步骤[10]使用'他'指代丁池：'路上他想着'，但丁池是女性角色（原文[0]明确为'女生'），代词使用错误。",
+   "relatedUnitIds": [
+    "0",
+    "1"
+   ],
+   "relatedStepIds": [
+    "10"
+   ],
+   "suggestion": "将'他'改为'她'。"
+  },
+  {
+   "issueId": "issue_004",
+   "type": "unsupported_addition",
+   "severity": "major",
+   "message": "VN步骤[10]添加了原文不存在的内容：'送外卖虽然辛苦，但单价高、时间自由，比蹲网吧强多了'；步骤[11]添加了'多跑几单，这个月够交房租了'。这些内容在原始叙事单元中均无依据。",
+   "relatedUnitIds": [
+    "7",
+    "8",
+    "9",
+    "10",
+    "11",
+    "12"
+   ],
+   "relatedStepIds": [
+    "10",
+    "11"
+   ],
+   "suggestion": "删除'比蹲网吧强多了'和'够交房租了'等原文未提及的补充内容，忠实还原原始叙事单元[7]-[12]的信息。"
+  },
+  {
+   "issueId": "issue_005",
+   "type": "type_mismatch",
+   "severity": "minor",
+   "message": "原始单元[3]和[4]明确是顾客（大妈）的内心活动，但VN脚本未予呈现，导致该心理描写内容丢失。",
+   "relatedUnitIds": [
+    "3",
+    "4"
+   ],
+   "relatedStepIds": [
+    "6"
+   ],
+   "suggestion": "通过添加narration或独立的thought步骤保留大妈双标心理的描写，或明确标注为旁白叙述。"
+  }
+ ],
+ "reviewedAt": "2026-09-17T07:28:43.252Z"
+}

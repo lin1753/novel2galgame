@@ -1,0 +1,232 @@
+{
+ "sceneId": "project_62ec436e1938_chapter_0007_scene_0002",
+ "chapterId": "project_62ec436e1938_chapter_0007",
+ "steps": [
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_auto_bg",
+   "type": "bg",
+   "order": 0,
+   "backgroundId": "bg_project_62ec436e1938_chapter_0007_scene_0002",
+   "backgroundLabel": "美食街·奶茶店门口→街角",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_66grry",
+   "type": "thought",
+   "order": 1,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "平面模特？丁池失笑，她哪里适合做什么模特，真正适合做模特的另有其人——",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0006"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_szx406",
+   "type": "action",
+   "order": 2,
+   "characterId": "char_dingchi",
+   "characterName": "char_dingchi",
+   "text": "不过……她目光投向远处的街角，本该摆着水果摊位的地方空空如也。",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0007"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_h981s9",
+   "type": "thought",
+   "order": 3,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "那女人今天没出摊吗？",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0008"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_46pnfl",
+   "type": "narration",
+   "order": 4,
+   "text": "这几天送外卖，偶然经过这条美食街的时候，丁池的视线都会下意识往水果摊那块儿移，总能看到那个老板娘。",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0009"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_jq527s",
+   "type": "narration",
+   "order": 5,
+   "text": "感觉她话不多，也不像其他摊贩那样吆喝拉生意，可大概是实在是颜值气质好，旁边也有好几个水果摊，顾客偏偏爱往她那去。",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0010"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_oblzy1",
+   "type": "narration",
+   "order": 6,
+   "text": "也懒得与人砍价，客人要买就买，不买就拉倒，那双狐狸眼就那么云淡风轻地瞟上一眼，好像根本就不是来做生意，只是无聊找个事干似的。",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0011"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_ei6jka",
+   "type": "narration",
+   "order": 7,
+   "text": "而且切水果的动作也依然赏心悦目，行云流水的利落，那纤瘦的胳膊不知道哪里来的那么大劲儿，每次切瓜皮就跟片豆腐似的。",
+   "sourceUnitIds": [
+    "project_62ec436e1938_chapter_0007_unit_0012"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_jqokg6",
+   "type": "narration",
+   "order": 8,
+   "text": "每次丁池都只远远看着，没有上前打招呼，毕竟一面之缘而已，说不定人家都不记得自己这张脸了。",
+   "sourceUnitIds": [
+    "unit_0001_0001"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_dw2bv6",
+   "type": "thought",
+   "order": 9,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "不过想到那六百块钱……",
+   "sourceUnitIds": [
+    "unit_0001_0002"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_r9p7ez",
+   "type": "narration",
+   "order": 10,
+   "text": "原来这女人并没有要自己的钱，神不知鬼不觉地就把六百块卷起塞进了丁池裤兜里。",
+   "sourceUnitIds": [
+    "unit_0001_0003"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_7g2mq3",
+   "type": "thought",
+   "order": 11,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "之前还在那骂她\"奸商\"，没想到骂错了。",
+   "sourceUnitIds": [
+    "unit_0001_0004"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_ufscqg",
+   "type": "narration",
+   "order": 12,
+   "text": "那时候丁池说不上心里啥滋味，也没太多时间去想，马上就要骑上电动车去送手里几个单子。",
+   "sourceUnitIds": [
+    "unit_0001_0005"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_bqg1g8",
+   "type": "scene_description",
+   "order": 13,
+   "participantIds": [
+    "char_dingchi",
+    "char_minor_001"
+   ],
+   "text": "当时电动车驶离美食街，丁池又转头看了一眼那女人，摊子旁边暂时没了客人，女人坐在小板凳上，低头看着手机。",
+   "sourceUnitIds": [
+    "unit_0001_0006"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_01zhm0",
+   "type": "action",
+   "order": 14,
+   "characterId": "char_minor_001",
+   "characterName": "char_minor_001",
+   "text": "然后突然抬头，视线好像朝这边看过来。",
+   "sourceUnitIds": [
+    "unit_0001_0007"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_gppbyg",
+   "type": "action",
+   "order": 15,
+   "characterId": "char_dingchi",
+   "characterName": "char_dingchi",
+   "text": "猝不及防的丁池一惊，赶紧转过脑袋，心脏又砰砰直跳，也不知道刚刚和这女人对视上没对视上。",
+   "sourceUnitIds": [
+    "unit_0001_0008"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_ecvh4l",
+   "type": "action",
+   "order": 16,
+   "characterId": "char_minor_001",
+   "characterName": "char_minor_001",
+   "text": "那女人应该只是随意抬头看了一眼，看着熙熙攘攘的人群，很快又低下头去。",
+   "sourceUnitIds": [
+    "unit_0001_0009"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_wiw63l",
+   "type": "action",
+   "order": 17,
+   "characterId": "char_dingchi",
+   "characterName": "char_dingchi",
+   "text": "丁池捂着胸口，暗骂自己有病。",
+   "sourceUnitIds": [
+    "unit_0001_0010"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_wcs69y",
+   "type": "thought",
+   "order": 18,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "到底在紧张个什么玩意儿？",
+   "sourceUnitIds": [
+    "unit_0001_0011"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_rwecww",
+   "type": "narration",
+   "order": 19,
+   "text": "不过今天居然没出摊，连续几天都会习惯性瞅瞅那女人的丁池，心里有种莫名其妙的失落感。",
+   "sourceUnitIds": [
+    "unit_0001_0012"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_rmzpzj",
+   "type": "action",
+   "order": 20,
+   "characterId": "char_dingchi",
+   "characterName": "char_dingchi",
+   "text": "摇摇头，丁池努力把脑子里那个身影打散。",
+   "sourceUnitIds": [
+    "unit_0001_0013"
+   ]
+  },
+  {
+   "stepId": "step_project_62ec436e1938_chapter_0007_scene_0002_c1324c",
+   "type": "thought",
+   "order": 21,
+   "characterId": "char_dingchi",
+   "displayName": "char_dingchi",
+   "text": "想什么呢，人家出摊没出摊关你什么事，还是送你的外卖吧。",
+   "sourceUnitIds": [
+    "unit_0001_0014"
+   ]
+  }
+ ],
+ "mappingMode": "standard"
+}
