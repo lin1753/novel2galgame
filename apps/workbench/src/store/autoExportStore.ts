@@ -3,6 +3,18 @@
  * Singleton: tracks pipeline progress for both single chapter runs and auto-export.
  */
 
+
+/** Backend SSE progress event (progress.ts ProgressEvent) — locally typed to avoid coupling. */
+interface SSEProgressEvent {
+  status: string
+  stage: string
+  chapterId?: string
+  chapterIndex?: number
+  message?: string
+  attempt?: number
+  data?: { taskId?: string; outputPath?: string }
+}
+
 export interface ChapterProgress {
   chapterId: string
   chapterIndex: number
@@ -57,7 +69,7 @@ class AutoExportStore {
   /** SSE message handler — shared by watchProgress and start */
   private handleSSEMessage(e: MessageEvent) {
     try {
-      const event = JSON.parse(e.data)
+      const event = JSON.parse(e.data) as SSEProgressEvent
       if (event.status === 'connected') return
 
       const chapterId = event.chapterId as string | undefined
@@ -191,11 +203,11 @@ class AutoExportStore {
         this.update((prev) => {
           const chapters = new Map(prev.chapters)
           if (chapterId) {
-            const existing = chapters.get(chapterId) ?? {
+            const existing: ChapterProgress = chapters.get(chapterId) ?? {
               chapterId,
               chapterIndex: event.chapterIndex ?? 0,
               stage: event.stage,
-              status: 'queued' as const,
+              status: 'queued',
             }
             chapters.set(chapterId, {
               ...existing,
