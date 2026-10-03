@@ -21,15 +21,18 @@ import {
 } from "@novel2gal/storage";
 import {
   runStructureAgent,
-  runNarrativeParsingAgent,
-  runAttributionAgent,
-  runSceneSegmentationAgent,
-  runVNMappingAgent,
-  runFidelityReviewAgent,
-  runVisualPromptAgent,
+  runConsistencyReviewAgent,
   detectGenreHint,
   styleForGenre,
 } from "@novel2gal/agents";
+import {
+  runNarrativeStage,
+  runAttributionStage,
+  runSegmentationStage,
+  runVNMappingStage,
+  runFidelityStage,
+  runVisualPromptStage,
+} from "@novel2gal/pipeline";
 import type { AgentResult } from "@novel2gal/agents";
 import { v4 as uuid } from "uuid";
 import crypto from "node:crypto";
@@ -61,9 +64,13 @@ function markGroupFlag(char: any): void {
 interface CallMetrics { durationMs: number; promptTokens: number; completionTokens: number; retryCount: number }
 
 /** Wrap an agent call: throw on recoverable failure so withRetry catches it */
-function retryable<T>(fn: () => Promise<AgentResult<T>>): () => Promise<T> {
+function retryable<T>(fn: () => Promise<AgentResult<T> | T>): () => Promise<T> {
   return async () => {
-    const result = await fn();
+    const result: any = await fn();
+    // Stage functions (stage-1) return plain validated data — pass through.
+    if (result && typeof result === 'object' && !('success' in result) && !('failureLevel' in result)) {
+      return result as T;
+    }
     if (!result.success || !result.data) {
       // Socket hang up, timeout, 5xx → recoverable (retry)
       // Bad schema, missing fields → hard (no retry)
@@ -184,7 +191,7 @@ async function runAgentWithMetrics(opts: {
   model: string;
   signal?: AbortSignal;
   db: ReturnType<typeof createDatabase>;
-  fn: () => Promise<AgentResult<any>>;
+  fn: () => Promise<AgentResult<any> | any>;
   label: string;
   tokenAcc?: { prompt: number; completion: number };
   dataDir?: string;
@@ -348,18 +355,22 @@ export async function runChapterPipeline(
     onProgress?.("narrative_parsing", "Skipped (already done)");
   } else {
     checkAbort();
-    onProgress?.("narrative_parsing", `Parsing chapter ${chapterTitle}`);
     onStageUpdate?.("narrative_parsing");
 
     const narr = resolveAgent(agentModels, "narrative", provider, model);
     const t0 = { prompt: 0, completion: 0 };
-    const wNarr = instrumentProvider(narr.provider, (r: any) => { t0.prompt += r.usage?.promptTokens ?? 0; t0.completion += r.usage?.completionTokens ?? 0; }, signal);
     try {
+      // Stage function path (stage-1 refactor): same agent, same L0 contract
+      // (agents embed the fallback), plus schema validation + degraded marker.
       narrativeData = await runAgentWithMetrics({
         type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
         provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0, dataDir, cacheHint: chapterText.slice(0, 200),
         label: `narrative:${chapterId}`,
-        fn: () => runNarrativeParsingAgent({ chapterId, chapterTitle, chapterText }, wNarr, narr.model),
+        fn: () => runNarrativeStage(
+          { chapterId, chapterTitle, chapterText },
+          narr,
+          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t0 },
+        ),
       });
     } catch (err) {
       if (signal?.aborted) throw err;
@@ -421,7 +432,11 @@ export async function runChapterPipeline(
         type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
         provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1, dataDir, cacheHint: chapterText.slice(0, 200),
         label: `attribution:${chapterId}`,
-        fn: () => runAttributionAgent({ chapterId, units: narrativeData.units, characterKnowledge }, wAttr, attr.model),
+        fn: () => runAttributionStage(
+          { chapterId, units: narrativeData.units, characterKnowledge, knownCharacters },
+          attr,
+          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t1 },
+        ),
       });
     } catch (err) {
       if (signal?.aborted) throw err;
@@ -578,13 +593,16 @@ export async function runChapterPipeline(
 
     const seg = resolveAgent(agentModels, "segmentation", provider, model);
     const t2 = { prompt: 0, completion: 0 };
-    const wSeg = instrumentProvider(seg.provider, (r: any) => { t2.prompt += r.usage?.promptTokens ?? 0; t2.completion += r.usage?.completionTokens ?? 0; }, signal);
     try {
       segResult = await runAgentWithMetrics({
         type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
         provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2, dataDir, cacheHint: chapterText.slice(0, 200),
         label: `segmentation:${chapterId}`,
-        fn: () => runSceneSegmentationAgent({ chapterId, units: attributionData.units }, wSeg, seg.model),
+        fn: () => runSegmentationStage(
+          { chapterId, units: attributionData.units, sceneHints },
+          seg,
+          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t2 },
+        ),
       });
     } catch (err) {
       if (signal?.aborted) throw err;
@@ -723,7 +741,11 @@ export async function runChapterPipeline(
           provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir,
           cacheHint: `${scene.sceneId}|${chapterText.slice(0, 200)}`,
           label: `vn_mapping:${scene.sceneId}`,
-          fn: () => runVNMappingAgent({ sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" }, wVn, vn.model),
+          fn: () => runVNMappingStage(
+            { sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" },
+            vn,
+            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: tv },
+          ),
         });
       } catch (err) {
         if (signal?.aborted) throw err;
@@ -783,7 +805,11 @@ export async function runChapterPipeline(
           provider: fr.provider, model: fr.model, signal, db: d, tokenAcc: tf, dataDir,
           cacheHint: `${scene.sceneId}|${vnScriptHash}`,
           label: `fidelity:${scene.sceneId}`,
-          fn: () => runFidelityReviewAgent({ sceneId: scene.sceneId, chapterId, vnScript: vnData, originalUnits: sceneUnits }, wFr, fr.model),
+          fn: () => runFidelityStage(
+            { sceneId: scene.sceneId, chapterId, vnScript: vnData, originalUnits: sceneUnits },
+            fr,
+            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: tf },
+          ),
         });
         writeFidelityReport(dataDir, project.projectId, scene.sceneId, fidelityData);
         fidelityPassed = fidelityData.passed;
@@ -848,7 +874,8 @@ export async function runChapterPipeline(
         }
 
         const vp = resolveAgent(agentModels, "visualPrompt", provider, model);
-        const vpResult = await runVisualPromptAgent(
+        const tvp = { prompt: 0, completion: 0 };
+        const vpData = await runVisualPromptStage(
           {
             sceneId: scene.sceneId,
             chapterId,
@@ -858,10 +885,12 @@ export async function runChapterPipeline(
             styleTemplate: resolvedStyleTemplate,
             characterKnowledge,
           },
-          vp.provider,
-          vp.model
+          vp,
+          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: tvp },
         );
-        if (vpResult.success && vpResult.data) {
+        {
+          const vpResult = { success: true as const, data: vpData };
+          if (vpResult.success && vpResult.data) {
           writeVisualPromptResult(dataDir, project.projectId, scene.sceneId, vpResult.data);
 
           // Update Project-level Global Character Profiles (Master-compatible shape).
@@ -978,10 +1007,11 @@ export async function runChapterPipeline(
             console.warn(`[RAG] Failed to update global character profiles:`, e);
           }
         }
-      } catch {
-        onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);
+          }
+        } catch {
+          onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);
+        }
       }
-    }
 
     return { sceneId: scene.sceneId, passed: fidelityPassed };
   });

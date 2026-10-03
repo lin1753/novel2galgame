@@ -99,7 +99,7 @@ export async function runAttributionAgent(
 
 章节ID: ${chapterId}
 分批处理进度: ${Math.floor(i / CHUNK_SIZE) + 1} / ${Math.ceil(units.length / CHUNK_SIZE)}
-${currentKnownCharacters.length ? `已知角色: ${currentKnownCharacters.map((c) => `${c.canonicalName}(${c.aliases.join("/")})`).join(", ")}` : ""}
+${currentKnownCharacters.length ? `已知角色: ${currentKnownCharacters.map((c) => `${c.canonicalName}(${(c.aliases ?? []).join("/")})`).join(", ")}` : ""}
 ${input.characterKnowledge ? `\n[来自前几章的角色知识 - 请结合这些已有信息进行归因]\n${sanitizeForPrompt(input.characterKnowledge)}\n` : ""}
 
 叙事单元:
