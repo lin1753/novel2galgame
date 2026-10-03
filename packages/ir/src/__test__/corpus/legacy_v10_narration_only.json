@@ -1,0 +1,62 @@
+{
+ "sceneId": "project_67636322d213_chapter_0018_scene_0004",
+ "chapterId": "project_67636322d213_chapter_0018",
+ "steps": [
+  {
+   "stepId": "step_project_67636322d213_chapter_0018_scene_0004_auto_bg",
+   "type": "bg",
+   "order": 0,
+   "backgroundId": "bg_project_67636322d213_chapter_0018_scene_0004",
+   "backgroundLabel": "未知",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0018_scene_0004_9bupho",
+   "type": "narration",
+   "order": 1,
+   "text": "元宇宙是一个虚拟世界，连接时的同步率取决于精神力等级。",
+   "sourceUnitIds": [
+    "unit_67636322d213_0018_0011"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0018_scene_0004_2lo4us",
+   "type": "narration",
+   "order": 2,
+   "text": "众所周知，这种同步率到了游戏中还会发生二次波动。",
+   "sourceUnitIds": [
+    "unit_67636322d213_0018_0012"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0018_scene_0004_qv78z1",
+   "type": "narration",
+   "order": 3,
+   "text": "鹿时南并非人云亦云之人，即使是“众所周知”的事情，他也会在心里打上问号。",
+   "sourceUnitIds": [
+    "unit_67636322d213_0018_0013"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0018_scene_0004_wsatqd",
+   "type": "thought",
+   "order": 4,
+   "characterId": "char_lushinan",
+   "displayName": "char_lushinan",
+   "text": "好奇为何如此，好奇原理，好奇正确与否，好奇一切。",
+   "sourceUnitIds": [
+    "unit_67636322d213_0018_0014"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0018_scene_0004_vowcfd",
+   "type": "narration",
+   "order": 5,
+   "text": "他有填不满的好奇心，即使暂时不能继续深造，也始终保持思考和求知。",
+   "sourceUnitIds": [
+    "unit_67636322d213_0018_0015"
+   ]
+  }
+ ],
+ "mappingMode": "standard"
+}
