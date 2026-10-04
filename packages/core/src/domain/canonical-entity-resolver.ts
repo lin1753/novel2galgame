@@ -44,7 +44,7 @@ export interface PendingMergeProposal {
   targetCharacterId: string;
   targetCanonicalName: string;
   similarityScore: number;
-  matchedBy: "pinyin" | "levenshtein" | "llm_suggested";
+  matchedBy: "pinyin" | "levenshtein" | "llm_suggested" | "canonicalName" | "aliasSet" | "characterId";
   sourceChapterId: string;
   createdAt: string;
 }
@@ -195,6 +195,28 @@ export class CanonicalEntityResolver {
             reason: `Exact match on ${isExactCanonical ? "canonicalName" : isInAliasSet ? "aliasSet" : "characterId"}`,
           };
         }
+        // Exact name/id match BLOCKED by co-occurrence: same name appearing
+        // as a distinct participant alongside the stored character is the
+        // core ambiguity the reviewer exists for (same person double-IDed
+        // vs. genuinely two same-named characters). Never auto-merge; queue
+        // for human review instead of silently creating a third entity.
+        return {
+          action: "pending_confirmation",
+          characterId: rawId,
+          canonicalName: cleanName,
+          confidence: 1.0,
+          reason: `Exact match on ${isExactCanonical ? "canonicalName" : isInAliasSet ? "aliasSet" : "characterId"} but co-occurs with ${prof.canonicalName} — needs human review (double-ID vs same-named pair)`,
+          pendingProposal: {
+            candidateId: rawId,
+            candidateName: cleanName,
+            targetCharacterId: prof.characterId,
+            targetCanonicalName: prof.canonicalName,
+            similarityScore: 1.0,
+            matchedBy: isExactCanonical ? "canonicalName" : isInAliasSet ? "aliasSet" : "characterId",
+            sourceChapterId: options.chapterId || "",
+            createdAt: new Date().toISOString(),
+          },
+        };
       }
     }
 
