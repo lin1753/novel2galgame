@@ -10,7 +10,7 @@
  * land, error propagation intact.
  */
 export class Semaphore {
-  private queue: Array<() => void> = [];
+  private queue: Array<{ resolve: () => void; reject: (err: Error) => void; signal?: AbortSignal; onAbort?: () => void }> = [];
   private active = 0;
 
   constructor(private readonly limit: number) {
@@ -22,14 +22,46 @@ export class Semaphore {
       this.active++;
       return;
     }
-    await new Promise<void>((resolve) => this.queue.push(resolve));
+    return new Promise<void>((resolve, reject) => {
+      this.queue.push({ resolve, reject });
+    }).then(
+      () => {
+        this.active++;
+      },
+      (err) => {
+        throw err;
+      },
+    );
+  }
+
+  /**
+   * Abort-aware acquire (S4): a QUEUED waiter rejects with AbortError when the
+   * signal fires — queued workers must not run (and must not leak the slot).
+   */
+  async acquireWithSignal(signal?: AbortSignal): Promise<void> {
+    if (!signal) return this.acquire();
+    if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+    if (this.active < this.limit) {
+      this.active++;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        // Remove this waiter from the queue; reject; do NOT take a slot.
+        const idx = this.queue.findIndex((w) => w.onAbort === onAbort);
+        if (idx !== -1) this.queue.splice(idx, 1);
+        reject(new DOMException("Aborted", "AbortError"));
+      };
+      this.queue.push({ resolve, reject, signal, onAbort });
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
     this.active++;
   }
 
   release(): void {
     this.active--;
     const next = this.queue.shift();
-    if (next) next();
+    if (next) next.resolve();
   }
 
   /** Current in-flight count (monitoring/tests). */

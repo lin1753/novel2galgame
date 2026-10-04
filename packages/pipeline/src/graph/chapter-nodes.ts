@@ -239,8 +239,12 @@ export async function attributionNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
   }
 
   if (pending.length > 0 && deps.pendingStore) {
+    // S7: entity-pair dedup + rejection memory live in the store — proposals
+    // for already-rejected pairs are filtered inside save().
     const added = deps.pendingStore.save(state.chapterId, pending);
-    ctx.deps.onProgress?.("attribution", `${added} pending merge proposal(s) persisted (batch mode, no merge)`);
+    if (added > 0) {
+      ctx.deps.onProgress?.("attribution", `${added} pending merge proposal(s) persisted (batch mode, no merge)`);
+    }
   }
 
   writeAttributionResult(deps.dataDir, state.projectId, state.chapterId, out as any);
@@ -272,11 +276,14 @@ export async function reviewGateNode(ctx: NodeCtx): Promise<Partial<ChapterGraph
   // RULE (interrupt-reexecution.test.ts): interrupt() FIRST — nothing before
   // it in this node. The resume value carries the reviewer's decisions.
   const decisions = interrupt__pending(state.pendingProposals);
-  // After resume: apply decisions via the pending store (2c wires real UI;
-  // for now a 'keep' decision removes records; 'merge' is a no-op stub that
-  // 2c replaces with an actual profile merge).
-  for (const d of (decisions as Array<{ candidateId: string; decision: "merge" | "keep" }>) ?? []) {
-    deps.pendingStore?.resolve(state.chapterId, d.candidateId, d.decision);
+  // After resume: apply decisions via the pending store (2c wires the real
+  // API; "reject" removes the proposal AND is remembered so the pair is
+  // never re-proposed; "merge" records the decision for the merge executor).
+  for (const d of (decisions as Array<{ candidateId: string; targetId?: string; decision: "merge" | "reject" }>) ?? []) {
+    const record = state.pendingProposals.find((p) => p.candidateId === d.candidateId);
+    const targetId = d.targetId ?? record?.targetCharacterId;
+    if (!targetId) continue;
+    deps.pendingStore?.resolve(d.candidateId, targetId, d.decision);
   }
   return { ...bump("review_gate"), pendingProposals: [], currentStage: "rag_ingest_chars" };
 }
@@ -290,7 +297,7 @@ export function setInterruptImpl(fn: ((value: unknown) => unknown) | null): void
 function interrupt__pending(proposals: PendingProposalRecord[]): unknown {
   if (interruptImpl) return interruptImpl({ proposals });
   // Default (no langgraph runtime in unit tests): behave as "keep all"
-  return proposals.map((p) => ({ candidateId: p.candidateId, decision: "keep" as const }));
+  return proposals.map((p) => ({ candidateId: p.candidateId, targetId: p.targetCharacterId, decision: "reject" as const }));
 }
 
 // ── Node: RAG ingest characters (after gate — must not precede interrupt) ──
@@ -636,6 +643,13 @@ async function buildCharacterKnowledge(
 export async function bibleCommitNode(ctx: NodeCtx): Promise<Partial<ChapterGraphStateType>> {
   const { state, deps } = ctx;
 
+  // S3 re-entrancy: once committed (or terminally failed) on this run, any
+  // further entry (a straggler worker completion routing back in) is a
+  // no-op decided by the EXPLICIT marker — not by re-deriving conditions.
+  if (state.bibleCommitted) {
+    return { ...bump("bible_commit") };
+  }
+
   // FAN-IN GATE (0.2.74 routes each Send worker completion here independently;
   // this node may be entered while other scenes are still running). No-op
   // until every scene has a result entry.
@@ -652,16 +666,16 @@ export async function bibleCommitNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
   if (firstFailed) {
     const detail = (state.sceneResults[firstFailed] as any).failed;
     deps.onProgress?.("failed", `scene ${firstFailed} failed: ${String(detail).slice(0, 120)}`);
-    return { ...bump("bible_commit"), error: `scene ${firstFailed} failed: ${detail}`, currentStage: "failed" };
+    return { ...bump("bible_commit"), bibleCommitted: true, error: `scene ${firstFailed} failed: ${detail}`, currentStage: "failed" };
   }
   if (state.error) {
     // No scene failures THIS pass — a stale error from a previous failed
     // attempt on this thread. Clear it so the run can complete.
-    return { ...bump("bible_commit"), error: null, currentStage: "consistency_review" };
+    return { ...bump("bible_commit"), bibleCommitted: true, error: null, currentStage: "consistency_review" };
   }
 
   if (state.bibleProposals.length === 0) {
-    return { ...bump("bible_commit"), currentStage: "consistency_review" };
+    return { ...bump("bible_commit"), bibleCommitted: true, currentStage: "consistency_review" };
   }
   // Sort by scene order (sceneIds array order), then apply serially —
   // result independent of parallel completion order.
@@ -705,17 +719,19 @@ export async function bibleCommitNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
       }
     }
   }
-  return { ...bump("bible_commit"), bibleProposals: [], currentStage: "consistency_review" };
+  return { ...bump("bible_commit"), bibleCommitted: true, bibleProposals: [], currentStage: "consistency_review" };
 }
 
 // ── Node: consistency review ──
+// S5 (maintainer supplement): the real cross-chapter review is NOT yet
+// implemented (monolithic never ran it either — stage-0 difference table).
+// Until it is, this node must report itself as SKIPPED, never completed —
+// SSE consumers and the run summary read currentStage "consistency_review"
+// with the skipped flag from onProgress.
 export async function consistencyReviewNode(ctx: NodeCtx): Promise<Partial<ChapterGraphStateType>> {
-  const { state, deps } = ctx;
-  // Cross-chapter review needs multiple chapters — single-chapter runs in
-  // tests pass through. The agent call itself is optional per project config;
-  // 2c wires autoRunConsistencyReview through deps. For 2b parity with
-  // monolithic (which does NOT run consistency), this node is a no-op pass.
-  return { ...bump("consistency_review"), currentStage: "extract_assets" };
+  const { deps } = ctx;
+  deps.onProgress?.("consistency_review", "Skipped (not implemented — cross-chapter review pending)");
+  return { ...bump("consistency_review"), currentStage: "extract_assets", consistencySkipped: true };
 }
 
 // ── Node: extract assets (placeholders) ──

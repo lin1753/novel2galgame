@@ -110,6 +110,18 @@ AI capability tiers:
 - RAG always initializes locally (bge-small-zh embeddings, CPU-only, BM25 hybrid) — no API key needed.
 - `PORT` (default 3002) and `DATA_DIR` (defaults to `data/`). `dns.setDefaultResultOrder("ipv4first")` in `apps/api/src/index.ts` is load-bearing (proxy/VPN IPv6 TLS issues) — don't remove.
 
+## LangGraph Graph Rules (0.2.74 — verified by packages/pipeline/src/graph/__test__/known-defects.test.ts)
+
+The chapter graph (packages/pipeline/src/graph/) is built around MEASURED 0.2.74 behaviors. These rules are tripwired by characterization tests — an upgrade that changes them fails those tests, which is the signal to remove the workaround WITH the upgrade (never mid-migration). **Do not upgrade LangGraph until stage 4 is done.**
+
+1. **Every node has exactly ONE exit kind** (plain XOR conditional — never both). 0.2.74 executes both if present (D3).
+2. **Send workers never write the `error` state channel.** Failures go into `sceneResults[sceneId].failed`; the bible_commit fan-in gate promotes the first failure to `state.error` after ALL scenes finished, and clears stale errors from previous attempts. (Error-channel writes proved safe in isolation, but the protocol gives deterministic fan-in bookkeeping — keep it.)
+3. **Never pass `maxConcurrency` to invoke/stream.** With Send() workers it SILENTLY DROPS ALL worker state writes (D1 — this single option caused the 2b lost-sceneResults incident). Scene concurrency is the worker-internal `Semaphore` (`deps.sceneConcurrency`, default 3), and queued workers must abort via `acquireWithSignal`.
+4. **checkpointer is a COMPILE-time param** (`compile({ checkpointer })`), not an invoke option (0.2.x API; changed in 0.4+).
+5. **Failed threads are NOT resumable** — a thread whose final state carries `error` short-circuits seed→error_handler on re-invoke. Protocol: cancelled AND failed threads are abandoned; retry = new runId (new thread); branch-level "only the failed scene re-runs" comes from persisted `sceneRepo.mappingStatus` + on-disk artifacts. Crash/timeout-aborted threads (no error in state) CAN resume.
+6. **Interrupt nodes: `interrupt()` must be the FIRST statement** — the whole node body re-executes on resume; code before interrupt() fires twice (external side effects are NOT undone).
+7. **Thread lifecycle:** `projectId:chapterId:runId` per run. Success → immediate cleanup; failed/crashed → retention (default 7d); `waiting_review` → its OWN TTL (default 30d), never swept by the failure reaper. States: running / succeeded / failed / cancelled / waiting_review / orphaned.
+
 ## Key Design Constraints
 
 - VN scripts use 10 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`, `action`, `scene_description`

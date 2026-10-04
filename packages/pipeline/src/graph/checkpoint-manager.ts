@@ -48,18 +48,23 @@ interface SqliteDb {
  */
 
 const RETENTION_DAYS_DEFAULT = 7;
+const REVIEW_RETENTION_DAYS_DEFAULT = 30;
 
 export interface CheckpointManagerOptions {
   /** Directory that will hold checkpoints.db (typically dataDir/config). */
   dir: string;
-  /** Retention for non-successful threads, in days. Default 7. */
+  /** Retention for failed/crashed threads, in days. Default 7. */
   failedRetentionDays?: number;
+  /** Independent retention for waiting_review threads, in days. Default 30 —
+   * a human reviewer may take weeks; the failure reaper must not touch them. */
+  reviewRetentionDays?: number;
 }
 
 export class CheckpointManager {
   readonly saver: SqliteSaver;
   private readonly db: SqliteDb;
   private readonly failedRetentionDays: number;
+  private readonly reviewRetentionDays: number;
   private readonly dbPath: string;
 
   constructor(opts: CheckpointManagerOptions) {
@@ -82,6 +87,7 @@ export class CheckpointManager {
     this.db.prepare("DELETE FROM checkpoints WHERE thread_id = '__warmup__'").run();
     void warmup;
     this.failedRetentionDays = opts.failedRetentionDays ?? RETENTION_DAYS_DEFAULT;
+    this.reviewRetentionDays = opts.reviewRetentionDays ?? REVIEW_RETENTION_DAYS_DEFAULT;
   }
 
   /** Build the per-run thread id. */
@@ -119,20 +125,43 @@ export class CheckpointManager {
     );`);
   }
 
-  /** Record a thread's creation + outcome so retention sweeps have timestamps. */
-  markThread(threadId: string, outcome: "running" | "failed" | "cancelled"): void {
+  /** Record a thread's creation + outcome so retention sweeps have timestamps.
+   * waiting_review has its OWN retention (reviewRetentionDays) — a human may
+   * take days to answer; it must never be swept by the failure reaper. */
+  markThread(
+    threadId: string,
+    outcome: "running" | "failed" | "cancelled" | "waiting_review" | "success",
+    opts?: { updatedAt?: boolean },
+  ): void {
     this.ensureBookkeeping();
+    if (opts?.updatedAt) {
+      this.db
+        .prepare("UPDATE thread_bookkeeping SET outcome = ?, created_at = ? WHERE thread_id = ?")
+        .run(outcome, new Date().toISOString(), threadId);
+      return;
+    }
     this.db
-      .prepare("INSERT OR REPLACE INTO thread_bookkeeping (thread_id, created_at, outcome) VALUES (?, ?, ?)")
+      .prepare("INSERT INTO thread_bookkeeping (thread_id, created_at, outcome) VALUES (?, ?, ?)")
       .run(threadId, new Date().toISOString(), outcome);
   }
 
-  /** Delete all non-successful threads older than the retention window. */
+  /** Delete failed/crashed threads older than the failure window, and
+   * waiting_review threads older than the REVIEW window (independent TTL). */
   sweepExpiredFailures(now: Date = new Date()): number {
+    return this.sweep(now, false);
+  }
+
+  sweepExpiredReviews(now: Date = new Date()): number {
+    return this.sweep(now, true);
+  }
+
+  private sweep(now: Date, reviewPass: boolean): number {
     this.ensureBookkeeping();
-    const cutoff = new Date(now.getTime() - this.failedRetentionDays * 24 * 3600 * 1000).toISOString();
+    const days = reviewPass ? this.reviewRetentionDays : this.failedRetentionDays;
+    const cutoff = new Date(now.getTime() - days * 24 * 3600 * 1000).toISOString();
+    const outcomeFilter = reviewPass ? "= 'waiting_review'" : "IN ('failed','cancelled')";
     const expired = this.db
-      .prepare("SELECT thread_id FROM thread_bookkeeping WHERE outcome != 'success' AND created_at < ?")
+      .prepare(`SELECT thread_id FROM thread_bookkeeping WHERE outcome ${outcomeFilter} AND created_at < ?`)
       .all(cutoff) as Array<{ thread_id: string }>;
     let removed = 0;
     for (const { thread_id } of expired) {

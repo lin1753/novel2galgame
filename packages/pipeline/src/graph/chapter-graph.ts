@@ -61,7 +61,10 @@ export function buildChapterGraph(deps: ChapterGraphDeps, checkpointer?: BaseChe
   // Per-run semaphore across Send worker instances (see header note).
   const sem = new Semaphore(deps.sceneConcurrency ?? 3);
   const worker = async (input: SceneWorkerInput, config: any) => {
-    await sem.acquire();
+    // Abort-aware slot acquisition: QUEUED workers reject on abort (S4) —
+    // the abort must reach workers that have not started yet.
+    const signal = (config as { signal?: AbortSignal } | undefined)?.signal;
+    await sem.acquireWithSignal(signal);
     try {
       return await sceneWorkerNode(input, config, deps);
     } finally {

@@ -51,17 +51,33 @@ async function finishNode(state: typeof SmokeState.State): Promise<Partial<typeo
   };
 }
 
-export function buildSmokeGraph(checkpointer?: BaseCheckpointSaver) {
+export interface SmokeGraphOptions {
+  checkpointer?: BaseCheckpointSaver;
+  /**
+   * External side-effect hook fired at the TOP of the gate node — BEFORE
+   * interrupt(). Correction test: fires TWICE across interrupt+resume
+   * (proof that side effects before interrupt() are not safe).
+   */
+  onGateEntry?: () => void;
+}
+
+export function buildSmokeGraph(checkpointer?: BaseCheckpointSaver, opts?: SmokeGraphOptions) {
   // 0.2.74 API note: checkpointer is a COMPILE-time param (PregelParams),
   // not an invoke option — differs from the newer 0.4+ API where it moved
   // to runtime config. Verified against dist/graph/state.d.ts:151.
+  const gateNodeWithHook = opts?.onGateEntry
+    ? async (state: typeof SmokeState.State) => {
+        opts.onGateEntry!();
+        return gateNode(state);
+      }
+    : gateNode;
   return new StateGraph(SmokeState)
     .addNode("counter", counterNode)
-    .addNode("gate", gateNode)
+    .addNode("gate", gateNodeWithHook)
     .addNode("finish", finishNode)
     .addEdge(START, "counter")
     .addEdge("counter", "gate")
     .addEdge("gate", "finish")
     .addEdge("finish", END)
-    .compile({ checkpointer });
+    .compile({ checkpointer: opts?.checkpointer ?? checkpointer });
 }

@@ -78,6 +78,12 @@ export const ChapterGraphState = Annotation.Root({
     reducer: (prev, next) => [...prev, ...next],
   }),
 
+  /** S3 (maintainer supplement): explicit commit marker. bible_commit sets it
+   * once every scene finished and profiles were written (or a failure was
+   * promoted); re-entries no-op on it. Never re-derived from side conditions —
+   * re-entrancy is decided by THIS flag, not by "result happens to look right". */
+  bibleCommitted: Annotation<boolean>({ default: () => false, reducer: (_p, n) => n }),
+
   // ── pending resolver proposals (batch mode persistence) ──
   pendingProposals: Annotation<PendingProposalRecord[]>({
     default: () => [],
@@ -89,6 +95,9 @@ export const ChapterGraphState = Annotation.Root({
 
   // ── stage status ──
   currentStage: Annotation<string>({ default: () => "narrative_parsing", reducer: (_p, n) => n }),
+  /** S5: consistency_review is a known pass-through — consumers must report
+   * it as skipped, not completed (real implementation is on the backlog). */
+  consistencySkipped: Annotation<boolean>({ default: () => false, reducer: (_p, n) => n }),
   /** "l0_narrative" | "l0_attribution" | "l0_segmentation" | "l0_vn_mapping" — union of stage degradations. */
   degradedStages: Annotation<string[]>({
     default: () => [],

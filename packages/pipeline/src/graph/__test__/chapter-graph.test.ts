@@ -443,7 +443,7 @@ describe("2b chapter graph — replayed", () => {
     expect(pend[0]!.candidateName).toBe("林晓");
 
     // ── review mode: interrupt fires (same dupe) ──
-    pendingStore.resolve(CHAPTER, "char_linxiao2", "keep");
+    pendingStore.resolve("char_linxiao2", "char_linxiao", "reject");
     const threadR = `${PROJ}:${CHAPTER}:review`;
     const first: any = await graph.invoke(
       { ...baseInput(rel), runId: "run_review", reviewMode: true },
@@ -452,7 +452,7 @@ describe("2b chapter graph — replayed", () => {
     // Interrupted before scenes: no scene results yet
     expect(first.sceneIds ?? []).toEqual([]);
     const resumed: any = await graph.invoke(
-      new Command({ resume: [{ candidateId: "char_linxiao2", decision: "keep" }] }) as any,
+      new Command({ resume: [{ candidateId: "char_linxiao2", targetId: "char_linxiao", decision: "reject" }] }) as any,
       { configurable: { thread_id: threadR } },
     );
     expect(resumed.error ?? null).toBeNull();

@@ -54,4 +54,21 @@ describe("interrupt-node internal re-execution (correction test)", () => {
     expect(first.executionsBeforeInterrupt).toBe(1);
     expect(resumed.executionsBeforeInterrupt).toBe(1); // counter node NOT re-run
   });
+
+  it("EXTERNAL side effect before interrupt() fires TWICE (why the rule exists)", async () => {
+    // Direct proof of the documented rule: "interrupt 节点内，interrupt() 之前
+    // 不得有副作用". The gate node bumps an EXTERNAL counter (module-level —
+    // simulating a disk write / HTTP call) before interrupt(). Interrupted
+    // run: fired once. Resume: gate body re-runs → fired AGAIN. Two fires =
+    // the side effect is NOT idempotent-safe if placed before interrupt().
+    let externalSideEffects = 0;
+    const graph = buildSmokeGraph(new MemorySaver(), {
+      onGateEntry: () => { externalSideEffects++; },
+    });
+    const thread = "correction-test-3";
+    await graph.invoke({ label: "c3", shouldInterrupt: true }, { configurable: { thread_id: thread } });
+    expect(externalSideEffects).toBe(1); // first (interrupted) execution fired it
+    await graph.invoke(new Command({ resume: "ok" }), { configurable: { thread_id: thread } });
+    expect(externalSideEffects).toBe(2); // resume re-ran the body → fired again
+  });
 });
