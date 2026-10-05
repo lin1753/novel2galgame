@@ -99,18 +99,12 @@ describe("2b parity: chapter graph vs monolithic (replayed)", () => {
     );
     expect(out.error).toBeNull();
 
-    // ── compare (canonicalize random stepId suffixes — the agent L0 fallback
-    // embeds Math.random ids; inherent nondeterminism, not engine divergence) ──
-    const canonRand = (snap: Record<string, unknown>) => {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(snap)) {
-        const j = JSON.stringify(v)?.replace(/(step_[A-Za-z0-9_]+?_)[a-z0-9]{3,10}(?=")/g, "$1RAND");
-        out[k] = j ? JSON.parse(j) : v;
-      }
-      return out;
-    };
-    const monoSnap = canonRand(collectArtifacts(path.join(monoDir, "projects", PROJ)));
-    const graphSnap = canonRand(collectArtifacts(path.join(graphDir, "projects", PROJ)));
+    // ── compare ──
+    // 2c determinism: fallback stepIds are DERIVED (sceneId + padded order),
+    // so no random-suffix canonicalization is needed anymore — the artifact
+    // sets must be byte-identical modulo key order.
+    const monoSnap = collectArtifacts(path.join(monoDir, "projects", PROJ));
+    const graphSnap = collectArtifacts(path.join(graphDir, "projects", PROJ));
     const diffs = diffSnapshots(monoSnap, graphSnap);
     if (diffs.length > 0) {
       // Report which artifacts differ for debugging

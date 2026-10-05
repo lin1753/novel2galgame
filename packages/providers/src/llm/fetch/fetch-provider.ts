@@ -8,6 +8,118 @@ import type {
   LLMProviderConfig,
 } from "../../interfaces/llm.js";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2c retry convergence (maintainer revision): the PROVIDER is the only retry
+// home for transport failures. Layers:
+//   - transport (429 / socket / 5xx): full-jitter exponential backoff, honors
+//     Retry-After, TRANSPORT_ATTEMPTS total. A per-instance TokenBucket
+//     rate-limits ALL requests; on 429 the bucket DRAINS (whole provider
+//     slows down) then refills continuously (slow recovery).
+//   - semantic (finish_reason=length, corrupt JSON): retried INSIDE chatJson
+//     at explicit counts (SEMANTIC_ATTEMPTS) — content-level failures, not
+//     transport; documented in the retry audit.
+// The orchestration-level withRetry (monolithic + old LangGraph nodes) and
+// the vn-mapping agent's private 429 backoff are removed in this change —
+// they multiplied worst-case attempts (36 per mapping call; see the
+// packages/pipeline retry-audit).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Transport attempts per request (1 initial + N-1 retries). */
+const TRANSPORT_ATTEMPTS = 4;
+/** Semantic (content) retries inside chatJson: length-truncation + corrupt JSON. */
+const SEMANTIC_ATTEMPTS = 3;
+/** 429 penalty: bucket drains to this fraction, then refills at the normal rate. */
+const RATE_LIMIT_DRAIN_FACTOR = 0.25;
+
+/** Full-jitter exponential backoff (AWS style). */
+function backoffDelay(attempt: number, baseMs: number, capMs: number): number {
+  const ceil = Math.min(capMs, baseMs * Math.pow(2, attempt));
+  return Math.floor(Math.random() * ceil);
+}
+
+/** Extract retry-after-ms from an error message (seconds preferred, ms accepted). */
+function parseRetryAfterMs(err: unknown): number | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const m = err.message.match(/retry-after[:\s]*(\d+(?:\.\d+)?)(?!\s*ms)/i);
+  if (m) return Math.round(parseFloat(m[1]) * 1000);
+  const m2 = err.message.match(/retry-after[:\s]*(\d+)\s*ms/i);
+  if (m2) return parseInt(m2[1], 10);
+  return undefined;
+}
+
+function isAbortLike(err: unknown): boolean {
+  return (
+    (err instanceof Error && err.name === "AbortError") ||
+    (err instanceof Error && /abort|aborted|this operation was aborted/i.test(err.message))
+  );
+}
+
+function isRateLimitError(err: unknown): boolean {
+  return err instanceof Error && /LLM API error 429/i.test(err.message);
+}
+
+function isTransportError(err: unknown): boolean {
+  if (isRateLimitError(err)) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    /socket hang up|socket disconnected/i.test(msg) ||
+    /TLS connection/i.test(msg) ||
+    /timeout|ETIMEDOUT/i.test(msg) ||
+    /ECONNRESET|ECONNREFUSED|ENOTFOUND|EPIPE/i.test(msg) ||
+    /LLM API error 5\d\d/.test(msg)
+  );
+}
+
+/** Abortable sleep. */
+function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException("Aborted", "AbortError"));
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => { clearTimeout(t); reject(new DOMException("Aborted", "AbortError")); };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Per-provider token bucket shared across ALL requests of one provider
+ * instance. 429 drains it (global slowdown), then it refills continuously
+ * (slow recovery). Rate configurable via env (requests/sec).
+ */
+class TokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+  constructor(
+    private readonly capacity: number,
+    private readonly refillPerSec: number,
+  ) {
+    this.tokens = capacity;
+    this.lastRefill = Date.now();
+  }
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    if (elapsed <= 0) return;
+    this.tokens = Math.min(this.capacity, this.tokens + elapsed * this.refillPerSec);
+    this.lastRefill = now;
+  }
+  async take(signal?: AbortSignal): Promise<void> {
+    for (;;) {
+      this.refill();
+      if (this.tokens >= 1) { this.tokens -= 1; return; }
+      await sleepAbortable(Math.max(20, Math.ceil(1000 / this.refillPerSec)), signal);
+    }
+  }
+  /** 429: drain the bucket — whole-provider slowdown, then slow recovery. */
+  penalize(): void {
+    this.tokens = Math.min(this.tokens, this.capacity * RATE_LIMIT_DRAIN_FACTOR);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /** Skip a DNS name (handling compression pointers per RFC 1035 §4.1.4). Returns new offset. */
 function skipDnsName(msg: Buffer, offset: number): number {
   while (offset < msg.length && msg[offset] !== 0) {
@@ -78,22 +190,37 @@ export class FetchLLMProvider implements LLMProvider {
   private baseUrl: string;
   private apiKey: string;
   private defaultModel: string;
+  /** Shared per-instance rate limiter (2c): all requests of this provider. */
+  private readonly bucket: TokenBucket;
 
   constructor(config: LLMProviderConfig & { name?: string }) {
     this.name = config.name ?? "fetch-llm";
     this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     this.apiKey = config.apiKey;
     this.defaultModel = config.defaultModel ?? "gpt-4o";
+    // Default 2 concurrent, refill 1/s (conservative for free-tier Agnes);
+    // env overrides for tuning: N2G_LLM_BUCKET_CAPACITY / N2G_LLM_BUCKET_REFILL
+    const capacity = Number(process.env.N2G_LLM_BUCKET_CAPACITY ?? 2);
+    const refill = Number(process.env.N2G_LLM_BUCKET_REFILL ?? 1);
+    this.bucket = new TokenBucket(
+      Number.isFinite(capacity) && capacity > 0 ? capacity : 2,
+      Number.isFinite(refill) && refill > 0 ? refill : 1,
+    );
   }
 
-  private async request(path: string, body: object, signal?: AbortSignal): Promise<any> {
+  /**
+   * One HTTP round trip — NO retry here. Transport retry (429/socket/5xx)
+   * lives in requestWithRetry; chatJson's semantic retries call this via
+   * this.chat, which routes through requestWithRetry per attempt.
+   */
+  private async requestOnce(path: string, body: object, signal?: AbortSignal): Promise<any> {
     if (signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
 
     const url = new URL(`${this.baseUrl}${path}`);
     const data = JSON.stringify(body);
-    
+
     console.log(`[FetchLLM] FETCH ${url.toString()} (${data.length} bytes)`);
 
     const response = await fetch(url.toString(), {
@@ -118,6 +245,37 @@ export class FetchLLMProvider implements LLMProvider {
     } else {
       throw new Error(`LLM API error ${response.status}: ${responseText.slice(0, 500)}`);
     }
+  }
+
+  /**
+   * Transport-layer retry (the SINGLE retry home for 429/socket/5xx):
+   * token-bucket admission + full-jitter backoff + Retry-After. On 429 the
+   * bucket drains — the whole provider slows down — then refills (recovery).
+   */
+  private async requestWithRetry(path: string, body: object, signal?: AbortSignal): Promise<any> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < TRANSPORT_ATTEMPTS; attempt++) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      await this.bucket.take(signal); // rate admission BEFORE every attempt
+      try {
+        return await this.requestOnce(path, body, signal);
+      } catch (err) {
+        if (isAbortLike(err) || signal?.aborted) throw err;
+        lastErr = err;
+        if (isRateLimitError(err)) this.bucket.penalize(); // global slowdown
+        if (!isTransportError(err) || attempt === TRANSPORT_ATTEMPTS - 1) throw err;
+        const retryAfter = parseRetryAfterMs(err);
+        const delay = retryAfter ?? backoffDelay(attempt, 2000, 30_000);
+        console.log(`[FetchLLM] transport retry ${attempt + 1}/${TRANSPORT_ATTEMPTS} in ${delay}ms: ${err instanceof Error ? err.message.slice(0, 100) : err}`);
+        await sleepAbortable(delay, signal);
+      }
+    }
+    throw lastErr;
+  }
+
+  /** Legacy internal name kept for any direct callers. */
+  private async request(path: string, body: object, signal?: AbortSignal): Promise<any> {
+    return this.requestWithRetry(path, body, signal);
   }
 
   async chat(options: LLMRequestOptions): Promise<LLMResponse> {
@@ -161,37 +319,35 @@ export class FetchLLMProvider implements LLMProvider {
   }
 
     async chatJson<T>(options: LLMRequestOptions): Promise<T> {
+      // 2c retry convergence: transport failures (429/socket/5xx) are retried
+      // ONCE per this.chat call inside requestWithRetry — NOT here. This loop
+      // retries only SEMANTIC failures (finish_reason=length, corrupt JSON),
+      // SEMANTIC_ATTEMPTS (3) total, each attempt re-entering the transport
+      // layer (so worst case per chatJson call = SEMANTIC × TRANSPORT).
       let lastError: Error | null = null;
-      // Retry up to 2 times on network errors or truncated JSON
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) {
-          const delay = 2000 * attempt;
-          console.log(`[FetchLLM] Retrying request (attempt ${attempt + 1}/3) after ${delay}ms...`);
-          await new Promise((r) => setTimeout(r, delay));
-        }
-        
+      for (let attempt = 0; attempt < SEMANTIC_ATTEMPTS; attempt++) {
+        if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
         let response: LLMResponse;
         try {
           response = await this.chat({ ...options, jsonMode: true });
         } catch (err: any) {
-          if (err?.name === "AbortError" || err?.message?.includes("aborted") || err?.message?.includes("Aborted") || err?.message?.includes("This operation was aborted")) {
-            throw err;
-          }
-          lastError = err instanceof Error ? err : new Error(String(err));
-          console.log(`[FetchLLM] Network/API error during chat: ${lastError.message}`);
-          continue; // Retry on network error like socket hang up
+          // Transport already exhausted its retries inside requestWithRetry —
+          // a non-transport error (e.g. our own parse error path) also has
+          // nothing to gain from an immediate re-ask. Only abort propagates.
+          throw err;
         }
 
         // finish_reason=length means the JSON is cut off by max_tokens -> repair
         // would silently close it into partial/empty data, so retry instead
         if (response.finishReason === "length") {
-          console.log(`[FetchLLM] Completion truncated by max_tokens (${response.content.length} chars), retrying...`);
+          console.log(`[FetchLLM] Completion truncated by max_tokens (${response.content.length} chars), semantic retry ${attempt + 1}/${SEMANTIC_ATTEMPTS}...`);
           lastError = new Error("LLM completion truncated by max_tokens");
           continue;
         }
-        
+
         let content = response.content.trim();
-        // Remove <think>...</think> block (for DeepSeek R1 / agnes-2.5-flash)
+        // Remove<think>...</think> block (for DeepSeek R1 / agnes-2.5-flash)
         content = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, "");
         
         // Extract JSON from markdown fences if present
@@ -211,7 +367,7 @@ export class FetchLLMProvider implements LLMProvider {
         } catch (repairErr) {
           const isLikelyMidStringCorruption = lastError.message.includes("position") && !response.finishReason?.includes("length");
           if (isLikelyMidStringCorruption) {
-            console.log(`[FetchLLM] JSON corrupted at ${lastError.message} (${content.length} chars), retrying...`);
+            console.log(`[FetchLLM] JSON corrupted at ${lastError.message} (${content.length} chars), semantic retry ${attempt + 1}/${SEMANTIC_ATTEMPTS}...`);
             const match = lastError.message.match(/position (\d+)/);
             if (match) {
               const pos = parseInt(match[1], 10);
@@ -221,7 +377,7 @@ export class FetchLLMProvider implements LLMProvider {
               console.log(`[FetchLLM] 🔎 Culprit snippet: "...${snippet}..."`);
             }
           } else {
-            console.log(`[FetchLLM] JSON truncated (${content.length} chars), retrying request...`);
+            console.log(`[FetchLLM] JSON unrepairable (${content.length} chars), semantic retry ${attempt + 1}/${SEMANTIC_ATTEMPTS}...`);
           }
         }
       }

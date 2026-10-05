@@ -63,88 +63,12 @@ function markGroupFlag(char: any): void {
 /** Metrics collected during a single agent call */
 interface CallMetrics { durationMs: number; promptTokens: number; completionTokens: number; retryCount: number }
 
-/** Wrap an agent call: throw on recoverable failure so withRetry catches it */
-function retryable<T>(fn: () => Promise<AgentResult<T> | T>): () => Promise<T> {
-  return async () => {
-    const result: any = await fn();
-    // Stage functions (stage-1) return plain validated data — pass through.
-    if (result && typeof result === 'object' && !('success' in result) && !('failureLevel' in result)) {
-      return result as T;
-    }
-    if (!result.success || !result.data) {
-      // Socket hang up, timeout, 5xx → recoverable (retry)
-      // Bad schema, missing fields → hard (no retry)
-      const isRetryable = result.failureLevel !== "hard" && (
-        result.failureLevel === "recoverable" ||
-        result.errorMessage?.includes("socket hang up") ||
-        result.errorMessage?.includes("timeout") ||
-        result.errorMessage?.includes("ETIMEDOUT") ||
-        result.errorMessage?.includes("ECONNRESET") ||
-        result.errorMessage?.includes("ECONNREFUSED") ||
-        result.errorMessage?.includes("LLM API error 5") ||
-        result.errorMessage?.includes("LLM returned invalid structure") ||
-        result.errorMessage?.includes("is not valid JSON") ||
-        result.errorMessage?.includes("Unterminated") ||
-        result.errorMessage?.includes("truncated") ||
-        result.errorMessage?.includes("Expected ','") ||
-        result.errorMessage?.includes("JSON")
-      );
-      const err = new Error(`${result.failureLevel ?? "unknown"}: ${result.errorMessage}`);
-      (err as any).retryable = isRetryable;
-      throw err;
-    }
-    return result.data;
-  };
-}
-
-/** Retry an async function with exponential backoff.
- *  Only retries on transient errors (network, timeout, 5xx, recoverable agent failures). */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  opts?: { maxRetries?: number; baseDelayMs?: number; label?: string; signal?: AbortSignal }
-): Promise<T> {
-  const maxRetries = opts?.maxRetries ?? 3;
-  const baseDelay = opts?.baseDelayMs ?? 5000;
-  const label = opts?.label ?? "operation";
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (opts?.signal?.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
-    try {
-      return await fn();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isAbort = (err instanceof Error && err.name === "AbortError") || msg.includes("ABORTED") || opts?.signal?.aborted;
-      if (isAbort) {
-        throw err;
-      }
-
-      const isRetryable = (err as any)?.retryable === true;
-      const isTransient = isRetryable ||
-        msg.includes("socket hang up") ||
-        msg.includes("socket disconnected") ||
-        msg.includes("TLS connection") ||
-        msg.includes("timeout") ||
-        msg.includes("ETIMEDOUT") ||
-        msg.includes("ECONNRESET") ||
-        msg.includes("ECONNREFUSED") ||
-        msg.includes("ENOTFOUND") ||
-        msg.includes("EPIPE") ||
-        msg.includes("JSON") ||
-        msg.includes("Unterminated");
-
-      console.log(`[Retry] ${label} attempt ${attempt + 1}/${maxRetries + 1}: isRetryable=${isRetryable}, isTransient=${isTransient}, msg=${msg.slice(0, 120)}`);
-
-      if (attempt === maxRetries || !isTransient) throw err;
-
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`[Retry] ${label} retrying in ${delay}ms...`);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw new Error("unreachable");
-}
+/**
+ * 2c retry convergence: retryable()/withRetry() DELETED — the provider is
+ * the single retry home (transport: requestWithRetry with Retry-After +
+ * token bucket; semantic: chatJson's explicit SEMANTIC_ATTEMPTS loop).
+ * runAgentWithMetrics now awaits the stage function directly.
+ */
 
 /** Run tasks with concurrency limit */
 async function parallelLimit<T>(
@@ -229,14 +153,13 @@ async function runAgentWithMetrics(opts: {
     .run(taskId, opts.projectId, opts.chapterId, opts.type, opts.provider.name, opts.model, opts.stageOrder, now());
 
   try {
-    const data = await withRetry(
-      retryable(() => {
-        if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        retryCount++;
-        return opts.fn();
-      }),
-      { label: opts.label, signal: opts.signal }
-    );
+    // 2c retry convergence: NO orchestration-level retry — transport (429/
+    // socket/5xx) and semantic retries live in the provider. The retryable()
+    // classification ladder is gone with it; worst-case per agent call is
+    // now provider-bounded (see packages/pipeline retry-audit).
+    if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    retryCount++;
+    const data = await opts.fn();
 
     const durationMs = Date.now() - startedAt;
     const actualRetries = Math.max(0, retryCount - 1);

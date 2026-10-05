@@ -248,15 +248,20 @@ export async function runVNMappingStage(
   if (!result.success || !result.data) throw agentFailureToError(result);
   const out = vnMappingOutputSchema.parse(result.data);
 
-  // Degradation detection: the agent's unit-passthrough fallback emits steps
-  // with random 6-char stepId suffixes (step_<sceneId>_<rand6>) — the normal
-  // path and the orchestrator L0 both use zero-padded 4-digit indexes. The
-  // fallback also injects synthesized auto_bg/auto_show steps, so type
-  // filtering cannot detect it; the stepId shape is the reliable marker.
-  const hasRandStepId = out.steps.some(
-    (s: any) => typeof s.stepId === "string" && /_[a-z0-9]{6}$/.test(s.stepId) && !/_\d{4}$/.test(s.stepId),
-  );
-  if (hasRandStepId) (out as any).degraded = "l0_vn_mapping";
+  // Degradation detection (2c revision): fallback stepIds are now DERIVED
+  // (sceneId + zero-padded order) for cache determinism, so the old random-
+  // suffix detector no longer fires. Stable fallback signature instead: every
+  // input unit appears EXACTLY once in the steps' sourceUnitIds (1:1
+  // passthrough) — the LLM path essentially never achieves exact 1:1 coverage
+  // (it regroups, merges, and adds non-mapped steps).
+  const inputUnitIds = new Set(input.units.map((u: any) => u.unitId));
+  const stepUnitIds = out.steps.flatMap((s: any) => s.sourceUnitIds ?? []);
+  const exactPassthrough =
+    input.units.length > 0 &&
+    stepUnitIds.length === input.units.length &&
+    new Set(stepUnitIds).size === stepUnitIds.length &&
+    stepUnitIds.every((id: string) => inputUnitIds.has(id));
+  if (exactPassthrough) (out as any).degraded = "l0_vn_mapping";
   return out;
 }
 

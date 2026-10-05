@@ -140,7 +140,13 @@ ${unitsText}
     }
 
     let success = false;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    // 2c retry convergence: transport (429/socket/5xx) AND semantic retries
+    // live in the PROVIDER (requestWithRetry + chatJson semantic loop). The
+    // agent-level 429 backoff is REMOVED — it multiplied worst-case attempts
+    // (3 agent × 4 orchestration × 3 provider = 36). This loop now only
+    // handles the agent-specific EMPTY-STEPS case (a syntactically valid but
+    // content-empty response), which the provider cannot know is wrong.
+    for (let emptyRetry = 0; emptyRetry < 3; emptyRetry++) {
       try {
         const result = await provider.chatJson<{ steps: VNStep[] }>({
           model,
@@ -155,9 +161,9 @@ ${unitsText}
 
         const normalizedSteps = normalizeVNSteps(result.steps ?? [], charMap);
         if (normalizedSteps.length === 0) {
-          console.warn(`[vn-mapping-agent] Batch ${bIdx + 1}/${unitBatches.length} returned empty steps (attempt ${attempt + 1})`);
-          if (attempt < 2) {
-            await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+          console.warn(`[vn-mapping-agent] Batch ${bIdx + 1}/${unitBatches.length} returned empty steps (retry ${emptyRetry + 1}/3)`);
+          if (emptyRetry < 2) {
+            await new Promise((r) => setTimeout(r, 800 * (emptyRetry + 1)));
             continue;
           }
           break;
@@ -166,26 +172,28 @@ ${unitsText}
         success = true;
         break;
       } catch (err: any) {
+        // 2c retry convergence: transport/semantic retries are exhausted
+        // inside the provider. The agent itself does NOT retry — it falls
+        // through to the unit-passthrough L0 fallback below (same contract
+        // as before convergence: provider failure ⇒ degraded artifact,
+        // success:true). ABORTS still propagate (never fall back on cancel).
         if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
-        const errMsg = err instanceof Error ? err.message : String(err);
-        const is429 = errMsg.includes("429") || errMsg.includes("rate limit");
-        if (is429 && attempt < 2) {
-          console.warn(`[vn-mapping-agent] Batch ${bIdx + 1} hit 429, backoff 2500ms...`);
-          await new Promise((r) => setTimeout(r, 2500 * (attempt + 1)));
-        } else {
-          console.warn(`[vn-mapping-agent] Batch ${bIdx + 1}/${unitBatches.length} failed: ${errMsg}`);
-          break;
-        }
+        console.warn(`[vn-mapping-agent] Batch ${bIdx + 1}/${unitBatches.length} failed after provider retries: ${err instanceof Error ? err.message : String(err)}`);
+        break;
       }
     }
 
     if (!success) {
-      // 触发单元保底生成，保留原始台词与旁白
-      for (const u of batchUnits) {
-        const randId = Math.random().toString(36).slice(2, 8);
+      // 触发单元保底生成，保留原始台词与旁白。
+      // 2c determinism (maintainer revision): fallback stepIds derive from
+      // sceneId + zero-padded order — unique AND reproducible across runs
+      // (Math.random ids broke cache hashing and parity canonicalization).
+      const fallbackIndex = allSteps.length;
+      const fb = (u: any, idx: number) => `step_${sceneId}_${String(fallbackIndex + idx).padStart(4, "0")}`;
+      for (const [uIdx, u] of batchUnits.entries()) {
         if (u.type === "dialogue") {
           allSteps.push({
-            stepId: `step_${sceneId}_${randId}`,
+            stepId: fb(u, uIdx),
             type: "say",
             order: allSteps.length,
             characterId: u.attribution?.speakerId ?? "unknown",
@@ -195,7 +203,7 @@ ${unitsText}
           });
         } else if (u.type === "thought") {
           allSteps.push({
-            stepId: `step_${sceneId}_${randId}`,
+            stepId: fb(u, uIdx),
             type: "thought",
             order: allSteps.length,
             characterId: u.attribution?.thinkerId ?? "unknown",
@@ -205,7 +213,7 @@ ${unitsText}
           });
         } else if (u.type === "action") {
           allSteps.push({
-            stepId: `step_${sceneId}_${randId}`,
+            stepId: fb(u, uIdx),
             type: "action",
             order: allSteps.length,
             characterId: u.attribution?.actorId ?? "unknown",
@@ -215,7 +223,7 @@ ${unitsText}
           });
         } else if (u.type === "scene_description") {
           allSteps.push({
-            stepId: `step_${sceneId}_${randId}`,
+            stepId: fb(u, uIdx),
             type: "scene_description",
             order: allSteps.length,
             participantIds: u.attribution?.participantIds ?? [],
@@ -224,7 +232,7 @@ ${unitsText}
           });
         } else {
           allSteps.push({
-            stepId: `step_${sceneId}_${randId}`,
+            stepId: fb(u, uIdx),
             type: "narration",
             order: allSteps.length,
             text: u.originalText ?? "",
@@ -265,7 +273,7 @@ ${unitsText}
       if (cid && cid !== "unknown" && cid !== "旁白" && !shownCharacters.has(cid)) {
         // Auto-inject a show command before they speak
         finalizedSteps.push({
-          stepId: `step_${sceneId}_auto_show_${cid}_${Math.random().toString(36).slice(2, 6)}`,
+          stepId: `step_${sceneId}_auto_show_${cid}`, // deterministic (2c): unique per (scene, character)
           type: "show",
           order: 0,
           characterId: cid,
