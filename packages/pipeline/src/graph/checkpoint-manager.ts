@@ -106,8 +106,11 @@ export class CheckpointManager {
     return c1 + c2;
   }
 
-  /** Immediate cleanup after a successful run. */
+  /** Immediate cleanup after a successful/cancelled run: remove checkpoint
+   * rows AND the bookkeeping row (cancelled threads are abandoned). */
   cleanupAfterSuccess(threadId: string): number {
+    this.ensureBookkeeping();
+    this.db.prepare("DELETE FROM thread_bookkeeping WHERE thread_id = ?").run(threadId);
     return this.deleteThread(threadId);
   }
 
@@ -140,8 +143,10 @@ export class CheckpointManager {
         .run(outcome, new Date().toISOString(), threadId);
       return;
     }
+    // Upsert: runChapterWithGraph marks running at start and the final
+    // outcome at end — same thread_id twice must not violate UNIQUE.
     this.db
-      .prepare("INSERT INTO thread_bookkeeping (thread_id, created_at, outcome) VALUES (?, ?, ?)")
+      .prepare("INSERT OR REPLACE INTO thread_bookkeeping (thread_id, created_at, outcome) VALUES (?, ?, ?)")
       .run(threadId, new Date().toISOString(), outcome);
   }
 

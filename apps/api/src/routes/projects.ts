@@ -27,12 +27,13 @@ import {
   readConsistencyReport,
   writeChapterSource,
   readCharacterProfiles,
+  writeCharacterProfiles,
 } from "@novel2gal/storage";
 import { runStructureAgent, runConsistencyReviewAgent } from "@novel2gal/agents";
 import type { ChapterConsistencyData } from "@novel2gal/agents";
 import { runChapterPipeline, createDefaultConfig } from "../orchestrator/index.js";
 import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
-import { buildChapterPipelineGraph } from "@novel2gal/pipeline";
+import { buildChapterPipelineGraph, PendingProposalStore } from "@novel2gal/pipeline";
 import { config, resolveModelConfig } from "../config/index.js";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
@@ -362,7 +363,66 @@ export function createProjectRoutes(
     // Return immediately, run pipeline in background
     res.json({ chapterId: cid, status: "started", message: "管线已启动" });
 
-    // 收集跨章已知角色
+    const onProgress = (stage: string, message: string) => {
+      broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message });
+    };
+
+    // 2c ENGINE switch: graph (default) routes through PipelineTaskQueue →
+    // runChapterWithGraph (checkpoints, per-run thread, watchdog at 2c-5);
+    // legacy keeps the old direct LangGraph invoke below for rollback.
+    const ENGINE: "graph" | "legacy" = process.env.N2G_ENGINE === "legacy" ? "legacy" : "graph";
+    if (ENGINE === "graph") {
+      const { PipelineTaskQueue } = await import("../task-queue/task-queue.js");
+      const queue = new PipelineTaskQueue({
+        dataDir: config.dataDir,
+        project,
+        provider,
+        model,
+        maxConcurrency: 1,
+        sceneRepo,
+        chapterRepo,
+        db,
+        rag,
+      });
+      queue.onProgress = (event) => {
+        broadcastProgress({
+          projectId: pid,
+          chapterId: event.chapterId,
+          chapterIndex: event.chapterIndex,
+          stage: event.stage,
+          status: event.status as any,
+          message: event.message,
+        });
+      };
+      // Single-chapter queue: enqueue and await; SSE carries the lifecycle.
+      queue
+        .enqueue([{ chapterId: cid, index: chapter.index, title: chapter.title }])
+        .then(() => {
+          if (queue.successCount > 0) {
+            broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
+          } else {
+            const msg = "Chapter pipeline failed (see retry/failed events)";
+            broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: msg });
+            chapterRepo.updateStatus(cid, "failed");
+            db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
+              .run("failed", now(), msg.slice(0, 500), runId);
+          }
+        })
+        .catch((err: any) => {
+          const msg = err?.message ?? String(err);
+          const isCancelled = ac.signal.aborted || msg.includes("ABORTED");
+          broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: msg });
+          chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
+          db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
+            .run(isCancelled ? "cancelled" : "failed", now(), msg.slice(0, 500), runId);
+        })
+        .finally(() => {
+          if (runningPipelines.get(cid) === ac) runningPipelines.delete(cid);
+        });
+      return;
+    }
+
+    // ── legacy path (old direct LangGraph invoke; removed at stage 4) ──
     let knownCharacters: any[] = [];
     if (rag) {
       try {
@@ -738,6 +798,122 @@ export function createProjectRoutes(
       engine: "bge-small-zh-v1.5 (512-dim Dense + BM25 Hybrid)",
       characters,
     });
+  });
+
+  // ── 2c pending merge proposals API (frontend UI is a later stage) ──
+
+  // GET /projects/:id/pending — list pending proposals (filter: ?chapterId=)
+  router.get("/:id/pending", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const store = new PendingProposalStore(config.dataDir, projectId);
+    const chapterId = req.query.chapterId as string | undefined;
+    const proposals = chapterId ? store.listFor(chapterId) : store.listAll();
+    res.json({ projectId, count: proposals.length, proposals });
+  });
+
+  // POST /projects/:id/pending/:candidateId/resolve — { action: "merge"|"reject", targetId? }
+  // merge: idempotent lossless merge (profiles + attributed units + RAG re-ingest);
+  // reject: record the decision — the pair is never proposed again (S7).
+  router.post("/:id/pending/:candidateId/resolve", async (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const candidateId = param(req, "candidateId");
+    const action = req.body?.action as "merge" | "reject" | undefined;
+    if (action !== "merge" && action !== "reject") {
+      return res.status(400).json({ error: "action must be \"merge\" or \"reject\"" });
+    }
+
+    const store = new PendingProposalStore(config.dataDir, projectId);
+    const record = store.listAll().find((p) => p.candidateId === candidateId);
+    if (!record) {
+      return res.status(404).json({ error: `No pending proposal for candidate ${candidateId}` });
+    }
+    const targetId = (req.body?.targetId as string | undefined) ?? record.targetCharacterId;
+
+    if (action === "reject") {
+      const ok = store.resolve(candidateId, targetId, "reject");
+      return res.json({ success: ok, candidateId, targetId, action });
+    }
+
+    // ── merge (idempotent, lossless): apply to disk artifacts + Bible ──
+    try {
+      const profiles = readCharacterProfiles(config.dataDir, projectId) || {};
+      const target = (profiles as any)[targetId];
+      const candidate = (profiles as any)[candidateId];
+
+      // Idempotency: merging an already-merged (absent) candidate is a no-op
+      // success — the decisions file remembers the pair.
+      if (!candidate) {
+        store.resolve(candidateId, targetId, "merge");
+        return res.json({ success: true, candidateId, targetId, action, alreadyMerged: true });
+      }
+      if (!target) {
+        return res.status(409).json({ error: `Target ${targetId} has no profile; cannot merge into it` });
+      }
+
+      // 1. Merge profile (aliasSet union, evidence/history append; write-once
+      //    baseline of the target is NEVER overwritten — candidate evidence
+      //    is preserved in history).
+      const mergedAliases = Array.from(new Set([
+        ...(target.aliasSet ?? []),
+        ...(candidate.aliasSet ?? []),
+        candidate.canonicalName,
+        candidateId,
+      ]));
+      target.aliasSet = mergedAliases;
+      target.evidence = [...(target.evidence ?? []), ...(candidate.evidence ?? [])];
+      target.history = [
+        ...(target.history ?? []),
+        {
+          chapterId: record.sourceChapterId,
+          note: `Merged duplicate candidate ${candidateId} (${candidate.canonicalName}) — similarity ${record.similarityScore.toFixed(2)}, matchedBy ${record.matchedBy}`,
+        },
+      ];
+      target.updatedAt = new Date().toISOString();
+      delete (profiles as any)[candidateId];
+      writeCharacterProfiles(config.dataDir, projectId, profiles);
+
+      // 2. Rewrite attributed_units.json of the source chapter: candidate ID →
+      //    target ID in every attribution slot (units keep their text).
+      const chaptersDir = path.join(config.dataDir, "projects", projectId, "chapters");
+      if (fs.existsSync(chaptersDir) && record.sourceChapterId) {
+        const attrPath = path.join(chaptersDir, record.sourceChapterId, "attributed_units.json");
+        if (fs.existsSync(attrPath)) {
+          const attr = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
+          const rewrite = (id: string | undefined) => (id === candidateId ? targetId : id);
+          for (const unit of attr.units ?? []) {
+            const a = unit.attribution;
+            if (!a) continue;
+            a.speakerId = rewrite(a.speakerId);
+            a.actorId = rewrite(a.actorId);
+            a.thinkerId = rewrite(a.thinkerId);
+            if (Array.isArray(a.participantIds)) a.participantIds = a.participantIds.map(rewrite);
+          }
+          // characters array: drop the candidate row (target persists)
+          attr.characters = (attr.characters ?? []).filter((c: any) => c.characterId !== candidateId);
+          fs.writeFileSync(attrPath, JSON.stringify(attr, null, 2), "utf-8");
+        }
+      }
+
+      // 3. Re-ingest the source chapter's character knowledge (RAG refresh).
+      if (rag) {
+        try {
+          const attrPath = path.join(chaptersDir, record.sourceChapterId, "attributed_units.json");
+          if (fs.existsSync(attrPath)) {
+            const attr = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
+            const chunks = rag.extractor.extractCharacterKnowledge(attr, record.sourceChapterId, record.sourceChapterId);
+            for (const chunk of chunks) chunk.projectId = projectId;
+            if (chunks.length > 0) await rag.knowledgeStore.ingestCharacters(chunks, projectId);
+          }
+        } catch (e) {
+          console.warn(`[pending/merge] RAG re-ingest failed (non-fatal):`, e);
+        }
+      }
+
+      store.resolve(candidateId, targetId, "merge");
+      res.json({ success: true, candidateId, targetId, action, mergedAliases });
+    } catch (e) {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
   });
 
   // POST /projects/:projectId/reset-failed - Reset failed/crashed chapters for clean rerun

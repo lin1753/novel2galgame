@@ -10,6 +10,17 @@
 
 import type { LLMProvider } from "@novel2gal/providers";
 import { runChapterPipeline, type AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
+import { runChapterWithGraph } from "../orchestrator/run-chapter-graph.js";
+import { ChapterWatchdog, WATCHDOG_TIMEOUT_MARKER } from "../orchestrator/chapter-watchdog.js";
+
+/**
+ * 2c ENGINE switch: "graph" (default) routes through the LangGraph chapter
+ * graph; "legacy" keeps the monolithic orchestrator. Exists for rollback and
+ * A/B comparison during migration — REMOVED together with the monolithic
+ * engine at stage 4 (maintainer spec 2c-1).
+ */
+const ENGINE: "graph" | "legacy" =
+  process.env.N2G_ENGINE === "legacy" ? "legacy" : "graph";
 import type { ProjectState, SceneState } from "@novel2gal/core";
 import type { createDatabase } from "@novel2gal/storage";
 import {
@@ -44,12 +55,21 @@ export interface ChapterProgressEvent {
 
 export interface TaskQueueOptions {
   maxConcurrency?: number;
+  /** @deprecated fixed wall-clock timeout — kept for backward compat; when
+   * set it OVERRIDES the absolute cap (watchdog replaces the fixed timer). */
   chapterTimeoutMs?: number;
+  /** 2c-5 watchdog: inactivity limit (any stage event/LLM return resets). Default 10 min. */
+  noProgressTimeoutMs?: number;
+  /** 2c-5 watchdog: absolute per-attempt cap. Default 2 hours. */
+  absoluteTimeoutMs?: number;
   /** Chapter-level retries after a failed attempt (default 1 → up to 2 attempts total).
    *  Retries are cheap: completed stages resume from disk via persisted stage flags. */
   maxChapterRetries?: number;
   /** Delay between chapter attempts (default 10s, lets rate limits cool down) */
   retryDelayMs?: number;
+  /** 2c: review mode — the graph interrupts on pending merge proposals
+   * (waiting_review state; watchdog pauses; review TTL owns the thread). */
+  reviewMode?: boolean;
   dataDir: string;
   project: ProjectState;
   provider: LLMProvider;
@@ -64,6 +84,10 @@ export interface TaskQueueOptions {
 export class PipelineTaskQueue {
   private maxConcurrency: number;
   private chapterTimeoutMs: number;
+  private noProgressTimeoutMs: number;
+  private absoluteTimeoutMs: number;
+  /** Live watchdogs by chapterId (waiting_review pause/resume support). */
+  private watchdogs = new Map<string, ChapterWatchdog>();
   private maxChapterRetries: number;
   private retryDelayMs: number;
   private dataDir: string;
@@ -75,6 +99,7 @@ export class PipelineTaskQueue {
   private chapterRepo: any;
   private db?: any;
   private rag?: any;
+  private reviewMode?: boolean;
 
   // Queue state
   public isCancelled = false;
@@ -102,6 +127,8 @@ export class PipelineTaskQueue {
     // Default chapter timeout: 30 minutes (1,800,000ms)
     // Real-world long chapters need 380-450s, but with rate limit retries they can take up to 20 minutes
     this.chapterTimeoutMs = opts.chapterTimeoutMs ?? 1800_000;
+    this.noProgressTimeoutMs = opts.noProgressTimeoutMs ?? 10 * 60 * 1000;
+    this.absoluteTimeoutMs = opts.chapterTimeoutMs ?? opts.absoluteTimeoutMs ?? 2 * 60 * 60 * 1000;
     // One automatic retry per chapter: attempt 2 resumes completed stages from disk
     // (flagsDone + artifacts), so it typically only re-runs unfinished work
     this.maxChapterRetries = opts.maxChapterRetries ?? 1;
@@ -115,6 +142,7 @@ export class PipelineTaskQueue {
     this.chapterRepo = opts.chapterRepo;
     this.db = opts.db;
     this.rag = opts.rag;
+    this.reviewMode = opts.reviewMode;
   }
 
   /** Enqueue chapters for processing in strict chronological chapter index order. */
@@ -361,16 +389,20 @@ export class PipelineTaskQueue {
     const abort = new AbortController();
     this.active.set(chapter.chapterId, abort);
 
+    // 2c-5 watchdog: no-progress timeout (any activity resets) + absolute cap.
+    // Replaces the fixed 30-minute wall-clock timer. A watchdog timeout is a
+    // FAILURE (retryable); a user cancel is not — the marker distinguishes.
     let isTimedOut = false;
-    const timeoutTimer = setTimeout(() => {
-      isTimedOut = true;
-      console.warn(`[PipelineTaskQueue] Chapter ${chapter.chapterId} timed out after ${this.chapterTimeoutMs / 1000}s (attempt ${attempt}). Aborting.`);
-      abort.abort(new Error(`Chapter processing timed out (${this.chapterTimeoutMs / 1000}s)`));
-    }, this.chapterTimeoutMs);
-    // NOTE: intentionally NOT unref'd. The queue must keep the process alive
-    // until the attempt settles — unref here lets Node exit early when no other
-    // ref'd handles exist (tests, scripts, CLI). The timer is always cleared
-    // in finally(), so it never leaks.
+    const watchdog = new ChapterWatchdog({
+      noProgressMs: this.noProgressTimeoutMs,
+      absoluteMs: this.absoluteTimeoutMs,
+      onTimeout: (kind) => {
+        isTimedOut = true;
+        console.warn(`[PipelineTaskQueue] Chapter ${chapter.chapterId} watchdog fired (${kind}) on attempt ${attempt}. Aborting.`);
+        abort.abort(new Error(`${WATCHDOG_TIMEOUT_MARKER}: Chapter watchdog fired (${kind})`));
+      },
+    });
+    this.watchdogs.set(chapter.chapterId, watchdog);
 
     // Refresh stage flags from DB so a retry resumes completed stages from disk
     // instead of re-running the whole chapter through paid LLM calls
@@ -392,8 +424,8 @@ export class PipelineTaskQueue {
       status: "running",
       stage: attempt > 1 ? "retrying" : "starting",
       message: attempt > 1
-        ? `Retrying pipeline (attempt ${attempt}/${this.maxChapterRetries + 1}, Timeout: ${this.chapterTimeoutMs / 1000}s)`
-        : `Starting pipeline (Timeout: ${this.chapterTimeoutMs / 1000}s)`,
+        ? `Retrying pipeline (attempt ${attempt}/${this.maxChapterRetries + 1}, no-progress watchdog: ${this.noProgressTimeoutMs / 1000}s)`
+        : `Starting pipeline (no-progress watchdog: ${this.noProgressTimeoutMs / 1000}s, cap ${this.absoluteTimeoutMs / 60000}m)`,
       attempt,
     });
 
@@ -443,7 +475,7 @@ export class PipelineTaskQueue {
         }
 
         const errMsg = isTimedOut
-          ? `Chapter processing timed out (${this.chapterTimeoutMs / 1000}s) — auto skipping`
+          ? `Chapter watchdog timeout (no-progress ${this.noProgressTimeoutMs / 1000}s / absolute ${this.absoluteTimeoutMs / 1000}s) — auto skipping`
           : err instanceof Error ? err.message.slice(0, 150) : String(err);
 
         console.error(`[PipelineTaskQueue] Chapter ${chapter.chapterId} failed (attempt ${attempt}): ${errMsg}`);
@@ -463,7 +495,8 @@ export class PipelineTaskQueue {
             message: `Attempt ${attempt} failed (${errMsg.slice(0, 100)}), retrying in ${this.retryDelayMs / 1000}s…`,
             attempt,
           });
-          clearTimeout(timeoutTimer);
+          watchdog.dispose();
+          this.watchdogs.delete(chapter.chapterId);
           this.active.delete(chapter.chapterId);
           retryScheduled = true;
           this.retryWaiting.add(chapter.chapterId);
@@ -501,7 +534,8 @@ export class PipelineTaskQueue {
         });
       })
       .finally(() => {
-        clearTimeout(timeoutTimer);
+        watchdog.dispose();
+        this.watchdogs.delete(chapter.chapterId);
         this.active.delete(chapter.chapterId);
         // Retry path re-queues via its own timer — draining here would let a
         // maxConcurrency=1 queue start the NEXT chapter immediately, running two
@@ -530,6 +564,7 @@ export class PipelineTaskQueue {
     // Emit progress for each stage
     const progressCallback = (stage: string, message: string) => {
       if (signal.aborted) return;
+      this.watchdogs.get(chapter.chapterId)?.activity(); // any progress resets the no-progress timer
       this._emit({
         chapterId: chapter.chapterId,
         chapterIndex: chapter.index,
@@ -538,6 +573,35 @@ export class PipelineTaskQueue {
         message,
       });
     };
+
+    // 2c ENGINE switch: graph (default) or legacy monolithic. The graph path
+    // writes the source file itself (single semantics — the queue passes the
+    // chapter TEXT; the monolithic path keeps its own write for parity).
+    if (ENGINE === "graph") {
+      const result = await runChapterWithGraph({
+        dataDir: this.dataDir,
+        project: this.project,
+        chapterId: chapter.chapterId,
+        chapterIndex: chapter.index,
+        chapterTitle: chapter.title,
+        chapterText,
+        provider: this.provider,
+        model: this.model,
+        agentModels: this.agentModels,
+        signal,
+        onProgress: progressCallback,
+        sceneRepo: this.sceneRepo,
+        rag: this.rag,
+        reviewMode: this.reviewMode ?? false,
+        onWaitingReview: () => this.watchdogs.get(chapter.chapterId)?.pause(),
+      });
+      return {
+        chapterId: result.chapterId,
+        sceneCount: result.sceneCount,
+        fidelityResults: Object.values((result.state as any).sceneResults ?? {}),
+        characters: (result.state as any).characters ?? [],
+      };
+    }
 
     const result = await runChapterPipeline(
       this.dataDir,

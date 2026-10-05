@@ -70,7 +70,15 @@ export class PendingProposalStore {
 
   /** True if the user already REJECTED this pair (never re-propose). */
   isPairRejected(candidateId: string, targetId: string): boolean {
-    return this.readDecisions()[pairKey(candidateId, targetId)]?.decision === "reject";
+    // Rejected pairs are never re-proposed; MERGED pairs are decided too — the
+    // candidate no longer exists as a dupe, so re-proposing is wrong as well.
+    const d = this.readDecisions()[pairKey(candidateId, targetId)];
+    return d?.decision === "reject" || d?.decision === "merge";
+  }
+
+  /** Has ANY decision (merge or reject) been recorded for this pair? */
+  isPairDecided(candidateId: string, targetId: string): boolean {
+    return !!this.readDecisions()[pairKey(candidateId, targetId)];
   }
 
   /**
