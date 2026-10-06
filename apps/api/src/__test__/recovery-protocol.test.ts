@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Command } from "@langchain/langgraph";
-import { CheckpointManager, pairKey } from "@novel2gal/pipeline";
+import { CheckpointManager, buildChapterGraph, pairKey } from "@novel2gal/pipeline";
+import type { ChapterGraphDeps } from "@novel2gal/pipeline";
 import { runChapterWithGraph } from "../orchestrator/run-chapter-graph.js";
 import { PendingProposalStore } from "@novel2gal/pipeline";
 import { writeCharacterProfiles, readCharacterProfiles } from "@novel2gal/storage";
@@ -29,7 +30,8 @@ import {
  *   user cancel → thread abandoned, NOT retried
  *   watchdog timeout → treated as failure (retry, new runId)
  *   soft failure (state.error) → thread abandoned, retry = new runId
- *   crash/restart → resume the same thread (no error in state)
+ *   crash/restart → SAME-thread resume completes (T-CRASH; state.error==null)
+ *   failed thread → same-thread re-invoke short-circuits, never resumes (rule 5 pin)
  *   waiting_review → held (independent TTL), not swept
  */
 
@@ -85,7 +87,37 @@ function sceneRepoStub() {
   };
 }
 
+/**
+ * Stage-3 cache isolation: every `it` in the runChapterWithGraph block shares
+ * one dataDir + chapterId + near-identical inputs, so without this the second
+ * test onward would hit test 1's .meta.json artifacts (cache HIT) and never
+ * consult its own scripted provider — abort/fail/review paths become
+ * unreachable and all outcomes collapse to "succeeded". Same pattern as
+ * chapter-graph.test.ts clearStageCache. Stage artifacts stay on disk
+ * (recompute overwrites them).
+ */
+function clearStageCache(dir: string): void {
+  const stack: string[] = [path.join(dir, "projects", PROJ_ID)];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const p = path.join(cur, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.name.endsWith(".meta.json")) fs.unlinkSync(p);
+    }
+  }
+}
+
 describe("2c recovery protocol — runChapterWithGraph", () => {
+  beforeEach(() => {
+    clearStageCache(dataDir);
+  });
   it("happy run: succeeded; thread cleaned up immediately", async () => {
     const res = await runChapterWithGraph({
       dataDir, project: makeProject(), chapterId: CHAPTER, chapterIndex: 0,
@@ -173,6 +205,135 @@ describe("2c recovery protocol — runChapterWithGraph", () => {
     // the previously failed thread is still there (retention), but the retry
     // succeeded on its own thread — no state reuse
     expect((res2.state as any).error ?? null).toBeNull();
+  });
+
+  it("crash → SAME thread resume completes", async () => {
+    // S8 / T-CRASH (plan §2 S8 + §5): runChapterWithGraph mints a fresh
+    // runId/thread per call, so same-thread resume is exercised one layer down
+    // via buildChapterGraph — the resume API the runner delegates to. Crash
+    // semantics = abort mid-run with NO error in state (vs soft failure, which
+    // resolves WITH state.error): attempt 1 REJECTS via AbortError; attempt 2
+    // re-invokes the SAME thread and completes with full sceneResults.
+    //
+    // Stage-3 cache note: attempt 1 writes stage artifacts + .meta.json for
+    // every stage it finishes before the abort, so the resume naturally HITS
+    // those caches — that is expected behavior (proof the cache is correct),
+    // not a shortcut. The pass criterion is state-level (resume completes +
+    // sceneResults full + error null), which holds whether LangGraph replays
+    // from the checkpoint boundary or recomputes cache-missed stages — even a
+    // zero-execution resume (all hits) counts as pass.
+    const relDir = path.join(dataDir, "projects", PROJ_ID, "chapters", CHAPTER);
+    fs.mkdirSync(relDir, { recursive: true });
+    fs.writeFileSync(path.join(relDir, "source.txt"), TEXT, "utf-8");
+    const chapterTextPath = path.join("chapters", CHAPTER, "source.txt");
+    const thread = `${PROJ_ID}:${CHAPTER}:crash-resume`;
+    const baseInput = {
+      projectId: PROJ_ID, chapterId: CHAPTER, runId: "run_crash",
+      chapterIndex: 0, chapterTitle: "第1章", chapterTextPath,
+      fallbackPolicy: "allow" as const, reviewMode: false,
+    };
+
+    // ── attempt 1: hang vn-mapping, abort mid-run (crash, no state.error) ──
+    const ac = new AbortController();
+    const hanging = new (class extends ScriptedProvider {
+      async chatJson(options: any) {
+        const user = options.messages.filter((m: any) => m.role === "user").map((m: any) => m.content).join("\n");
+        if (user.includes("转换为 VN 脚本")) {
+          await new Promise((_r, rej) => {
+            const t = setTimeout(() => rej(new Error("late")), 30_000);
+            options.signal?.addEventListener("abort", () => { clearTimeout(t); rej(new DOMException("Aborted", "AbortError")); }, { once: true });
+          });
+          throw new Error("unreachable");
+        }
+        return super.chatJson(options);
+      }
+    })([
+      whenNarrative({ kind: "json", value: FIXTURE_NARRATIVE }),
+      whenAttribution({ kind: "json", value: FIXTURE_ATTRIBUTION }),
+      whenSegmentation({ kind: "json", value: FIXTURE_SEGMENTATION }),
+      whenFidelity({ kind: "json", value: FIXTURE_FIDELITY("any") }),
+      whenVisualPrompt({ kind: "json", value: FIXTURE_VISUAL_PROMPT("any") }),
+    ]);
+    const sceneRepo = sceneRepoStub();
+    const deps1: ChapterGraphDeps = {
+      dataDir, provider: hanging as any, model: "m", sceneConcurrency: 3,
+      rag: null, sceneRepo: sceneRepo as any,
+      pendingStore: new PendingProposalStore(dataDir, PROJ_ID),
+      signal: ac.signal, onProgress: () => {},
+    };
+    const graph1 = buildChapterGraph(deps1, cm.saver);
+    const p = graph1.invoke(baseInput, { configurable: { thread_id: thread }, signal: ac.signal });
+    setTimeout(() => ac.abort(), 350); // abort once scene workers are in-flight
+    await expect(p).rejects.toThrow();
+    // crash proof: checkpoints landed but the thread carries no terminal error
+    // state (the invoke REJECTED instead of resolving with state.error).
+    expect(cm.rawThreadRows(thread).checkpoints).toBeGreaterThan(0);
+
+    // ── attempt 2: SAME thread, fresh signal, happy provider → completes ──
+    // (Deliberately NO clearStageCache here: attempt-1 artifacts are legit
+    // cache hits for the resume; see note above.)
+    const happy = happyProvider();
+    const deps2: ChapterGraphDeps = {
+      dataDir, provider: happy as any, model: "m", sceneConcurrency: 3,
+      rag: null, sceneRepo: sceneRepo as any,
+      pendingStore: new PendingProposalStore(dataDir, PROJ_ID),
+      signal: new AbortController().signal, onProgress: () => {},
+    };
+    const graph2 = buildChapterGraph(deps2, cm.saver);
+    const resumed: any = await graph2.invoke(baseInput, { configurable: { thread_id: thread } });
+    expect(resumed.error ?? null).toBeNull();
+    expect(Object.keys(resumed.sceneResults ?? {}).sort()).toEqual([
+      `${CHAPTER}_scene_0001`,
+      `${CHAPTER}_scene_0002`,
+    ]);
+    for (const entry of Object.values(resumed.sceneResults) as any[]) {
+      expect(entry.failed ?? null).toBeNull();
+    }
+  });
+
+  it("failed thread: same-thread re-invoke short-circuits, never resumes (rule 5 pin)", async () => {
+    // CLAUDE.md graph rule 5 pin (measured 0.2.74 semantics, cf.
+    // chapter-graph.test.ts#6): a thread whose final state carries error
+    // short-circuits seed→error_handler on re-invoke — failed threads are
+    // abandoned, retry = new runId (covered by the RETRY test above via
+    // runChapterWithGraph).
+    clearStageCache(dataDir); // attempt 1 must really fail, not cache-hit
+    const relDir = path.join(dataDir, "projects", PROJ_ID, "chapters", CHAPTER);
+    fs.mkdirSync(relDir, { recursive: true });
+    fs.writeFileSync(path.join(relDir, "source.txt"), TEXT, "utf-8");
+    const chapterTextPath = path.join("chapters", CHAPTER, "source.txt");
+    const thread = `${PROJ_ID}:${CHAPTER}:failed-pin`;
+    const failing = new ScriptedProvider([
+      whenNarrative({ kind: "error", message: "hard: broken" }),
+      whenAttribution({ kind: "json", value: FIXTURE_ATTRIBUTION }),
+      whenSegmentation({ kind: "json", value: FIXTURE_SEGMENTATION }),
+      whenFidelity({ kind: "json", value: FIXTURE_FIDELITY("any") }),
+      whenVisualPrompt({ kind: "json", value: FIXTURE_VISUAL_PROMPT("any") }),
+    ]);
+    const mkDeps = (provider: any): ChapterGraphDeps => ({
+      dataDir, provider, model: "m", sceneConcurrency: 3,
+      rag: null, sceneRepo: sceneRepoStub() as any,
+      pendingStore: new PendingProposalStore(dataDir, PROJ_ID),
+      signal: new AbortController().signal, onProgress: () => {},
+    });
+    const baseInput = {
+      projectId: PROJ_ID, chapterId: CHAPTER, runId: "run_failpin",
+      chapterIndex: 0, chapterTitle: "第1章", chapterTextPath,
+      fallbackPolicy: "fail" as const, reviewMode: false,
+    };
+    const failed: any = await buildChapterGraph(mkDeps(failing as any), cm.saver)
+      .invoke(baseInput, { configurable: { thread_id: thread } });
+    expect(failed.error).toContain("fallbackPolicy=fail");
+    expect(failed.currentStage).toBe("failed");
+
+    // same-thread re-invoke with a HAPPY provider: still failed, zero new LLM
+    // calls — the run was NOT resumed, the error short-circuit fired.
+    const happy = happyProvider();
+    const reentry: any = await buildChapterGraph(mkDeps(happy as any), cm.saver)
+      .invoke(baseInput, { configurable: { thread_id: thread } });
+    expect(reentry.error).toContain("fallbackPolicy=fail");
+    expect(Object.keys(reentry.sceneResults ?? {}).length).toBe(0);
+    expect(happy.calls.length).toBe(0);
   });
 
   it("waiting_review: outcome + bookkeeping + own TTL (reaper never touches)", async () => {

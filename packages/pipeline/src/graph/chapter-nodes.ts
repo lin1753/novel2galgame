@@ -399,6 +399,8 @@ export async function ragIngestScenesNode(ctx: NodeCtx): Promise<Partial<Chapter
 export interface SceneWorkerInput {
   sceneId: string;
   sceneIndex: number;
+  /** Total scenes in the chapter (for scene-level SSE progress). */
+  sceneCount: number;
   // Run-level constants copied into the Send payload (0.2.74 Send workers
   // cannot read the parent state; these are small and serializable):
   projectId: string;
@@ -425,9 +427,12 @@ export async function sceneWorkerNode(
     fallbackPolicy: input.fallbackPolicy,
   } as ChapterGraphStateType;
   const signal = (config as { signal?: AbortSignal } | undefined)?.signal ?? deps.signal;
+  // Scene-scoped progress: every event from this worker carries structured
+  // sceneId/sceneIndex/sceneCount (S9) — stage-internal calls inherit it.
+  const sceneExtra = { sceneId: input.sceneId, sceneIndex: input.sceneIndex, sceneCount: input.sceneCount };
   const baseCtx: StageCtx = {
     projectId: state.projectId, chapterId: state.chapterId, chapterIndex: state.chapterIndex,
-    signal, onProgress: deps.onProgress,
+    signal, onProgress: (stage, message, extra) => deps.onProgress?.(stage, message, { ...sceneExtra, ...extra }),
   };
   const seg = readChapterJson<any>(deps.dataDir, state.projectId, state.chapterId, "segmentation.json");
   const attr = readChapterJson<any>(deps.dataDir, state.projectId, state.chapterId, "attributed_units.json");
@@ -476,7 +481,7 @@ export async function sceneWorkerNode(
     } catch (err) {
       if (signal?.aborted) throw err;
       // Fidelity failure is non-fatal (monolithic parity): mark and continue
-      deps.onProgress?.("fidelity_review", `Fidelity errored for ${input.sceneId} (continuing): ${err instanceof Error ? err.message : err}`);
+      deps.onProgress?.("fidelity_review", `Fidelity errored for ${input.sceneId} (continuing): ${err instanceof Error ? err.message : err}`, sceneExtra);
       fidelityPassed = false;
       break;
     }
@@ -558,7 +563,7 @@ export async function sceneWorkerNode(
     }
   } catch (err) {
     if (signal?.aborted) throw err;
-    deps.onProgress?.("visual_prompt", `Visual prompt failed for ${input.sceneId} (skipping): ${err instanceof Error ? err.message : err}`);
+    deps.onProgress?.("visual_prompt", `Visual prompt failed for ${input.sceneId} (skipping): ${err instanceof Error ? err.message : err}`, sceneExtra);
   }
 
   const degraded = (vnData as any).degraded;

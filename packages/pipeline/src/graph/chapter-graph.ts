@@ -101,6 +101,7 @@ export function buildChapterGraph(deps: ChapterGraphDeps, checkpointer?: BaseChe
       return state.sceneIds.map((sceneId, index) => new Send("scene_worker", {
         sceneId,
         sceneIndex: index,
+        sceneCount: state.sceneIds.length,
         projectId: state.projectId,
         chapterId: state.chapterId,
         chapterIndex: state.chapterIndex,

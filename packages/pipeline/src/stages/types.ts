@@ -14,8 +14,8 @@ export interface StageCtx {
   chapterIndex: number;
   /** Aborts in-flight provider requests AND is checked between stages. */
   signal?: AbortSignal;
-  /** Progress reporting: (stageName, message). */
-  onProgress?: (stage: string, message: string) => void;
+  /** Progress reporting: (stageName, message, extra scene context). */
+  onProgress?: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => void;
   /** Token accounting per stage. */
   tokenAcc?: { prompt: number; completion: number };
   /**

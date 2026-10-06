@@ -47,6 +47,7 @@ export interface ChapterProgressEvent {
   status: QueueChapterStatus;
   stage: string;
   message?: string;
+  sceneId?: string;
   sceneIndex?: number;
   sceneCount?: number;
   /** 1-based attempt number (1 = first try). Present so the frontend can show retry state. */
@@ -562,7 +563,7 @@ export class PipelineTaskQueue {
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
     // Emit progress for each stage
-    const progressCallback = (stage: string, message: string) => {
+    const progressCallback = (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => {
       if (signal.aborted) return;
       this.watchdogs.get(chapter.chapterId)?.activity(); // any progress resets the no-progress timer
       this._emit({
@@ -571,6 +572,9 @@ export class PipelineTaskQueue {
         status: "running",
         stage,
         message,
+        sceneId: extra?.sceneId,
+        sceneIndex: extra?.sceneIndex,
+        sceneCount: extra?.sceneCount,
       });
     };
 
@@ -647,6 +651,9 @@ export class PipelineTaskQueue {
     status: QueueChapterStatus;
     stage: string;
     message?: string;
+    sceneId?: string;
+    sceneIndex?: number;
+    sceneCount?: number;
     attempt?: number;
   }) {
     this.onProgress?.({
@@ -656,6 +663,9 @@ export class PipelineTaskQueue {
       status: event.status,
       stage: event.stage,
       message: event.message,
+      sceneId: event.sceneId,
+      sceneIndex: event.sceneIndex,
+      sceneCount: event.sceneCount,
       attempt: event.attempt,
     });
   }

@@ -33,5 +33,5 @@ export interface ChapterGraphDeps {
   /** Abort signal — threaded to every provider request via config.signal. */
   signal?: AbortSignal;
   /** Progress reporting → SSE mapping (2c wires the stream adapter). */
-  onProgress?: (stage: string, message: string) => void;
+  onProgress?: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => void;
 }
