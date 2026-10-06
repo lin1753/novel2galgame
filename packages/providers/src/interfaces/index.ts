@@ -4,4 +4,6 @@ export {
   type LLMResponse,
   type LLMProvider,
   type LLMProviderConfig,
+  type OnWaitReason,
+  type OnWaitFn,
 } from "./llm.js";

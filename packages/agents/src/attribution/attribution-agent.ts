@@ -87,6 +87,8 @@ export async function runAttributionAgent(
   
   // Create a growing list of known characters that updates as we process chunks
   let currentKnownCharacters = [...(knownCharacters ?? [])];
+  // S11a: count chunks produced by the L0 pass-through fallback (LLM threw).
+  let fallbackChunks = 0;
 
   for (let i = 0; i < units.length; i += CHUNK_SIZE) {
     const chunkUnits = units.slice(i, i + CHUNK_SIZE);
@@ -169,7 +171,8 @@ ${unitsText}
       if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
       console.error(`[AttributionAgent] LLM failed for chunk ${Math.floor(i/CHUNK_SIZE)+1} in chapter ${chapterId}:`, err);
       console.warn(`[AttributionAgent] LLM failed, using fallback pass-through for chunk.`);
-      
+      fallbackChunks++;
+
       const fallbackUnits: AttributedNarrativeUnit[] = chunkUnits.map((u) => ({
         ...u,
         chapterId,
@@ -232,6 +235,16 @@ ${unitsText}
 
   return {
     success: true,
+    // S11a: explicit degraded marker (replaces chapter-stages heuristic).
+    // NOTE: the L157-160 local patch (missing-speakerId → "unknown" with
+    // "fallback: missing speakerId" evidence) is an LLM-output repair, NOT a
+    // fallback — it must NOT set degraded. Only whole-chunk LLM failure counts.
+    ...(fallbackChunks > 0
+      ? {
+          degraded: "l0_attribution",
+          fallbackReason: `${fallbackChunks} chunk(s) LLM failed, pass-through`,
+        }
+      : {}),
     data: {
       chapterId,
       units: finalAlignedUnits,

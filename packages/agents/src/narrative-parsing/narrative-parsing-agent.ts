@@ -68,6 +68,9 @@ export async function runNarrativeParsingAgent(
   const MAX_CHARS = 500;
   const textChunks = splitText(chapterText, MAX_CHARS);
   const allUnits: NarrativeUnit[] = [];
+  // S11a: count chunks produced by the L0 line-split fallback (LLM threw or
+  // returned no usable units) so the result carries an explicit marker.
+  let fallbackChunks = 0;
 
   for (let chunkIdx = 0; chunkIdx < textChunks.length; chunkIdx++) {
     const chunk = textChunks[chunkIdx];
@@ -107,6 +110,7 @@ ${sanitizeForPrompt(chunk)}
 
     // 智能保底：若 LLM 未返回有效单元或调用异常，按段落/对白切分规则保底
     if (chunkUnits.length === 0 && chunk.trim().length > 0) {
+      fallbackChunks++;
       const lines = chunk.split(/\n+/).filter((l) => l.trim().length > 0);
       chunkUnits = lines.map((line, lIdx) => {
         const isDialogue = line.includes("“") || line.includes("”") || line.includes("\"");
@@ -149,6 +153,16 @@ ${sanitizeForPrompt(chunk)}
 
   return {
     success: true,
+    // S11a: explicit degraded marker (replaces chapter-stages heuristic).
+    // Set ONLY when at least one chunk actually took the L0 line-split
+    // fallback (LLM threw or returned no usable units). The global unitId
+    // renumbering above is a repair, not a fallback — it never sets this.
+    ...(fallbackChunks > 0
+      ? {
+          degraded: "l0_narrative",
+          fallbackReason: `${fallbackChunks}/${textChunks.length} chunks LLM failed, line-split`,
+        }
+      : {}),
     data: {
       chapterId,
       units: allUnits,

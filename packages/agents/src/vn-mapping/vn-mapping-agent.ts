@@ -99,6 +99,10 @@ export async function runVNMappingAgent(
 
   const allSteps: VNStep[] = [];
   const systemPrompt = loadPrompt("vn-mapping", DEFAULT_SYSTEM_PROMPT);
+  // S11a: count batches produced by the L0 unit-passthrough fallback
+  // (provider retries exhausted or 3× empty-steps) so the result carries
+  // an explicit marker.
+  let fallbackBatches = 0;
 
   for (let bIdx = 0; bIdx < unitBatches.length; bIdx++) {
     const batchUnits = unitBatches[bIdx];
@@ -188,6 +192,7 @@ ${unitsText}
       // 2c determinism (maintainer revision): fallback stepIds derive from
       // sceneId + zero-padded order — unique AND reproducible across runs
       // (Math.random ids broke cache hashing and parity canonicalization).
+      fallbackBatches++;
       const fallbackIndex = allSteps.length;
       const fb = (u: any, idx: number) => `step_${sceneId}_${String(fallbackIndex + idx).padStart(4, "0")}`;
       for (const [uIdx, u] of batchUnits.entries()) {
@@ -300,6 +305,15 @@ ${unitsText}
 
   return {
     success: true,
+    // S11a: explicit degraded marker (replaces chapter-stages heuristic).
+    // NOTE: the bg/auto-show post-processing below is a stage-boundary
+    // repair, NOT a fallback — it must NOT set degraded.
+    ...(fallbackBatches > 0
+      ? {
+          degraded: "l0_vn_mapping",
+          fallbackReason: `${fallbackBatches}/${unitBatches.length} batches LLM failed, unit-passthrough`,
+        }
+      : {}),
     data: {
       sceneId,
       chapterId,

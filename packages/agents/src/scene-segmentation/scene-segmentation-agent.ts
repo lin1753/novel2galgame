@@ -65,6 +65,8 @@ export async function runSceneSegmentationAgent(
 
   const validUnitIds = new Set(units.map((u) => u.unitId));
   const finalScenes: Scene[] = [];
+  // S11a: count chunks produced by the L0 heuristic fallback (LLM threw).
+  let fallbackChunks = 0;
   
   for (let i = 0; i < units.length; i += CHUNK_SIZE) {
     const chunkUnits = units.slice(i, i + CHUNK_SIZE);
@@ -124,6 +126,7 @@ ${unitsText}
     } catch (err: any) {
       if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
       console.warn(`[sceneSegmentationAgent] LLM failed for chunk ${Math.floor(i / CHUNK_SIZE) + 1}, falling back to heuristic scene splitting for chunk: ${err instanceof Error ? err.message : String(err)}`);
+      fallbackChunks++;
       
       const FALLBACK_SCENE_SIZE = 15;
       for (let j = 0; j < chunkUnits.length; j += FALLBACK_SCENE_SIZE) {
@@ -174,6 +177,15 @@ ${unitsText}
 
   return {
     success: true,
+    // S11a: explicit degraded marker (replaces chapter-stages heuristic).
+    // NOTE: the "all units in last scene" guarantee below is a post-hoc
+    // repair of dropped units, NOT a fallback — it must NOT set degraded.
+    ...(fallbackChunks > 0
+      ? {
+          degraded: "l0_segmentation",
+          fallbackReason: `${fallbackChunks} chunk(s) LLM failed, heuristic split`,
+        }
+      : {}),
     data: {
       chapterId,
       scenes: finalScenes,
