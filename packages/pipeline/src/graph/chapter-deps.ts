@@ -1,5 +1,6 @@
 import type { LLMProvider } from "@novel2gal/providers";
 import type { PendingProposalStore } from "./pending-store.js";
+import type { ChapterRunAccumulator } from "../stages/run-manifest.js";
 
 /**
  * Runtime dependencies injected into the chapter graph at build time (stage
@@ -34,4 +35,11 @@ export interface ChapterGraphDeps {
   signal?: AbortSignal;
   /** Progress reporting → SSE mapping (2c wires the stream adapter). */
   onProgress?: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => void;
+  /**
+   * Stage-3 Phase 4: shared per-chapter accumulator (stats + tokens, by
+   * REFERENCE — every stage ctx points at these same objects). Optional so
+   * older callers/tests keep working; when absent each node falls back to a
+   * throwaway local bucket and no manifest is aggregated.
+   */
+  runStats?: ChapterRunAccumulator;
 }

@@ -90,8 +90,26 @@ export const ChapterGraphState = Annotation.Root({
     reducer: (_p, n) => n,
   }),
 
-  // ── genre/style (M3) ──
+  // ── genre/style (M3; project-level detect-once) ──
   styleTemplate: Annotation<string>({ default: () => "", reducer: (_p, n) => n }),
+  /**
+   * Project title — the ONLY title genre detection may see. Chapter titles
+   * never participate (input; set by run-chapter-graph from project.title).
+   */
+  projectTitle: Annotation<string>({ default: () => "", reducer: (_p, n) => n }),
+  /**
+   * Persisted project config genreHint (detect-once reuse; input from
+   * run-chapter-graph). When set, the style node resolves from it and runs
+   * no detection, so every chapter of one project shares one genre.
+   */
+  projectGenreHint: Annotation<string | null>({ default: () => null, reducer: (_p, n) => n }),
+  /**
+   * Freshly detected genre (output, set by rag_ingest_scenes when THIS run
+   * detected; null otherwise). run-chapter-graph persists it to
+   * project.config.genreHint — the graph's write-back channel, mirroring
+   * the legacy pipeline's writeProjectState call.
+   */
+  detectedGenreHint: Annotation<string | null>({ default: () => null, reducer: (_p, n) => n }),
 
   // ── stage status ──
   currentStage: Annotation<string>({ default: () => "narrative_parsing", reducer: (_p, n) => n }),

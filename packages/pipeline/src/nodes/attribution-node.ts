@@ -1,6 +1,3 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { v4 as uuid } from "uuid";
 import type { LLMProvider } from "@novel2gal/providers";
 import { runAttributionAgent } from "@novel2gal/agents";
@@ -108,12 +105,6 @@ export async function attributionNode(
   const t0 = Date.now();
 
   try {
-    // Skip if already done
-    if (state.attributionResult) {
-      state.onProgress?.("attribution", "Skipped (already done)");
-      return { currentStage: "rag_ingest_chars", stageTimings: { attribution: 0 } };
-    }
-
     if (state.signal?.aborted) throw new Error("ABORTED: Pipeline cancelled by user");
     state.onProgress?.("attribution", `Attributing chapter ${state.chapterTitle}`);
 
@@ -125,30 +116,6 @@ export async function attributionNode(
       tokens.prompt += r.usage?.promptTokens ?? 0;
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
-
-    // Cache check
-    const cacheKey = crypto.createHash("sha256")
-      .update(`${state.chapterId}|attribution|${attr.model}|${state.chapterText.slice(0, 200)}`)
-      .digest("hex");
-
-    if (state.db) {
-      const cached = state.db.prepare(
-        "SELECT output_path FROM tasks WHERE input_hash = ? AND status = 'succeeded' AND type = ? AND chapter_id = ? ORDER BY finished_at DESC LIMIT 1"
-      ).get(cacheKey, "attribution", state.chapterId) as { output_path: string } | undefined;
-
-      if (cached?.output_path && fs.existsSync(cached.output_path)) {
-        console.log(`[Cache] HIT attribution for ${state.chapterId}`);
-        const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
-        state.db.prepare(
-          `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-           VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-        ).run(taskId, state.projectId, state.chapterId, "attribution", attr.provider.name, attr.model, 1, now(), now(), cacheKey, cached.output_path);
-        const attributionData = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-        state.onChapterFlags?.(state.chapterId, { attributionDone: true });
-        const durationMs = Date.now() - t0;
-        return { attributionResult: attributionData, ragContext: state.ragContext, currentStage: "rag_ingest_chars", stageTimings: { attribution: durationMs } };
-      }
-    }
 
     // Insert running task
     const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
@@ -209,15 +176,12 @@ export async function attributionNode(
 
     const durationMs = Date.now() - t0;
 
-    // Cache write
+    // Mark the running task row succeeded (audit trail; the tasks table is no
+    // longer a cache — stage-3 keyed artifacts on disk are the hit source).
     if (state.db && state.dataDir) {
-      const cacheDir = path.join(state.dataDir, "cache", state.projectId);
-      fs.mkdirSync(cacheDir, { recursive: true });
-      const outputPath = path.join(cacheDir, `attribution_${state.chapterId}_1.json`);
-      fs.writeFileSync(outputPath, JSON.stringify(attributionData), "utf-8");
       const actualRetries = Math.max(0, retryCount - 1);
-      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
-        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, cacheKey, outputPath, taskId);
+      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=? WHERE task_id=?`)
+        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, taskId);
     }
 
     return {

@@ -92,6 +92,10 @@ describe("2b parity: chapter graph vs monolithic (replayed)", () => {
       {
         projectId: PROJ, chapterId: CHAPTER, runId: "run_parity", chapterIndex: 0,
         chapterTitle: "第1章 初遇",
+        // Project-level genre detection: the graph resolves style from the
+        // PROJECT title (never the chapter title) — feed it the same title
+        // the monolithic side reads from project.json.
+        projectTitle: "对拍小说",
         chapterTextPath: path.join("chapters", CHAPTER, "source.txt"),
         fallbackPolicy: "allow", reviewMode: false,
       },

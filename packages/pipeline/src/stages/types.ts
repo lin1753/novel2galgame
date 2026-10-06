@@ -24,6 +24,15 @@ export interface StageCtx {
    * stable when RAG lands.
    */
   rag?: RagSlots;
+  /**
+   * Stage-cache behavior (stage 3). Additive: absent = no cache involvement.
+   * keepDegraded=false (default) treats a degraded cached artifact as a miss.
+   * stats accumulates per chapter: run (executions), cached (hits), degraded.
+   */
+  cache?: {
+    keepDegraded?: boolean;
+    stats?: { run: number; cached: number; degraded: number };
+  };
 }
 
 /** RAG context slots — retrieval results injected into stages. */

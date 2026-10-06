@@ -51,11 +51,11 @@ export const AGENT_PROMPT_DEFAULTS: Array<{ agentName: string; defaultPrompt: st
  */
 
 /** Normalize for comparison: CRLF→LF + trim, so Windows checkouts don't false-positive. */
-function normalizeForHash(s: string): string {
+export function normalizeForHash(s: string): string {
   return s.replace(/\r\n/g, "\n").trim();
 }
 
-function sha256(s: string): string {
+export function sha256(s: string): string {
   return crypto.createHash("sha256").update(s, "utf8").digest("hex");
 }
 

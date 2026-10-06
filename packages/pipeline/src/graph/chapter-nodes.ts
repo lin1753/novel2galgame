@@ -4,19 +4,13 @@ import type { LangGraphRunnableConfig } from "@langchain/langgraph";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   writeChapterSource,
-  writeNarrativeResult,
-  writeAttributionResult,
-  writeSegmentationResult,
-  writeVNScript,
-  writeFidelityReport,
-  writeVisualPromptResult,
   writeCharacterProfiles,
   readCharacterProfiles,
   readChapterJson,
   readSceneJson,
 } from "@novel2gal/storage";
-import { detectGenreHint, styleForGenre } from "@novel2gal/agents";
-import { CanonicalEntityResolver, extractCharactersFromUnits } from "@novel2gal/core";
+import { resolveProjectStyle } from "@novel2gal/agents";
+import { CanonicalEntityResolver, DIR_NAMES, FILE_NAMES, extractCharactersFromUnits } from "@novel2gal/core";
 import {
   runNarrativeStage,
   runAttributionStage,
@@ -27,6 +21,21 @@ import {
   runVisualPromptStage,
 } from "../stages/chapter-stages.js";
 import type { StageCtx } from "../stages/types.js";
+import { STAGE_VERSIONS } from "../stages/types.js";
+import type { ChapterRunAccumulator } from "../stages/run-manifest.js";
+import {
+  inputHashOf,
+  promptHashFor,
+  withStageCache,
+} from "../stages/stage-cache.js";
+import {
+  narrativeOutputSchema,
+  attributionOutputSchema,
+  segmentationOutputSchema,
+  vnMappingOutputSchema,
+  fidelityOutputSchema,
+  visualPromptOutputSchema,
+} from "../stages/schemas.js";
 import type { ChapterGraphStateType, SceneResultEntry, BibleProposalEntry } from "./chapter-state.js";
 import type { ChapterGraphDeps } from "./chapter-deps.js";
 import type { PendingProposalRecord } from "./pending-store.js";
@@ -58,6 +67,10 @@ function stageCtx(ctx: NodeCtx, over: Partial<StageCtx> = {}): StageCtx {
     chapterIndex: ctx.state.chapterIndex,
     signal,
     onProgress: ctx.deps.onProgress,
+    // Phase 4: one chapter-level token counter shared by reference — the same
+    // object the run accumulator totals. Token spend therefore lands in the
+    // manifest even on full-cache-hit runs (zero LLM calls → zero delta).
+    tokenAcc: ctx.deps.runStats?.tokens,
     ...over,
   };
 }
@@ -85,6 +98,54 @@ function degradedOrFail(degraded: string | undefined, policy: "allow" | "fail"):
   return { degradedStages: [degraded] };
 }
 
+/**
+ * Stage-3: ensure the per-node StageCtx carries a cache stats bucket.
+ * `withStageCache` reads `ctx.cache.keepDegraded` (default false) and bumps
+ * `ctx.cache.stats` (run/cached/degraded); Phase 4 aggregates it into the
+ * chapter run-manifest. Additive — callers pass no cache options today.
+ *
+ * Phase 4: when the run wired a SHARED accumulator (`deps.runStats`), every
+ * ctx points at its SAME objects by reference — one chapter-level caliber for
+ * manifest/SSE regardless of which node ran the stage. Send workers cannot
+ * read parent state (0.2.74), so the accumulator travels via deps (run-level
+ * constants, same as projectId/chapterId). Without a shared accumulator the
+ * ctx gets a throwaway bucket and nothing is aggregated.
+ */
+function cacheCtx(ctx: StageCtx, runStats?: ChapterRunAccumulator): StageCtx {
+  if (runStats) {
+    ctx.cache = { stats: runStats.stats };
+    return ctx;
+  }
+  if (!ctx.cache) ctx.cache = { stats: { run: 0, cached: 0, degraded: 0 } };
+  else if (!ctx.cache.stats) ctx.cache.stats = { run: 0, cached: 0, degraded: 0 };
+  return ctx;
+}
+
+/** Absolute artifact path for a chapter-level stage result file. */
+function chapterArtifactPath(deps: ChapterGraphDeps, state: ChapterGraphStateType, fileName: string): string {
+  return path.join(deps.dataDir, "projects", state.projectId, DIR_NAMES.chapters, state.chapterId, fileName);
+}
+
+/** Absolute artifact path for a scene-level stage result file. */
+function sceneArtifactPath(deps: ChapterGraphDeps, state: ChapterGraphStateType, sceneId: string, fileName: string): string {
+  return path.join(deps.dataDir, "projects", state.projectId, DIR_NAMES.scenes, sceneId, fileName);
+}
+
+/**
+ * Stage-3 scene-input assembly: `sceneId` + a hash of the FULL scene content
+ * (scene boundary object + the scene's units). A boundary re-cut (new sceneId)
+ * or a content edit changes the key and invalidates exactly the affected
+ * scenes; untouched scenes keep hitting. `repairContext` is part of the
+ * assembled input (replaces the old `repairSalt` role).
+ */
+function sceneInputHash(sceneId: string, scene: unknown, sceneUnits: unknown, extra?: Record<string, unknown>): string {
+  return inputHashOf({
+    sceneId,
+    sceneContentHash: inputHashOf({ scene, units: sceneUnits }),
+    ...(extra ?? {}),
+  });
+}
+
 // ── Node: seed (writes chapter source; establishes run) ──
 export async function seedNode(ctx: NodeCtx): Promise<Partial<ChapterGraphStateType>> {
   const { state, deps } = ctx;
@@ -100,13 +161,27 @@ export async function seedNode(ctx: NodeCtx): Promise<Partial<ChapterGraphStateT
 export async function narrativeNode(ctx: NodeCtx): Promise<Partial<ChapterGraphStateType>> {
   const { state, deps } = ctx;
   const text = fs.readFileSync(resolveProjectPath(deps, state, state.chapterTextPath), "utf-8");
-  const out = await runNarrativeStage(
-    { chapterId: state.chapterId, chapterTitle: state.chapterTitle, chapterText: text },
-    agent(ctx, "narrative"),
-    stageCtx(ctx),
+  const stageInput = { chapterId: state.chapterId, chapterTitle: state.chapterTitle, chapterText: text };
+  const stageAgent = agent(ctx, "narrative");
+  const sctx = cacheCtx(stageCtx(ctx), deps.runStats);
+  // Stage-3 cache: input = the stage function's full input (the whole chapter
+  // text — any edit invalidates); artifact = the existing chapter artifact.
+  const cached = await withStageCache(
+    {
+      stage: "narrative_parsing",
+      stageVersion: STAGE_VERSIONS.narrative_parsing,
+      artifactPath: chapterArtifactPath(deps, state, FILE_NAMES.narrativeUnits),
+      outputSchema: narrativeOutputSchema,
+      inputHash: inputHashOf(stageInput),
+      promptHash: promptHashFor("narrative-parsing"),
+      model: stageAgent.model,
+      ctx: sctx,
+    },
+    () => runNarrativeStage(stageInput, stageAgent, sctx),
   );
+  const out = cached.data;
+  if (cached.cached) deps.onProgress?.("narrative_parsing", "Cache hit (skipped LLM call)");
   if (out.degraded) deps.onProgress?.("narrative_parsing", `L0 fallback: ${out.degraded}`);
-  writeNarrativeResult(deps.dataDir, state.projectId, state.chapterId, out as any);
   return {
     ...bump("narrative"),
     narrativePath: path.join("chapters", state.chapterId, "narrative_units.json"),
@@ -145,11 +220,32 @@ export async function attributionNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
     } catch { /* RAG optional */ }
   }
 
-  const out = await runAttributionStage(
-    { chapterId: state.chapterId, units: narrative.units, characterKnowledge, knownCharacters },
-    agent(ctx, "attribution"),
-    stageCtx(ctx, { rag: { knownCharacters } }),
+  const stageInput = { chapterId: state.chapterId, units: narrative.units, characterKnowledge, knownCharacters };
+  const stageAgent = agent(ctx, "attribution");
+  const sctx = cacheCtx(stageCtx(ctx, { rag: { knownCharacters } }), deps.runStats);
+  const artifactPath = chapterArtifactPath(deps, state, FILE_NAMES.attributedUnits);
+  // Stage-3 cache: input = the stage function's full input (units + both RAG
+  // slots). The M4 post-processing below (resolver/isGroup/pending) runs on
+  // BOTH paths — it is deterministic disk-derived fixup, not LLM work, and is
+  // idempotent on already-processed data (renames resolve to themselves;
+  // pending re-saves are deduped in the store). On a miss the post-processed
+  // result is written back over the raw stage output (pre-cache parity: the
+  // artifact always carried M4 fixup); the meta key covers inputs only.
+  const cached = await withStageCache(
+    {
+      stage: "attribution",
+      stageVersion: STAGE_VERSIONS.attribution,
+      artifactPath,
+      outputSchema: attributionOutputSchema,
+      inputHash: inputHashOf(stageInput),
+      promptHash: promptHashFor("attribution"),
+      model: stageAgent.model,
+      ctx: sctx,
+    },
+    () => runAttributionStage(stageInput, stageAgent, sctx),
   );
+  if (cached.cached) deps.onProgress?.("attribution", "Cache hit (skipped LLM call)");
+  const out = cached.data as typeof cached.data & { aliasMap?: Record<string, string>; speakerIdToCharId?: Record<string, string> };
 
   // ── M4 post-processing: resolver + isGroup + pending proposals ──
   const pending: PendingProposalRecord[] = [];
@@ -247,7 +343,14 @@ export async function attributionNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
     }
   }
 
-  writeAttributionResult(deps.dataDir, state.projectId, state.chapterId, out as any);
+  if (!cached.cached) {
+    // Persist the M4 post-processed result (resolver renames + isGroup flags)
+    // over the raw stage output written by withStageCache on a miss.
+    // Idempotent: the plain-JSON write carries the same bytes a legacy run
+    // produced; the sidecar meta key is unaffected. (Hit path: the artifact
+    // already carries this fixup from its producing run — no rewrite needed.)
+    fs.writeFileSync(artifactPath, JSON.stringify(out, null, 2), "utf-8");
+  }
   return {
     ...bump("attribution"),
     attributionPath: path.join("chapters", state.chapterId, "attributed_units.json"),
@@ -337,14 +440,37 @@ export async function segmentationNode(ctx: NodeCtx): Promise<Partial<ChapterGra
     } catch { /* optional */ }
   }
 
-  const raw = await runSegmentationStage(
-    { chapterId: state.chapterId, units: attr.units, sceneHints },
-    agent(ctx, "segmentation"),
-    stageCtx(ctx),
+  const stageInput = { chapterId: state.chapterId, units: attr.units, sceneHints };
+  const stageAgent = agent(ctx, "segmentation");
+  const sctx = cacheCtx(stageCtx(ctx), deps.runStats);
+  const artifactPath = chapterArtifactPath(deps, state, FILE_NAMES.segmentation);
+  // Stage-3 cache: input = the stage function's full input (attributed units
+  // + sceneHints RAG slot). runSceneFixup (unitIds remap + sceneId prefixing)
+  // is deterministic post-processing: it runs on BOTH paths and is idempotent
+  // on already-fixed data (remap only fires on unknown unitIds; prefixing only
+  // when the id lacks the chapter prefix). On a miss the fixed result is
+  // written back over the raw stage output (pre-cache parity: the artifact
+  // always carried fixup); the meta key covers inputs only.
+  const cached = await withStageCache(
+    {
+      stage: "scene_segmentation",
+      stageVersion: STAGE_VERSIONS.scene_segmentation,
+      artifactPath,
+      outputSchema: segmentationOutputSchema,
+      inputHash: inputHashOf(stageInput),
+      promptHash: promptHashFor("scene-segmentation"),
+      model: stageAgent.model,
+      ctx: sctx,
+    },
+    () => runSegmentationStage(stageInput, stageAgent, sctx),
   );
+  if (cached.cached) deps.onProgress?.("scene_segmentation", "Cache hit (skipped LLM call)");
+  const raw = cached.data;
   const fixed = runSceneFixup({ chapterId: state.chapterId, segResult: raw as any, units: attr.units });
 
-  writeSegmentationResult(deps.dataDir, state.projectId, state.chapterId, fixed as any);
+  if (!cached.cached) {
+    fs.writeFileSync(artifactPath, JSON.stringify(fixed, null, 2), "utf-8");
+  }
 
   // Register scenes in the DB (idempotent: INSERT OR IGNORE at repo level)
   fixed.scenes.forEach((s: any, i: number) => {
@@ -369,18 +495,37 @@ export async function segmentationNode(ctx: NodeCtx): Promise<Partial<ChapterGra
 export async function ragIngestScenesNode(ctx: NodeCtx): Promise<Partial<ChapterGraphStateType>> {
   const { state, deps } = ctx;
 
-  // M3 genre-aware style resolution (monolithic parity): explicit template
-  // wins; empty/'default' → detectGenreHint(project title + chapter text)
-  // → styleForGenre. Resolved BEFORE the fan-out so every scene worker
-  // receives a concrete STYLE_TEMPLATES key.
+  // M3 genre-aware style resolution (project-level detect-once, shared
+  // resolveProjectStyle helper — same as the legacy pipeline). Precedence:
+  // explicit config template > persisted projectGenreHint > fresh detection
+  // over (projectTitle + chapter-text sample). Chapter titles NEVER
+  // participate: only state.projectTitle feeds detection, so different
+  // chapters of one project always resolve one genre. Runs with no
+  // detection write nothing back (detectedGenreHint stays null); the FIRST
+  // detecting run sets detectedGenreHint and run-chapter-graph persists it
+  // to project.config.genreHint (the graph's write-back channel).
+  // Resolved BEFORE the fan-out so every scene worker receives a concrete
+  // STYLE_TEMPLATES key.
   let resolvedStyle = state.styleTemplate;
+  let detected: string | null = null;
   if (!resolvedStyle || resolvedStyle === "default") {
     const text = fs.readFileSync(resolveProjectPath(deps, state, state.chapterTextPath), "utf-8");
-    resolvedStyle = styleForGenre(detectGenreHint(state.chapterTitle, text.slice(0, 2000)));
+    const resolved = resolveProjectStyle(
+      {
+        title: state.projectTitle,
+        config: {
+          genreHint: state.projectGenreHint,
+          visualStyleTemplate: state.styleTemplate,
+        },
+      },
+      text.slice(0, 2000),
+    );
+    resolvedStyle = resolved.styleTemplate;
+    detected = resolved.genreHint ?? null;
   }
 
   if (!deps.rag) {
-    return { ...bump("rag_ingest_scenes"), styleTemplate: resolvedStyle, currentStage: "scene_fanout" };
+    return { ...bump("rag_ingest_scenes"), styleTemplate: resolvedStyle, detectedGenreHint: detected, currentStage: "scene_fanout" };
   }
   try {
     const seg = readChapterJson<any>(deps.dataDir, state.projectId, state.chapterId, "segmentation.json");
@@ -392,7 +537,7 @@ export async function ragIngestScenesNode(ctx: NodeCtx): Promise<Partial<Chapter
   } catch (e) {
     deps.onProgress?.("rag_ingest_scenes", `RAG ingest failed (non-fatal): ${e instanceof Error ? e.message : e}`);
   }
-  return { ...bump("rag_ingest_scenes"), styleTemplate: resolvedStyle, currentStage: "scene_fanout" };
+  return { ...bump("rag_ingest_scenes"), styleTemplate: resolvedStyle, detectedGenreHint: detected, currentStage: "scene_fanout" };
 }
 
 // ── Scene worker (Send target): vn_mapping → fidelity → visual_prompt ──
@@ -433,6 +578,9 @@ export async function sceneWorkerNode(
   const baseCtx: StageCtx = {
     projectId: state.projectId, chapterId: state.chapterId, chapterIndex: state.chapterIndex,
     signal, onProgress: (stage, message, extra) => deps.onProgress?.(stage, message, { ...sceneExtra, ...extra }),
+    // Phase 4: scene workers share the run accumulator by reference via deps
+    // (Send payloads cannot carry live objects; deps travel the closure).
+    tokenAcc: deps.runStats?.tokens,
   };
   const seg = readChapterJson<any>(deps.dataDir, state.projectId, state.chapterId, "segmentation.json");
   const attr = readChapterJson<any>(deps.dataDir, state.projectId, state.chapterId, "attributed_units.json");
@@ -441,24 +589,51 @@ export async function sceneWorkerNode(
     return { error: `scene ${input.sceneId} not found in segmentation.json` };
   }
   const sceneUnits = (attr?.units ?? []).filter((u: any) => scene.unitIds.includes(u.unitId));
+  const workerCtx = cacheCtx(baseCtx, deps.runStats);
+  const vnAgent = deps.agentModels?.vnMapping ?? { provider: deps.provider, model: deps.model };
+  const fidelityAgent = deps.agentModels?.fidelityReview ?? { provider: deps.provider, model: deps.model };
+  const vnArtifactPath = sceneArtifactPath(deps, state, input.sceneId, FILE_NAMES.vnScript);
+  const runMapping = (repairContext?: string) => {
+    const stageInput = {
+      sceneId: input.sceneId, chapterId: state.chapterId, scene, units: sceneUnits,
+      mappingMode: "standard", repairContext,
+    };
+    return withStageCache(
+      {
+        stage: "vn_mapping",
+        stageVersion: STAGE_VERSIONS.vn_mapping,
+        artifactPath: vnArtifactPath,
+        outputSchema: vnMappingOutputSchema,
+        // Repair rounds hash repairContext INTO the key (old repairSalt role):
+        // a repair never reuses the failed script it is fixing.
+        inputHash: sceneInputHash(input.sceneId, scene, sceneUnits, { mappingMode: "standard", repairContext }),
+        promptHash: promptHashFor("vn-mapping"),
+        model: vnAgent.model,
+        ctx: workerCtx,
+      },
+      () => runVNMappingStage(stageInput as any, vnAgent, workerCtx),
+    );
+  };
 
-  // Skip already-mapped scenes (branch retry: only failed scenes re-map).
+  // Previously-mapped fast path (branch retry: only failed scenes re-map).
+  // Now: the stage cache decides. A hit reuses the on-disk script AND rewrites
+  // the sceneRepo status the old skip maintained (downstream fan-in and the
+  // branch-retry test read mappingStatus, not the cache). A degraded cached
+  // script is a MISS by default (withStageCache, keepDegraded=false) and
+  // recomputes — so a degraded script can never "skip" into a done status:
+  // the mark-done line stays gated on !vnData.degraded (the 460-462 no-deadly-
+  // loop rule, preserved).
   // A previously-degraded mapping persists `degraded` into vn_script.json;
   // the retry must NOT re-fail on it — fallbackPolicy applies to THIS run's
-  // fresh mappings only. Strip the marker when reusing an on-disk script.
-  const sceneState = deps.sceneRepo?.getById(input.sceneId);
+  // fresh mappings only. Strip the marker when reusing a cache-hit script.
   let vnData: any;
-  if (sceneState?.mappingStatus === "done") {
-    vnData = readSceneJson(deps.dataDir, state.projectId, input.sceneId, "vn_script.json");
-    if (vnData) delete (vnData as any).degraded;
-  }
-  if (!vnData) {
-    vnData = await runVNMappingStage(
-      { sceneId: input.sceneId, chapterId: state.chapterId, scene, units: sceneUnits, mappingMode: "standard" },
-      deps.agentModels?.vnMapping ?? { provider: deps.provider, model: deps.model },
-      baseCtx,
-    );
-    writeVNScript(deps.dataDir, state.projectId, input.sceneId, vnData);
+  const hit0 = await runMapping();
+  if (hit0.cached) {
+    vnData = hit0.data;
+    if ((vnData as any).degraded) delete (vnData as any).degraded;
+    try { deps.sceneRepo?.updateStatus(input.sceneId, { mappingStatus: "done" }); } catch {}
+  } else {
+    vnData = hit0.data;
     // A degraded mapping must NOT be marked done under fail policy — the
     // branch retry relies on mappingStatus to decide skip-vs-remap, and a
     // skipped degraded script would re-fail forever.
@@ -471,13 +646,27 @@ export async function sceneWorkerNode(
   let fidelity: any = null;
   let fidelityPassed = true;
   let repairCount = 0;
+  const fidelityArtifactPath = sceneArtifactPath(deps, state, input.sceneId, FILE_NAMES.fidelityReport);
   for (let round = 0; round < 3; round++) {
+    const stageInput = { sceneId: input.sceneId, chapterId: state.chapterId, vnScript: vnData, originalUnits: sceneUnits };
     try {
-      fidelity = await runFidelityStage(
-        { sceneId: input.sceneId, chapterId: state.chapterId, vnScript: vnData, originalUnits: sceneUnits },
-        deps.agentModels?.fidelityReview ?? { provider: deps.provider, model: deps.model },
-        baseCtx,
+      const hit = await withStageCache(
+        {
+          stage: "fidelity_review",
+          stageVersion: STAGE_VERSIONS.fidelity_review,
+          artifactPath: fidelityArtifactPath,
+          outputSchema: fidelityOutputSchema,
+          // The reviewed script is part of the input: a repaired script gets
+          // a fresh review instead of hitting the stale failed report (the
+          // old vnScriptHash role, folded into the unified key).
+          inputHash: sceneInputHash(input.sceneId, scene, sceneUnits, { vnScript: vnData }),
+          promptHash: promptHashFor("fidelity-review"),
+          model: fidelityAgent.model,
+          ctx: workerCtx,
+        },
+        () => runFidelityStage(stageInput as any, fidelityAgent, workerCtx),
       );
+      fidelity = hit.data;
     } catch (err) {
       if (signal?.aborted) throw err;
       // Fidelity failure is non-fatal (monolithic parity): mark and continue
@@ -485,7 +674,6 @@ export async function sceneWorkerNode(
       fidelityPassed = false;
       break;
     }
-    writeFidelityReport(deps.dataDir, state.projectId, input.sceneId, fidelity);
     fidelityPassed = fidelity.passed;
     try { deps.sceneRepo?.updateStatus(input.sceneId, { reviewStatus: fidelityPassed ? "passed" : "failed" }); } catch {}
 
@@ -496,13 +684,9 @@ export async function sceneWorkerNode(
     const repairContext = (fidelity.issues ?? [])
       .map((iss: any) => `[${iss.severity}] ${iss.message}${iss.suggestion ? ` (建议: ${iss.suggestion})` : ""}`)
       .join("\n").slice(0, 2000);
-    deps.onProgress?.("vn_mapping", `Repairing ${input.sceneId} (attempt ${repairCount}/2)`);
-    vnData = await runVNMappingStage(
-      { sceneId: input.sceneId, chapterId: state.chapterId, scene, units: sceneUnits, mappingMode: "standard", repairContext },
-      deps.agentModels?.vnMapping ?? { provider: deps.provider, model: deps.model },
-      baseCtx,
-    );
-    writeVNScript(deps.dataDir, state.projectId, input.sceneId, vnData);
+    deps.onProgress?.("vn_mapping", `Repairing ${input.sceneId} (attempt ${repairCount}/2)`, sceneExtra);
+    const repaired = await runMapping(repairContext);
+    vnData = repaired.data;
   }
 
   // Visual prompt (uses per-scene knowledge slots; failures skip, not fatal)
@@ -510,17 +694,34 @@ export async function sceneWorkerNode(
   let visualPromptPath: string | undefined;
   try {
     const characterKnowledge = await buildCharacterKnowledge(ctx0(deps, state), input.sceneId, (attr?.characters ?? []));
-    const vp = await runVisualPromptStage(
+    const vpAgent = deps.agentModels?.visualPrompt ?? { provider: deps.provider, model: deps.model };
+    const vpInput = {
+      sceneId: input.sceneId, chapterId: state.chapterId, scene,
+      units: sceneUnits, characters: attr?.characters ?? [],
+      styleTemplate: state.styleTemplate,
+      characterKnowledge,
+    };
+    const vpHit = await withStageCache(
       {
-        sceneId: input.sceneId, chapterId: state.chapterId, scene,
-        units: sceneUnits, characters: attr?.characters ?? [],
-        styleTemplate: state.styleTemplate,
-        characterKnowledge,
+        stage: "visual_prompt",
+        stageVersion: STAGE_VERSIONS.visual_prompt,
+        artifactPath: sceneArtifactPath(deps, state, input.sceneId, FILE_NAMES.visualPrompt),
+        outputSchema: visualPromptOutputSchema,
+        // Knowledge slots are LLM-input-equivalent: bible profiles evolve as
+        // earlier scenes lock, so the assembled characterKnowledge string plus
+        // the style template join the key (scene content via sceneInputHash).
+        inputHash: sceneInputHash(input.sceneId, scene, sceneUnits, {
+          characters: attr?.characters ?? [],
+          styleTemplate: state.styleTemplate,
+          characterKnowledge,
+        }),
+        promptHash: promptHashFor("visual-prompt"),
+        model: vpAgent.model,
+        ctx: workerCtx,
       },
-      deps.agentModels?.visualPrompt ?? { provider: deps.provider, model: deps.model },
-      baseCtx,
+      () => runVisualPromptStage(vpInput as any, vpAgent, workerCtx),
     );
-    writeVisualPromptResult(deps.dataDir, state.projectId, input.sceneId, vp as any);
+    const vp = vpHit.data;
     visualPromptPath = path.join("scenes", input.sceneId, "visual_prompt.json");
 
     // Bible proposals only — NO profile writes here (fan-in commits serially).

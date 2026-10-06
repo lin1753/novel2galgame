@@ -55,6 +55,7 @@ export const narrativeInputSchema = z.object({
 });
 export const narrativeOutputSchema = narrativeParsingResultSchema.extend({
   degraded: z.string().optional(), // "l0_narrative" when rule fallback produced the units
+  degradedReason: z.string().optional(), // agent-reported fallback detail (S11a explicit)
 });
 
 // ── Stage 2: attribution ──
@@ -75,6 +76,7 @@ export const attributionInputSchema = z.object({
 export const attributionOutputSchema = attributionResultSchema.extend({
   speakerIdToCharId: z.record(z.string()).optional(),
   degraded: z.string().optional(), // "l0_attribution"
+  degradedReason: z.string().optional(),
 }).passthrough();
 
 // ── Stage 3: segmentation ──
@@ -85,6 +87,7 @@ export const segmentationInputSchema = z.object({
 });
 export const segmentationOutputSchema = segmentationResultSchema.extend({
   degraded: z.string().optional(), // "l0_segmentation"
+  degradedReason: z.string().optional(),
 }).passthrough();
 
 // ── Stage 4: scene repair (unitIds remap + sceneId prefixing — the monolithic-only fixup) ──
@@ -107,6 +110,7 @@ export const vnMappingInputSchema = z.object({
 });
 export const vnMappingOutputSchema = vnScriptStageSchema.extend({
   degraded: z.string().optional(), // "l0_vn_mapping"
+  degradedReason: z.string().optional(),
 });
 
 // ── Stage 6: fidelity review (per scene) ──

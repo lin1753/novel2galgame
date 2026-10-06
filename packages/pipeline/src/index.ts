@@ -16,4 +16,5 @@ export { Semaphore } from "./graph/semaphore.js";
 // Stage-1 extraction: orchestrator-agnostic chapter stage functions.
 export * from "./stages/chapter-stages.js";
 export * from "./stages/types.js";
+export * from "./stages/run-manifest.js";
 export { replayScript, collectArtifacts, normalizeForDiff, diffSnapshots } from "./stages/replay.js";

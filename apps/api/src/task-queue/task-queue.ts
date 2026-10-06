@@ -8,7 +8,7 @@
  * - Automatic completion detection
  */
 
-import type { LLMProvider } from "@novel2gal/providers";
+import type { LLMProvider, LLMRequestOptions } from "@novel2gal/providers";
 import { runChapterPipeline, type AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
 import { runChapterWithGraph } from "../orchestrator/run-chapter-graph.js";
 import { ChapterWatchdog, WATCHDOG_TIMEOUT_MARKER } from "../orchestrator/chapter-watchdog.js";
@@ -52,6 +52,12 @@ export interface ChapterProgressEvent {
   sceneCount?: number;
   /** 1-based attempt number (1 = first try). Present so the frontend can show retry state. */
   attempt?: number;
+  // Stage-3 Phase 4: chapter run stats — present on the `completed` event only
+  // (read from the engine's manifest). Optional: older events never carry it.
+  stagesRun?: number;
+  stagesCached?: number;
+  stagesDegraded?: number;
+  tokens?: { prompt: number; completion: number };
 }
 
 export interface TaskQueueOptions {
@@ -130,8 +136,8 @@ export class PipelineTaskQueue {
     this.chapterTimeoutMs = opts.chapterTimeoutMs ?? 1800_000;
     this.noProgressTimeoutMs = opts.noProgressTimeoutMs ?? 10 * 60 * 1000;
     this.absoluteTimeoutMs = opts.chapterTimeoutMs ?? opts.absoluteTimeoutMs ?? 2 * 60 * 60 * 1000;
-    // One automatic retry per chapter: attempt 2 resumes completed stages from disk
-    // (flagsDone + artifacts), so it typically only re-runs unfinished work
+    // One automatic retry per chapter: attempt 2 hits the stage cache for
+    // completed stages (artifacts), so it typically only re-runs unfinished work
     this.maxChapterRetries = opts.maxChapterRetries ?? 1;
     this.retryDelayMs = opts.retryDelayMs ?? 10_000;
     this.dataDir = opts.dataDir;
@@ -405,19 +411,9 @@ export class PipelineTaskQueue {
     });
     this.watchdogs.set(chapter.chapterId, watchdog);
 
-    // Refresh stage flags from DB so a retry resumes completed stages from disk
-    // instead of re-running the whole chapter through paid LLM calls
-    let resumeFlags: { parsingDone?: boolean; attributionDone?: boolean; segmentationDone?: boolean } | undefined;
-    try {
-      const ch = this.chapterRepo?.getById?.(chapter.chapterId);
-      if (ch && attempt > 1) {
-        resumeFlags = {
-          parsingDone: ch.parsingDone,
-          attributionDone: ch.attributionDone,
-          segmentationDone: ch.segmentationDone,
-        };
-      }
-    } catch {}
+    // Stage cache makes retries cheap: completed stages hit their on-disk
+    // artifacts instead of re-running paid LLM calls. No resume flags — the
+    // cache key (not *_done columns) decides hit vs recompute.
 
     this._emit({
       chapterId: chapter.chapterId,
@@ -439,7 +435,7 @@ export class PipelineTaskQueue {
     // resolve the queue early while the retry is still in flight).
     let retryScheduled = false;
 
-    this._runChapterPipeline(chapter, abort.signal, resumeFlags)
+    this._runChapterPipeline(chapter, abort.signal)
       .then((result) => {
         this.results.set(chapter.chapterId, "completed");
         // Update chapter status in database
@@ -450,6 +446,12 @@ export class PipelineTaskQueue {
         }
         this._recordAttempt(chapter.chapterId, attempt, true, null);
         captureResult(result);
+        // Stage-3 Phase 4: chapter stats ride the completed event (both
+        // engines return the same manifest shape — `manifest` on graph
+        // results, `manifest` on legacy results).
+        const manifest = (result as any)?.manifest as
+          | { stagesRun?: number; stagesCached?: number; stagesDegraded?: number; tokens?: { prompt: number; completion: number } }
+          | undefined;
         this._emit({
           chapterId: chapter.chapterId,
           chapterIndex: chapter.index,
@@ -457,6 +459,10 @@ export class PipelineTaskQueue {
           stage: "completed",
           message: `Pipeline complete: ${result?.sceneCount ?? 1} scenes`,
           attempt,
+          stagesRun: manifest?.stagesRun,
+          stagesCached: manifest?.stagesCached,
+          stagesDegraded: manifest?.stagesDegraded,
+          tokens: manifest?.tokens,
         });
       })
       .catch((err) => {
@@ -481,7 +487,7 @@ export class PipelineTaskQueue {
 
         console.error(`[PipelineTaskQueue] Chapter ${chapter.chapterId} failed (attempt ${attempt}): ${errMsg}`);
 
-        // Retry once: completed stages resume from disk, so attempt 2 is much
+        // Retry once: completed stages hit the stage cache, so attempt 2 is much
         // cheaper than attempt 1. (Cancellation already returned above.)
         if (attempt <= this.maxChapterRetries) {
           this._recordAttempt(chapter.chapterId, attempt, false, errMsg);
@@ -548,7 +554,6 @@ export class PipelineTaskQueue {
   private async _runChapterPipeline(
     chapter: QueueChapter,
     signal: AbortSignal,
-    resumeFlags?: { parsingDone?: boolean; attributionDone?: boolean; segmentationDone?: boolean },
   ) {
     // Read chapter source
     const sourcePath = path.join(
@@ -561,6 +566,21 @@ export class PipelineTaskQueue {
 
     // Check for abort before starting
     if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+
+    // S10 heartbeat: provider-side waits (429/transport backoff sleeps and
+    // token-bucket queueing) fire onWait beats — each beat resets this
+    // chapter's no-progress watchdog, so a long rate-limit stall reads as
+    // activity instead of silence. An explicit per-call onWait still wins.
+    const waitHeartbeat = (_ms: number, _reason: "429" | "transport"): void => {
+      this.watchdogs.get(chapter.chapterId)?.activity();
+    };
+    const provider: LLMProvider = {
+      name: this.provider.name,
+      chat: (options: LLMRequestOptions) =>
+        this.provider.chat({ onWait: waitHeartbeat, ...options }),
+      chatJson: <T>(options: LLMRequestOptions): Promise<T> =>
+        this.provider.chatJson<T>({ onWait: waitHeartbeat, ...options }),
+    };
 
     // Emit progress for each stage
     const progressCallback = (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => {
@@ -589,7 +609,7 @@ export class PipelineTaskQueue {
         chapterIndex: chapter.index,
         chapterTitle: chapter.title,
         chapterText,
-        provider: this.provider,
+        provider,
         model: this.model,
         agentModels: this.agentModels,
         signal,
@@ -613,7 +633,7 @@ export class PipelineTaskQueue {
       chapter.index,
       chapter.title,
       chapterText,
-      this.provider,
+      provider,
       this.model,
       progressCallback,
       this.agentModels,
@@ -625,7 +645,6 @@ export class PipelineTaskQueue {
       signal,
       this.db,
       undefined,
-      resumeFlags,
       this.sceneRepo,
       this.rag,
     );
@@ -655,6 +674,10 @@ export class PipelineTaskQueue {
     sceneIndex?: number;
     sceneCount?: number;
     attempt?: number;
+    stagesRun?: number;
+    stagesCached?: number;
+    stagesDegraded?: number;
+    tokens?: { prompt: number; completion: number };
   }) {
     this.onProgress?.({
       projectId: this.project.projectId,
@@ -667,6 +690,10 @@ export class PipelineTaskQueue {
       sceneIndex: event.sceneIndex,
       sceneCount: event.sceneCount,
       attempt: event.attempt,
+      stagesRun: event.stagesRun,
+      stagesCached: event.stagesCached,
+      stagesDegraded: event.stagesDegraded,
+      tokens: event.tokens,
     });
   }
 }

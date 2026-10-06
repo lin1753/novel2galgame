@@ -213,6 +213,63 @@ export function styleForGenre(genreHint?: string): string {
   return "urban-romance";
 }
 
+/**
+ * Project-level style input. Only the PROJECT title participates in genre
+ * detection — chapter titles must never be passed here (there is no chapter
+ * title field by design).
+ */
+export interface ProjectStyleSource {
+  title?: string | null;
+  config?: {
+    genreHint?: string | null;
+    visualStyleTemplate?: string | null;
+  } | null;
+}
+
+export type ProjectStyleSourceKind = "explicit" | "detected";
+
+export interface ResolvedProjectStyle {
+  styleTemplate: string;
+  /**
+   * Freshly detected genre — present ONLY when source === "detected".
+   * The caller persists it to project.config.genreHint (detect once per
+   * project; later chapters reuse it so one project keeps one genre).
+   */
+  genreHint?: string;
+  /**
+   * "explicit" = resolved from stored config without running detection
+   * (explicit template OR previously persisted genreHint);
+   * "detected" = detectGenreHint ran on (project title + sampleText).
+   */
+  source: ProjectStyleSourceKind;
+}
+
+/**
+ * Project-level style resolution (single shared helper for the graph
+ * engine, the legacy monolithic pipeline, cache:adopt, and the
+ * single-scene route). Zero tokens — pure regex over project title +
+ * optional chapter-text sample.
+ *
+ * Precedence: explicit visualStyleTemplate (non-empty, not "default") >
+ * persisted config.genreHint > fresh detectGenreHint(project.title,
+ * sampleText) → styleForGenre. Chapter titles NEVER participate.
+ */
+export function resolveProjectStyle(
+  project: ProjectStyleSource | null | undefined,
+  sampleText?: string,
+): ResolvedProjectStyle {
+  const explicit = project?.config?.visualStyleTemplate?.trim();
+  if (explicit && explicit !== "default") {
+    return { styleTemplate: explicit, source: "explicit" };
+  }
+  const persisted = project?.config?.genreHint?.trim();
+  if (persisted) {
+    return { styleTemplate: styleForGenre(persisted), source: "explicit" };
+  }
+  const detected = detectGenreHint(project?.title ?? "", sampleText);
+  return { styleTemplate: styleForGenre(detected), genreHint: detected, source: "detected" };
+}
+
 const GENRE_RULES: Array<{ genre: string; pattern: RegExp }> = [
   // xianxia checked before ancient: 修仙/宗门 vocabulary may co-occur with 古代/穿越
   { genre: "xianxia", pattern: /江湖|宗门|修仙|灵气|渡劫|御剑|金丹|元婴|仙门|魔尊|仙君/ },

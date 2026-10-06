@@ -1,6 +1,3 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { v4 as uuid } from "uuid";
 import type { LLMProvider } from "@novel2gal/providers";
 import { runVNMappingAgent } from "@novel2gal/agents";
@@ -150,17 +147,10 @@ export async function vnMappingNode(
       sceneUnits = attrUnits.slice(startIdx, startIdx + chunkSize);
     }
 
-    // Check if scene already mapped (via sceneRepo) — not applicable in repair mode
-    const sceneState = state.sceneRepo?.getById(scene.sceneId);
-    if (!repairMode && sceneState?.mappingStatus === "done") {
-      state.onProgress?.("vn_mapping", `Skipped ${scene.sceneId} (already mapped)`);
-      newResults.push({ sceneId: scene.sceneId, fidelityPassed: true });
-      return {
-        sceneResults: newResults,
-        currentStage: "vn_mapping",
-        stageTimings: { [`vn_mapping_${scene.sceneId}`]: Date.now() - t0 },
-      };
-    }
+    // Stage-3 owns skip decisions now (keyed disk artifacts): the old
+    // sceneRepo/tables fast paths are deleted — always map through.
+    // (The stage-4 deletion baseline keeps this node compiling; the new
+    // chapter graph in graph/ wraps withStageCache at the call site.)
 
     state.onProgress?.("vn_mapping", `Mapping scene ${scene.sceneId}`);
     const vn = resolveAgent(state.modelConfig, "vnMapping", state.provider as LLMProvider, state.defaultModel);
@@ -169,36 +159,6 @@ export async function vnMappingNode(
       tokens.prompt += r.usage?.promptTokens ?? 0;
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
-
-    // Cache check — repair attempts get a salted key so they never reuse the failed script
-    const repairSalt = repairMode ? `|repair${(newResults[targetSceneIdx]!.repairCount ?? 0) + 1}` : "";
-    const cacheKey = crypto.createHash("sha256")
-      .update(`${scene.sceneId}|vn_mapping${repairSalt}|${vn.model}|${state.chapterText.slice(0, 200)}`)
-      .digest("hex");
-
-    if (state.db) {
-      const cached = state.db.prepare(
-        "SELECT output_path FROM tasks WHERE input_hash = ? AND status = 'succeeded' AND type = ? AND chapter_id = ? ORDER BY finished_at DESC LIMIT 1"
-      ).get(cacheKey, "vn_mapping", state.chapterId) as { output_path: string } | undefined;
-
-      if (cached?.output_path && fs.existsSync(cached.output_path)) {
-        console.log(`[Cache] HIT vn_mapping for ${scene.sceneId}`);
-        const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
-        const stageOrder = 3 + targetSceneIdx * 2;
-        state.db.prepare(
-          `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-           VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-        ).run(taskId, state.projectId, state.chapterId, "vn_mapping", vn.provider.name, vn.model, stageOrder, now(), now(), cacheKey, cached.output_path);
-        const vnData = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-        newResults.push({ sceneId: scene.sceneId, fidelityPassed: true, vnScript: vnData });
-        const durationMs = Date.now() - t0;
-        return {
-          sceneResults: newResults,
-          currentStage: "vn_mapping",
-          stageTimings: { [`vn_mapping_${scene.sceneId}`]: durationMs },
-        };
-      }
-    }
 
     // Insert running task
     const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
@@ -235,15 +195,12 @@ export async function vnMappingNode(
 
     const durationMs = Date.now() - t0;
 
-    // Cache write
+    // Mark the running task row succeeded (audit trail; the tasks table is no
+    // longer a cache — stage-3 keyed artifacts on disk are the hit source).
     if (state.db && state.dataDir) {
-      const cacheDir = path.join(state.dataDir, "cache", state.projectId);
-      fs.mkdirSync(cacheDir, { recursive: true });
-      const outputPath = path.join(cacheDir, `vn_mapping_${state.chapterId}_${stageOrder}${repairMode ? `_repair${(newResults[targetSceneIdx]!.repairCount ?? 0) + 1}` : ""}.json`);
-      fs.writeFileSync(outputPath, JSON.stringify(vnData), "utf-8");
       const actualRetries = Math.max(0, retryCount - 1);
-      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
-        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, cacheKey, outputPath, taskId);
+      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=? WHERE task_id=?`)
+        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, taskId);
     }
 
     if (repairMode) {

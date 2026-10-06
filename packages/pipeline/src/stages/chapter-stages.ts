@@ -48,8 +48,11 @@ import {
  * therefore does NOT re-implement fallbacks; it:
  *   1. threads the abort signal into the provider (the canonical behavior),
  *   2. validates the agent output against the runtime schema,
- *   3. DETECTS degradation markers in the agent artifact (fallback sceneIds,
- *      uncertain pass-through evidence) and records them in `degraded`,
+ *   3. PASSES THROUGH the agent's explicit degradation markers
+ *      (`result.degraded` / `result.fallbackReason` → `out.degraded` /
+ *      `out.degradedReason`) — stage-3 S11a: no heuristic re-inference.
+ *      The old detectors live on only as regression assertions in
+ *      `stages/__test__/degraded-detectors.test.ts` (production zero import),
  *   4. propagates aborts (which agents rethrow by contract).
  *
  * The stage-level dead fallbacks in chapter-pipeline.ts are flagged for the
@@ -99,14 +102,11 @@ export async function runNarrativeStage(
     );
     if (!result.success || !result.data) throw agentFailureToError(result);
     const out = narrativeOutputSchema.parse(result.data);
-    // Degradation detection: the agent's internal fallback emits no explicit
-    // marker but the units carry confidence 0.75 and dialogue detection is
-    // quote-only. Cheap heuristic: all units at 0.75 + types limited to
-    // dialogue/narration (no thought/action/scene_description) = line-split.
-    const allFallbackConfidence = out.units.length > 0 && out.units.every((u: any) => u.confidence === 0.75);
-    const onlyBasicTypes = out.units.every((u: any) => u.type === "dialogue" || u.type === "narration");
-    if (allFallbackConfidence && onlyBasicTypes) {
-      (out as any).degraded = "l0_narrative";
+    // S11a: explicit passthrough — the agent marks its own L0 fallback.
+    // No heuristic re-inference (old detector → degraded-detectors.test.ts).
+    if (result.degraded) {
+      out.degraded = result.degraded;
+      out.degradedReason = result.fallbackReason;
     }
     return out;
   } catch (err) {
@@ -142,12 +142,12 @@ export async function runAttributionStage(
     ctx.onProgress?.("attribution", `Post-processed ${out.characters.length} characters from units`);
   }
 
-  // Degradation detection: agent fallback pass-through marks every unit
-  // uncertain with evidence ["fallback pass-through"].
-  const allPassThrough =
-    out.units.length > 0 &&
-    out.units.every((u: any) => u.attribution?.uncertain === true && (u.attribution?.evidence ?? []).includes("fallback pass-through"));
-  if (allPassThrough) (out as any).degraded = "l0_attribution";
+  // Degradation: explicit passthrough of the agent's own L0 marker
+  // (old all-pass-through heuristic → degraded-detectors.test.ts).
+  if (result.degraded) {
+    out.degraded = result.degraded;
+    out.degradedReason = result.fallbackReason;
+  }
 
   return out;
 }
@@ -169,11 +169,11 @@ export async function runSegmentationStage(
   if (!result.success || !result.data) throw agentFailureToError(result);
   const out = segmentationOutputSchema.parse(result.data);
 
-  // Degradation detection: the agent's chunk-level fallback emits scenes with
-  // confidence 0.5 and the "降级保底场景" summary (verified against the
-  // agent source). The fallback_scene_<rand> id was wrong — ids are normal.
-  if (out.scenes.some((s: any) => s.confidence === 0.5 && String(s.summary?.shortSummary ?? "").includes("降级保底场景"))) {
-    (out as any).degraded = "l0_segmentation";
+  // Degradation: explicit passthrough of the agent's own L0 marker
+  // (old confidence-plus-summary-text heuristic → degraded-detectors.test.ts).
+  if (result.degraded) {
+    out.degraded = result.degraded;
+    out.degradedReason = result.fallbackReason;
   }
   return out;
 }
@@ -248,20 +248,12 @@ export async function runVNMappingStage(
   if (!result.success || !result.data) throw agentFailureToError(result);
   const out = vnMappingOutputSchema.parse(result.data);
 
-  // Degradation detection (2c revision): fallback stepIds are now DERIVED
-  // (sceneId + zero-padded order) for cache determinism, so the old random-
-  // suffix detector no longer fires. Stable fallback signature instead: every
-  // input unit appears EXACTLY once in the steps' sourceUnitIds (1:1
-  // passthrough) — the LLM path essentially never achieves exact 1:1 coverage
-  // (it regroups, merges, and adds non-mapped steps).
-  const inputUnitIds = new Set(input.units.map((u: any) => u.unitId));
-  const stepUnitIds = out.steps.flatMap((s: any) => s.sourceUnitIds ?? []);
-  const exactPassthrough =
-    input.units.length > 0 &&
-    stepUnitIds.length === input.units.length &&
-    new Set(stepUnitIds).size === stepUnitIds.length &&
-    stepUnitIds.every((id: string) => inputUnitIds.has(id));
-  if (exactPassthrough) (out as any).degraded = "l0_vn_mapping";
+  // Degradation: explicit passthrough of the agent's own L0 marker
+  // (old exact-1:1-passthrough heuristic → degraded-detectors.test.ts).
+  if (result.degraded) {
+    out.degraded = result.degraded;
+    out.degradedReason = result.fallbackReason;
+  }
   return out;
 }
 

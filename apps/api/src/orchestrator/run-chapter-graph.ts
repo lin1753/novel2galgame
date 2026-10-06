@@ -3,10 +3,13 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { ProjectState } from "@novel2gal/core";
+import { writeProjectState } from "@novel2gal/storage";
 import { buildChapterGraph } from "@novel2gal/pipeline";
 import type { ChapterGraphDeps } from "@novel2gal/pipeline";
 import { CheckpointManager } from "@novel2gal/pipeline";
 import { PendingProposalStore } from "@novel2gal/pipeline";
+import { createRunAccumulator, writeRunManifestSafe } from "@novel2gal/pipeline";
+import type { ChapterRunManifest } from "@novel2gal/pipeline";
 import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
 
 /**
@@ -37,7 +40,7 @@ export interface RunChapterGraphOptions {
   model: string;
   agentModels?: AgentModelConfig;
   signal: AbortSignal;
-  onProgress?: (stage: string, message: string) => void;
+  onProgress?: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => void;
   sceneRepo?: any;
   rag?: any;
   /** Shared per-process checkpoint manager (created lazily if omitted). */
@@ -62,6 +65,8 @@ export interface RunChapterGraphResult {
   state: Record<string, unknown>;
   /** Lifecycle outcome for the thread bookkeeping. */
   outcome: "succeeded" | "failed" | "cancelled" | "waiting_review";
+  /** Stage-3 Phase 4: chapter run-manifest (also written to disk). */
+  manifest: ChapterRunManifest;
 }
 
 /** Process-wide checkpoint manager singleton (checkpoints.db under dataDir/config). */
@@ -100,6 +105,11 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
   try { cm.sweepExpiredFailures(); cm.sweepExpiredReviews(); } catch { /* non-fatal */ }
   cm.markThread(threadId, "running");
 
+  // Stage-3 Phase 4: one accumulator per chapter run, shared by reference —
+  // every stage ctx's cache.stats bucket AND tokenAcc point at these objects,
+  // so manifest/SSE caliber matches the legacy path exactly.
+  const runStats = createRunAccumulator();
+
   const deps: ChapterGraphDeps = {
     dataDir,
     provider,
@@ -111,6 +121,7 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
     pendingStore: new PendingProposalStore(dataDir, project.projectId),
     signal,
     onProgress,
+    runStats,
   };
 
   const graph = buildChapterGraph(deps, cm.saver);
@@ -122,6 +133,12 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
     chapterIndex,
     chapterTitle,
     chapterTextPath,
+    // Project-level genre detection (detect once per project): the graph
+    // resolves style from these two inputs via the shared resolveProjectStyle
+    // helper (explicit template > persisted genreHint > fresh detection over
+    // project title + chapter-text sample). Chapter titles never participate.
+    projectTitle: project.title ?? "",
+    projectGenreHint: (project.config as any)?.genreHint ?? null,
     styleTemplate: (project.config as any)?.visualStyleTemplate ?? "",
     fallbackPolicy,
     reviewMode,
@@ -136,6 +153,23 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
     const error = finalState?.error ?? null;
     const cancelled = !!finalState?.cancelled || signal.aborted;
     const waiting = reviewMode && !finalState?.sceneIds?.length && !error && !cancelled;
+
+    // Project-level genre persistence (graph write-back channel, mirroring
+    // the legacy pipeline's writeProjectState): the style node sets
+    // detectedGenreHint ONLY when THIS run freshly detected (no explicit
+    // template, no persisted genreHint). Persist once — later chapters reuse
+    // it — and update the in-memory project so the same queue process keeps
+    // one genre for the rest of the run. Best-effort: project.json writes
+    // go through the storage helper; failures warn, never fail the run.
+    const detected = (finalState as any)?.detectedGenreHint as string | null | undefined;
+    if (detected && !(project.config as any)?.genreHint) {
+      (project.config as any).genreHint = detected;
+      try {
+        writeProjectState(dataDir, project);
+      } catch (e) {
+        console.warn(`[Graph] Failed to persist detected genreHint:`, e);
+      }
+    }
 
     let outcome: RunChapterGraphResult["outcome"];
     if (cancelled) {
@@ -161,6 +195,16 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
       characters: [], // graph stores profiles on disk; callers read via /projects routes
       state: finalState ?? {},
       outcome,
+      // Stage-3 Phase 4: chapter run-manifest — written once, here, for every
+      // terminal outcome (succeeded/failed/waiting_review/cancelled-local).
+      // Cancelled-by-throw paths skip it (no partial manifest on abort).
+      manifest: writeRunManifestSafe(
+        dataDir,
+        project.projectId,
+        chapterId,
+        runStats,
+        Array.isArray(finalState?.degradedStages) ? finalState.degradedStages : [],
+      ),
     };
   } catch (err: any) {
     // Hard crash / abort mid-run: distinguish cancel from failure.

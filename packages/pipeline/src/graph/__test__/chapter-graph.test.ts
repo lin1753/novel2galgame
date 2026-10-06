@@ -97,6 +97,34 @@ function readJson(dir: string, rel: string): any {
   return JSON.parse(fs.readFileSync(path.join(dir, "projects", PROJ, rel), "utf-8"));
 }
 
+/**
+ * Stage-3: drop every cache sidecar under the project dir so the next invoke
+ * recomputes instead of hitting an earlier test's identical-input artifacts.
+ * All tests in this file share one data dir + one chapter, so any test that
+ * asserts LLM-call behavior (failure injection, abort timing, call counters,
+ * fixture divergence) MUST call this first — otherwise a hit returns test 1's
+ * artifacts and the scripted provider is never consulted. Stage artifacts stay
+ * on disk (recompute overwrites them); character_profiles.json is untouched
+ * (not a stage artifact).
+ */
+function clearStageCache(dir: string): void {
+  const stack: string[] = [path.join(dir, "projects", PROJ)];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const p = path.join(cur, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.name.endsWith(".meta.json")) fs.unlinkSync(p);
+    }
+  }
+}
+
 describe("2b chapter graph — replayed", () => {
   let dir: string;
   let cm: CheckpointManager;
@@ -186,6 +214,7 @@ describe("2b chapter graph — replayed", () => {
 
   it("3. degradation: narrative L0 detected; fallbackPolicy=fail fails the run", async () => {
     // failing narrative → agent internal fallback (degraded l0_narrative)
+    clearStageCache(dir); // must recompute with THIS test's failing provider
     const provider = new ScriptedProvider([
       whenNarrative({ kind: "error", message: "hard: broken" }),
       whenAttribution({ kind: "json", value: FIXTURE_ATTRIBUTION }),
@@ -222,6 +251,8 @@ describe("2b chapter graph — replayed", () => {
     // vn-mapping calls hang until abort (kind:'abort' would reject fast;
     // use a slow provider via hold in ScriptedProvider? Simplest: a provider
     // whose chatJson awaits a promise that rejects on signal.)
+    // Cache cleared: the vn-mapping hang must be a real LLM call, not a hit.
+    clearStageCache(dir);
     const ac = new AbortController();
     const provider = new (class extends ScriptedProvider {
       async chatJson(options: any) {
@@ -308,6 +339,9 @@ describe("2b chapter graph — replayed", () => {
 
   it("6. branch failure resume: only the failed scene re-runs (counter proof)", async () => {
     let scene1Fails = true;
+    // Cache cleared: attempt 1 must really fail scene_0001's mapping (a stale
+    // hit would mask the injected failure and p1.error would stay null).
+    clearStageCache(dir);
     const provider = new (class extends ScriptedProvider {
       async chatJson(options: any) {
         const user = options.messages.filter((m: any) => m.role === "user").map((m: any) => m.content).join("\n");
@@ -410,6 +444,9 @@ describe("2b chapter graph — replayed", () => {
       aliases: [],
       gender: "female",
     });
+    // Cache cleared: attribution must run with the dupe fixture (a hit would
+    // return the clean fixture and no pending proposal would be produced).
+    clearStageCache(dir);
     const provider = new ScriptedProvider([
       whenNarrative({ kind: "json", value: FIXTURE_NARRATIVE }),
       whenAttribution({ kind: "json", value: attrWithDupe }),
