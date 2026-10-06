@@ -38,6 +38,8 @@ import { config, resolveModelConfig } from "../config/index.js";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 import { broadcastProgress } from "./progress.js";
+import { applyPendingMerge } from "./pending-merge.js";
+import { readRunManifest, bookChapterStats } from "@novel2gal/pipeline";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -70,6 +72,18 @@ export function createProjectRoutes(
 
   // Helper
   function now() { return new Date().toISOString(); }
+
+  // Stage-3 Phase 4 (read side): chapter run stats from run-manifest.json.
+  // Missing/corrupt manifest (pre-Phase-4 chapters) → zeros, never throws.
+  function chapterStats(projectId: string, chapterId: string) {
+    const m = readRunManifest(config.dataDir, projectId, chapterId);
+    return {
+      stagesRun: m?.stagesRun ?? 0,
+      stagesCached: m?.stagesCached ?? 0,
+      stagesDegraded: m?.stagesDegraded ?? 0,
+      tokens: m?.tokens ?? { prompt: 0, completion: 0 },
+    };
+  }
 
   // POST /projects - Create project
   router.post("/", (req: Request, res: Response) => {
@@ -293,8 +307,58 @@ export function createProjectRoutes(
   });
 
   // GET /projects/:id/chapters - List chapters
+  // Stage-3 Phase 4 (read side, C7): each item carries chapter run stats from
+  // run-manifest.json; missing manifest (pre-Phase-4) → zeros, never 404.
   router.get("/:id/chapters", (req: Request, res: Response) => {
-    res.json(chapterRepo.listByProject(param(req, "id")));
+    const projectId = param(req, "id");
+    res.json(
+      chapterRepo.listByProject(projectId).map((ch) => ({
+        ...ch,
+        ...chapterStats(projectId, ch.chapterId),
+      })),
+    );
+  });
+
+  // GET /projects/:id/chapters/:chapterId/manifest - Full chapter run-manifest.
+  // No single-chapter endpoint exists, so this is the per-chapter read (C7):
+  // returns the manifest as written; no manifest yet → zero shape, never 404
+  // (unknown chapter itself still 404s).
+  router.get("/:id/chapters/:chapterId/manifest", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const chapterId = param(req, "chapterId");
+    const chapter = chapterRepo.getById(chapterId);
+    if (!chapter || chapter.projectId !== projectId) {
+      return res.status(404).json({ error: "Chapter not found" });
+    }
+    const m = readRunManifest(config.dataDir, projectId, chapterId);
+    res.json(
+      m ?? {
+        stagesRun: 0,
+        stagesCached: 0,
+        stagesDegraded: 0,
+        tokens: { prompt: 0, completion: 0 },
+        degradedStages: [],
+        generatedAt: "",
+      },
+    );
+  });
+
+  // GET /projects/:id/summary - Book-level rollup (C7): straight manifest sums
+  // plus "完成且未降级章节比例" cleanRatio = completedClean / total, computed
+  // by the canonical bookChapterStats helper (not reimplemented here).
+  router.get("/:id/summary", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const project = projectRepo.getById(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const chapters = chapterRepo.listByProject(projectId);
+    res.json(
+      bookChapterStats(
+        chapters.map((ch) => ({
+          completed: ch.status === "chapter_ready",
+          manifest: readRunManifest(config.dataDir, projectId, ch.chapterId),
+        })),
+      ),
+    );
   });
 
   // POST /projects/:id/chapters/:chapterId/run - Run chapter pipeline (async)
@@ -363,8 +427,8 @@ export function createProjectRoutes(
     // Return immediately, run pipeline in background
     res.json({ chapterId: cid, status: "started", message: "管线已启动" });
 
-    const onProgress = (stage: string, message: string) => {
-      broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message });
+    const onProgress = (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => {
+      broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message, sceneId: extra?.sceneId, sceneIndex: extra?.sceneIndex, sceneCount: extra?.sceneCount });
     };
 
     // 2c ENGINE switch: graph (default) routes through PipelineTaskQueue →
@@ -389,9 +453,24 @@ export function createProjectRoutes(
           projectId: pid,
           chapterId: event.chapterId,
           chapterIndex: event.chapterIndex,
+          sceneId: (event as any).sceneId,
+          sceneIndex: (event as any).sceneIndex,
+          sceneCount: (event as any).sceneCount,
           stage: event.stage,
           status: event.status as any,
           message: event.message,
+          // Stage-3 Phase 4: chapter stats ride the completed event's data
+          // (only that event carries them; all other events leave data empty).
+          ...(event.stage === "completed"
+            ? {
+                data: {
+                  stagesRun: (event as any).stagesRun,
+                  stagesCached: (event as any).stagesCached,
+                  stagesDegraded: (event as any).stagesDegraded,
+                  tokens: (event as any).tokens,
+                },
+              }
+            : {}),
         });
       };
       // Single-chapter queue: enqueue and await; SSE carries the lifecycle.
@@ -454,8 +533,8 @@ export function createProjectRoutes(
       knownCharacters,
       autoRunVisualPrompt: project.config.autoRunVisualPrompt !== false,
       autoRunConsistencyReview: project.config.autoRunConsistencyReview !== false,
-      onProgress: (stage: string, message: string) => {
-        broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message });
+      onProgress: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => {
+        broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message, sceneId: extra?.sceneId, sceneIndex: extra?.sceneIndex, sceneCount: extra?.sceneCount });
       },
       onChapterFlags: (chId: string, flags: any) => {
         try { chapterRepo.updateFlags(chId, flags); } catch {}
@@ -872,45 +951,23 @@ export function createProjectRoutes(
       delete (profiles as any)[candidateId];
       writeCharacterProfiles(config.dataDir, projectId, profiles);
 
-      // 2. Rewrite attributed_units.json of the source chapter: candidate ID →
-      //    target ID in every attribution slot (units keep their text).
-      const chaptersDir = path.join(config.dataDir, "projects", projectId, "chapters");
-      if (fs.existsSync(chaptersDir) && record.sourceChapterId) {
-        const attrPath = path.join(chaptersDir, record.sourceChapterId, "attributed_units.json");
-        if (fs.existsSync(attrPath)) {
-          const attr = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
-          const rewrite = (id: string | undefined) => (id === candidateId ? targetId : id);
-          for (const unit of attr.units ?? []) {
-            const a = unit.attribution;
-            if (!a) continue;
-            a.speakerId = rewrite(a.speakerId);
-            a.actorId = rewrite(a.actorId);
-            a.thinkerId = rewrite(a.thinkerId);
-            if (Array.isArray(a.participantIds)) a.participantIds = a.participantIds.map(rewrite);
-          }
-          // characters array: drop the candidate row (target persists)
-          attr.characters = (attr.characters ?? []).filter((c: any) => c.characterId !== candidateId);
-          fs.writeFileSync(attrPath, JSON.stringify(attr, null, 2), "utf-8");
-        }
-      }
-
-      // 3. Re-ingest the source chapter's character knowledge (RAG refresh).
-      if (rag) {
-        try {
-          const attrPath = path.join(chaptersDir, record.sourceChapterId, "attributed_units.json");
-          if (fs.existsSync(attrPath)) {
-            const attr = JSON.parse(fs.readFileSync(attrPath, "utf-8"));
-            const chunks = rag.extractor.extractCharacterKnowledge(attr, record.sourceChapterId, record.sourceChapterId);
-            for (const chunk of chunks) chunk.projectId = projectId;
-            if (chunks.length > 0) await rag.knowledgeStore.ingestCharacters(chunks, projectId);
-          }
-        } catch (e) {
-          console.warn(`[pending/merge] RAG re-ingest failed (non-fatal):`, e);
-        }
-      }
+      // 2+3. S11b cross-chapter cleanup (pending-merge.ts, shared with tests):
+      // collect every chapter mentioning the entity (aliasSet ∪ candidate
+      // id/name), rewrite candidate→target refs, delete candidate RAG rows
+      // globally, and re-ingest each affected chapter with its REAL title.
+      const cleanup = await applyPendingMerge({
+        dataDir: config.dataDir,
+        projectId,
+        candidateId,
+        targetId,
+        candidateName: candidate.canonicalName,
+        aliasSet: mergedAliases,
+        chapterTitleOf: (cid) => chapterRepo.getById(cid)?.title ?? cid,
+        rag,
+      });
 
       store.resolve(candidateId, targetId, "merge");
-      res.json({ success: true, candidateId, targetId, action, mergedAliases });
+      res.json({ success: true, candidateId, targetId, action, mergedAliases, ...cleanup });
     } catch (e) {
       res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
     }

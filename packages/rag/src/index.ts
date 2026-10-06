@@ -154,6 +154,11 @@ export class KnowledgeStore {
     this.collections.prompts.delete({ projectId: { $eq: projectId } });
   }
 
+  /** Delete every chunk row for one character (JSON + Chroma). Returns JSON-side count. */
+  async deleteCharacterChunks(characterId: string, projectId?: string): Promise<number> {
+    return this.collections.characters.deleteByCharacterId(characterId, projectId);
+  }
+
   async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
     for (const chunk of chunks) {
       const meta = chunk.metadata ?? {};

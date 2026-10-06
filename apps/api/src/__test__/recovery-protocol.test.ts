@@ -7,6 +7,8 @@ import { CheckpointManager, buildChapterGraph, pairKey } from "@novel2gal/pipeli
 import type { ChapterGraphDeps } from "@novel2gal/pipeline";
 import { runChapterWithGraph } from "../orchestrator/run-chapter-graph.js";
 import { PendingProposalStore } from "@novel2gal/pipeline";
+import { chunkCharacterKnowledge } from "@novel2gal/rag";
+import { applyPendingMerge } from "../routes/pending-merge.js";
 import { writeCharacterProfiles, readCharacterProfiles } from "@novel2gal/storage";
 import type { ProjectState } from "@novel2gal/core";
 import {
@@ -399,8 +401,13 @@ describe("2c recovery protocol — runChapterWithGraph", () => {
 });
 
 describe("pending merge losslessness (2c-8)", () => {
-  it("merge: profiles union, attributed units rewritten, evidence kept — idempotent on re-run", async () => {
-    // Set up: two profiles, a pending proposal, and an attributed_units.json with candidate refs
+  it("merge: two chapters rewritten via applyPendingMerge, profiles union, evidence kept — idempotent on re-run", async () => {
+    const CHAPTER2 = `${PROJ_ID}_chapter_0002`;
+    const CAND = "char_dupe";
+    const TGT = "char_target";
+    // Set up: two profiles, a pending proposal seen in TWO chapters
+    // (CHAPTER2 = lastSeenChapterId 章), and attributed_units.json with
+    // candidate refs in BOTH chapters
     writeCharacterProfiles(dataDir, PROJ_ID, {
       char_target: {
         characterId: "char_target", canonicalName: "林晓", aliasSet: ["林晓"],
@@ -416,53 +423,130 @@ describe("pending merge losslessness (2c-8)", () => {
       },
     } as any);
 
-    const unitsDir = path.join(dataDir, "projects", PROJ_ID, "chapters", CHAPTER);
-    fs.mkdirSync(unitsDir, { recursive: true });
-    const attr = {
-      chapterId: CHAPTER,
-      units: [
-        { unitId: "u1", chapterId: CHAPTER, order: 0, type: "narration", originalText: "她的长发。", attribution: { speakerId: "char_target", participantIds: ["char_target"], uncertain: false } },
-        { unitId: "u2", chapterId: CHAPTER, order: 1, type: "dialogue", originalText: "“她抱着文件。”", attribution: { speakerId: "char_dupe", participantIds: ["char_dupe", "char_target"], uncertain: false } },
-      ],
+    const mkAttr = (chapterId: string, units: any[], extra?: any) => ({
+      chapterId,
+      units,
       characters: [
         { characterId: "char_target", canonicalName: "林晓", aliases: [] },
         { characterId: "char_dupe", canonicalName: "林晓儿", aliases: [] },
       ],
-      aliasMap: {}, uncertainUnitIds: [],
-    };
-    fs.writeFileSync(path.join(unitsDir, "attributed_units.json"), JSON.stringify(attr, null, 2), "utf-8");
+      aliasMap: {},
+      uncertainUnitIds: [],
+      ...extra,
+    });
+    const attr1 = mkAttr(CHAPTER, [
+      { unitId: "u1", chapterId: CHAPTER, order: 0, type: "narration", originalText: "她的长发。", attribution: { speakerId: "char_target", participantIds: ["char_target"], uncertain: false } },
+      { unitId: "u2", chapterId: CHAPTER, order: 1, type: "dialogue", originalText: "“她抱着文件。”", attribution: { speakerId: "char_dupe", participantIds: ["char_dupe", "char_target"], uncertain: false } },
+    ], { aliasMap: { "晓儿": "char_dupe" } });
+    // lastSeenChapterId 章：candidate 引用藏在 actor/thinker 槽与另一张 id 映射表
+    const attr2 = mkAttr(CHAPTER2, [
+      { unitId: "u3", chapterId: CHAPTER2, order: 0, type: "narration", originalText: "她抱着文件走进房间。", attribution: { speakerId: "char_target", actorId: "char_dupe", participantIds: ["char_target", "char_dupe"], uncertain: false } },
+      { unitId: "u4", chapterId: CHAPTER2, order: 1, type: "dialogue", originalText: "“明天见。”", attribution: { speakerId: "char_dupe", thinkerId: "char_dupe", participantIds: ["char_dupe"], uncertain: false } },
+    ], { speakerIdToCharId: { "晓儿": "char_dupe" } });
+    for (const [cid, attr] of [[CHAPTER, attr1], [CHAPTER2, attr2]] as const) {
+      const dir = path.join(dataDir, "projects", PROJ_ID, "chapters", cid);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "attributed_units.json"), JSON.stringify(attr, null, 2), "utf-8");
+    }
 
     const store = new PendingProposalStore(dataDir, PROJ_ID);
-    store.save(CHAPTER, [{
+    const proposal = {
       candidateId: "char_dupe", candidateName: "林晓儿",
       targetCharacterId: "char_target", targetCanonicalName: "林晓",
       similarityScore: 0.9, matchedBy: "levenshtein", sourceChapterId: CHAPTER,
       createdAt: "2026-10-05T00:00:00Z",
-    }]);
+    };
+    store.save(CHAPTER, [proposal]);
+    store.save(CHAPTER2, [{ ...proposal }]); // 同对重现 → 只 bump lastSeenChapterId，不增行
+    expect(store.listAll().length).toBe(1);
+    expect(store.listAll()[0]!.lastSeenChapterId).toBe(CHAPTER2);
 
-    // ── apply the same merge logic as the route ──
+    // ── route 的 profile 合并（pending-merge.ts 只管章节+RAG，不管 profile）──
     const profiles = readCharacterProfiles(dataDir, PROJ_ID) || {};
     const target = (profiles as any)["char_target"];
     const candidate = (profiles as any)["char_dupe"];
-    target.aliasSet = Array.from(new Set([...(target.aliasSet ?? []), ...(candidate.aliasSet ?? []), candidate.canonicalName, "char_dupe"]));
+    const mergedAliases = Array.from(new Set([...(target.aliasSet ?? []), ...(candidate.aliasSet ?? []), candidate.canonicalName, "char_dupe"]));
+    target.aliasSet = mergedAliases;
     target.evidence = [...(target.evidence ?? []), ...(candidate.evidence ?? [])];
     target.history = [...(target.history ?? []), { chapterId: CHAPTER, note: "Merged duplicate candidate char_dupe" }];
     target.updatedAt = new Date().toISOString();
     delete (profiles as any)["char_dupe"];
     writeCharacterProfiles(dataDir, PROJ_ID, profiles);
 
-    const after = JSON.parse(fs.readFileSync(path.join(unitsDir, "attributed_units.json"), "utf-8"));
-    const rewrite = (id: string | undefined) => (id === "char_dupe" ? "char_target" : id);
-    for (const unit of after.units ?? []) {
-      const a = unit.attribution;
-      a.speakerId = rewrite(a.speakerId);
-      if (Array.isArray(a.participantIds)) a.participantIds = a.participantIds.map(rewrite);
+    // ── 内存 RAG 替身：真 chunker（零 token）+ 可断言的 ingest/delete ──
+    const ingested: any[] = [];
+    const seenTitles: string[] = [];
+    const ragStub = {
+      extractor: {
+        extractCharacterKnowledge: (attr: any, chapterId: string, chapterTitle: string) => {
+          seenTitles.push(`${chapterId}:${chapterTitle}`);
+          return chunkCharacterKnowledge(attr as any, chapterId, chapterTitle);
+        },
+      },
+      knowledgeStore: {
+        ingestCharacters: async (chunks: any[]) => { ingested.push(...chunks); },
+        deleteCharacterChunks: async (characterId: string) => {
+          const before = ingested.length;
+          for (let i = ingested.length - 1; i >= 0; i--) {
+            const cid = ingested[i].characterId;
+            if (cid === characterId || String(cid ?? "").startsWith(`${characterId}_`)) ingested.splice(i, 1);
+          }
+          return before - ingested.length;
+        },
+      },
+    };
+    // 预置旧 RAG 行（含两章的 candidate 残留，模拟合并前已摄取状态）
+    for (const [cid, title] of [[CHAPTER, "第1章"], [CHAPTER2, "第2章"]] as const) {
+      const a = JSON.parse(fs.readFileSync(path.join(dataDir, "projects", PROJ_ID, "chapters", cid, "attributed_units.json"), "utf-8"));
+      ingested.push(...chunkCharacterKnowledge(a as any, cid, title));
     }
-    after.characters = (after.characters ?? []).filter((c: any) => c.characterId !== "char_dupe");
-    fs.writeFileSync(path.join(unitsDir, "attributed_units.json"), JSON.stringify(after, null, 2), "utf-8");
-    store.resolve("char_dupe", "char_target", "merge");
+    const isCandRow = (c: any) => c.characterId === CAND || String(c.characterId ?? "").startsWith(`${CAND}_`);
+    const staleCandidateRows = ingested.filter(isCandRow).length;
+    expect(staleCandidateRows).toBeGreaterThanOrEqual(2); // 两章各 ≥1 identity 行
 
-    // ── assertions: lossless + idempotent ──
+    // ── 与路由共用模块（防漂移）：直接调 applyPendingMerge ──
+    const titleOf = (cid: string) => (cid === CHAPTER ? "第1章" : cid === CHAPTER2 ? "第2章" : cid);
+    const mergeInput = {
+      dataDir, projectId: PROJ_ID,
+      candidateId: CAND, targetId: TGT,
+      candidateName: "林晓儿",
+      aliasSet: mergedAliases,
+      chapterTitleOf: titleOf,
+      rag: ragStub,
+    };
+    const cleanup = await applyPendingMerge(mergeInput);
+
+    // ── assertions：跨章范围 + 两章重写 + RAG 清理 ──
+    expect(cleanup.affectedChapters).toEqual([CHAPTER, CHAPTER2].sort());
+    expect(cleanup.rewrittenChapters).toEqual([CHAPTER, CHAPTER2].sort());
+    expect(cleanup.rewrittenUnits).toBe(3); // ch1 u2 + ch2 u3/u4
+    expect(cleanup.deletedChunks).toBe(staleCandidateRows);
+    expect(cleanup.reingestedChapters).toEqual([CHAPTER, CHAPTER2].sort());
+    // 第三实参传的是真实 title（修误传 bug）：extractor 收到的全是 title
+    expect(seenTitles).toContain(`${CHAPTER}:第1章`);
+    expect(seenTitles).toContain(`${CHAPTER2}:第2章`);
+    expect(seenTitles.every((s) => !s.endsWith(`:${CHAPTER}`) && !s.endsWith(`:${CHAPTER2}`))).toBe(true);
+
+    const readAttr = (cid: string) => JSON.parse(fs.readFileSync(path.join(dataDir, "projects", PROJ_ID, "chapters", cid, "attributed_units.json"), "utf-8"));
+    for (const cid of [CHAPTER, CHAPTER2]) {
+      expect(JSON.stringify(readAttr(cid))).not.toContain(CAND); // 全文件无 candidateId 残留
+    }
+    const r1 = readAttr(CHAPTER);
+    expect(r1.units[1].attribution.speakerId).toBe(TGT);
+    expect(r1.units[1].attribution.participantIds).not.toContain(CAND);
+    expect(r1.aliasMap).toEqual({ "晓儿": TGT });
+    expect(r1.characters.length).toBe(1);
+    const r2 = readAttr(CHAPTER2);
+    expect(r2.units[0].attribution.actorId).toBe(TGT);
+    expect(r2.units[1].attribution.speakerId).toBe(TGT);
+    expect(r2.units[1].attribution.thinkerId).toBe(TGT);
+    expect(r2.speakerIdToCharId).toEqual({ "晓儿": TGT });
+    expect(r2.characters.length).toBe(1);
+    // RAG 无 candidate 残留
+    expect(ingested.some(isCandRow)).toBe(false);
+    expect(ingested.length).toBeGreaterThan(0);
+
+    // ── profile 侧：lossless（沿用既有断言）──
     const merged = readCharacterProfiles(dataDir, PROJ_ID) as any;
     expect(merged["char_target"]).toBeDefined();
     expect(merged["char_dupe"]).toBeUndefined();
@@ -474,20 +558,21 @@ describe("pending merge losslessness (2c-8)", () => {
     // history records the merge
     expect(merged["char_target"].history.length).toBe(1);
 
-    const rewritten = JSON.parse(fs.readFileSync(path.join(unitsDir, "attributed_units.json"), "utf-8"));
-    expect(rewritten.units[1].attribution.speakerId).toBe("char_target");
-    expect(rewritten.units[1].attribution.participantIds).not.toContain("char_dupe");
-    expect(rewritten.characters.length).toBe(1);
+    store.resolve("char_dupe", "char_target", "merge");
 
-    // idempotent re-merge: candidate gone → merge again succeeds as no-op
-    expect(store.resolve("char_dupe", "char_target", "merge")).toBe(true);
+    // 幂等重 merge：无 candidate 引用可改、无 chunk 可删（重摄取为 identical upsert）
+    const snap1 = JSON.stringify(readAttr(CHAPTER));
+    const snap2 = JSON.stringify(readAttr(CHAPTER2));
+    const again = await applyPendingMerge(mergeInput);
+    expect(again.rewrittenChapters).toEqual([]);
+    expect(again.rewrittenUnits).toBe(0);
+    expect(again.deletedChunks).toBe(0);
+    expect(JSON.stringify(readAttr(CHAPTER))).toBe(snap1);
+    expect(JSON.stringify(readAttr(CHAPTER2))).toBe(snap2);
+    expect(ingested.some(isCandRow)).toBe(false);
+
     // pair decision remembered → re-proposal blocked
-    const readded = store.save("ch2", [{
-      candidateId: "char_dupe", candidateName: "林晓儿",
-      targetCharacterId: "char_target", targetCanonicalName: "林晓",
-      similarityScore: 0.9, matchedBy: "levenshtein", sourceChapterId: "ch2",
-      createdAt: "2026-10-05T00:00:00Z",
-    }]);
+    const readded = store.save("ch2", [{ ...proposal, sourceChapterId: "ch2" }]);
     expect(readded).toBe(0);
     expect(pairKey("char_dupe", "char_target")).toBe("char_dupe→char_target");
   });

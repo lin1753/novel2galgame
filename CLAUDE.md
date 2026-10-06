@@ -122,6 +122,13 @@ The chapter graph (packages/pipeline/src/graph/) is built around MEASURED 0.2.74
 6. **Interrupt nodes: `interrupt()` must be the FIRST statement** — the whole node body re-executes on resume; code before interrupt() fires twice (external side effects are NOT undone).
 7. **Thread lifecycle:** `projectId:chapterId:runId` per run. Success → immediate cleanup; failed/crashed → retention (default 7d); `waiting_review` → its OWN TTL (default 30d), never swept by the failure reaper. States: running / succeeded / failed / cancelled / waiting_review / orphaned.
 
+## Stage Cache Rules
+
+The per-stage artifact cache (`packages/pipeline/src/stages/stage-cache.ts`) keys on `{stage, stageVersion, inputHash, promptHash, model}` — a version bump invalidates that stage's old artifacts.
+
+- 修改阶段逻辑、输出 schema 或后处理，必须递增 STAGE_VERSIONS 对应阶段版本 (`packages/pipeline/src/stages/types.ts`).
+- Schema drift is tripwired by `packages/pipeline/src/stages/__test__/schema-version-snapshot.test.ts` (hashes in `schema-hashes.json`): a schema change without a version bump fails the test. After bumping, regenerate the snapshot with `UPDATE_SCHEMA_SNAPSHOT=1` and commit it with the change.
+
 ## Key Design Constraints
 
 - VN scripts use 10 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`, `action`, `scene_description`

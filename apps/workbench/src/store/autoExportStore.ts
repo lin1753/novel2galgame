@@ -10,9 +10,12 @@ interface SSEProgressEvent {
   stage: string
   chapterId?: string
   chapterIndex?: number
+  sceneId?: string
+  sceneIndex?: number
+  sceneCount?: number
   message?: string
   attempt?: number
-  data?: { taskId?: string; outputPath?: string }
+  data?: { taskId?: string; outputPath?: string; stagesRun?: number; stagesCached?: number; stagesDegraded?: number; tokens?: { prompt: number; completion: number } }
 }
 
 export interface ChapterProgress {
@@ -23,6 +26,15 @@ export interface ChapterProgress {
   message?: string
   /** 1-based attempt number from the backend (present on running/retry events) */
   attempt?: number
+  /** Structured scene progress (S9) — present on scene_worker events. */
+  sceneId?: string
+  sceneIndex?: number
+  sceneCount?: number
+  /** Stage-cache stats (stage 3 Phase 4) — carried on complete events. */
+  stagesRun?: number
+  stagesCached?: number
+  stagesDegraded?: number
+  tokens?: { prompt: number; completion: number }
 }
 
 export interface AutoExportState {
@@ -94,10 +106,17 @@ class AutoExportStore {
               ? `第 ${event.attempt} 次尝试失败，${event.message ?? '等待重试…'}`
               : event.message,
             attempt: event.attempt ?? existing.attempt,
+            sceneId: event.sceneId ?? existing.sceneId,
+            sceneIndex: event.sceneIndex ?? existing.sceneIndex,
+            sceneCount: event.sceneCount ?? existing.sceneCount,
+            stagesRun: event.data?.stagesRun ?? existing.stagesRun,
+            stagesCached: event.data?.stagesCached ?? existing.stagesCached,
+            stagesDegraded: event.data?.stagesDegraded ?? existing.stagesDegraded,
+            tokens: event.data?.tokens ?? existing.tokens,
           })
         }
         const logs = [...prev.logs, msg].slice(-200)
-        
+
         // Derive running from explicit pipeline completion events
         const isComplete = event.stage === 'complete' || event.stage === 'cancelled'
         // If we receive a progress event, we know it's running (even if chapters map is empty on reload)
@@ -217,6 +236,13 @@ class AutoExportStore {
                 ? `第 ${event.attempt} 次尝试失败，${event.message ?? '等待重试…'}`
                 : event.message,
               attempt: event.attempt ?? existing.attempt,
+              sceneId: event.sceneId ?? existing.sceneId,
+              sceneIndex: event.sceneIndex ?? existing.sceneIndex,
+              sceneCount: event.sceneCount ?? existing.sceneCount,
+              stagesRun: event.data?.stagesRun ?? existing.stagesRun,
+              stagesCached: event.data?.stagesCached ?? existing.stagesCached,
+              stagesDegraded: event.data?.stagesDegraded ?? existing.stagesDegraded,
+              tokens: event.data?.tokens ?? existing.tokens,
             })
           }
           const logs = [...prev.logs, msg].slice(-200)

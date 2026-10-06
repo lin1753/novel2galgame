@@ -94,6 +94,47 @@ export class CharacterCollection extends BaseCollection {
     }
   }
 
+  /**
+   * Delete every chunk row that belongs to one character (S11b
+   * pending-merge cleanup). Matches exact `metadata.characterId` rows
+   * (identity / personality / relationship) AND the `_appearance`-suffixed
+   * appearance rows, whose record id still carries `_${characterId}_` as
+   * its infix (`${chapterId}_${characterId}_appearance_appearance_${hash}`).
+   * JSON + Chroma dual-delete; a Chroma outage only warns. Returns the
+   * JSON-side deleted count.
+   */
+  async deleteByCharacterId(characterId: string, projectId?: string): Promise<number> {
+    const infix = `_${characterId}_`;
+    const victimIds = this.getAll()
+      .filter(
+        (r) =>
+          (projectId === undefined || r.metadata.projectId === projectId) &&
+          (r.id.includes(infix) || r.metadata.characterId === characterId),
+      )
+      .map((r) => r.id);
+    const deleted = this.deleteByIds(victimIds);
+    if (this.chroma) {
+      try {
+        // Hash-less Chroma ids share the same `_${characterId}_` infix, so
+        // the same computed id list applies — one delete call, no new query
+        // API on the Chroma path. Chroma-side ids outside `victimIds` (e.g.
+        // hash-less duplicates of content-suffixed JSON rows) are still
+        // deleted: every JSON row's id contains the infix, and Chroma ids are
+        // the JSON ids minus the trailing hash token — recompute them here.
+        const chromaIds = new Set<string>();
+        for (const id of victimIds) {
+          chromaIds.add(id);
+          const idx = id.lastIndexOf("_");
+          if (idx > 0) chromaIds.add(id.slice(0, idx));
+        }
+        await this.chroma.delete([...chromaIds]);
+      } catch (e) {
+        console.warn("[RAG] ChromaDB deleteByCharacterId warning:", e);
+      }
+    }
+    return deleted;
+  }
+
   /** Ingest character chunks into the store. */
   ingest(chunks: CharacterRecord[], vectors: number[][]): void {
     if (chunks.length === 0) return;

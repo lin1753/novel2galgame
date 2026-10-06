@@ -20,6 +20,7 @@ import {
 import type { LLMProvider } from "@novel2gal/providers";
 import { PipelineTaskQueue } from "../task-queue/index.js";
 import type { QueueChapter } from "../task-queue/index.js";
+import { readRunManifest, sumManifests } from "@novel2gal/pipeline";
 
 import { getActiveProfile, resolveModelConfig } from "../config/index.js";
 
@@ -43,7 +44,7 @@ export function createAutoExportRoutes(
   const chapterRepo = new ChapterRepository(db);
   const sceneRepo = new SceneRepository(db);
 
-  // POST /projects/:id/auto-export â€?Start async full pipeline
+  // POST /projects/:id/auto-export ï¿½?Start async full pipeline
   router.post("/projects/:id/auto-export", async (req: Request, res: Response) => {
     const projectId = param(req, "id");
     const project = projectRepo.getById(projectId);
@@ -73,7 +74,7 @@ export function createAutoExportRoutes(
       });
   });
 
-  // POST /projects/:id/auto-export/cancel/:chapterId â€?Cancel a chapter
+  // POST /projects/:id/auto-export/cancel/:chapterId ï¿½?Cancel a chapter
   router.post("/projects/:id/auto-export/cancel/:chapterId", (req: Request, res: Response) => {
     // Find the task for this project by looking through active tasks
     // Since we have a Map<taskId, queue>, we need to find the one for this project
@@ -99,7 +100,7 @@ export function createAutoExportRoutes(
     res.status(404).json({ error: "Chapter not found in active tasks" });
   });
 
-  // POST /projects/:id/auto-export/cancel â€?Cancel all
+  // POST /projects/:id/auto-export/cancel ï¿½?Cancel all
   router.post("/projects/:id/auto-export/cancel", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     let cancelled = false;
@@ -114,7 +115,7 @@ export function createAutoExportRoutes(
     res.json({ success: true });
   });
 
-  // GET /projects/:id/auto-export/status â€?Get active task status
+  // GET /projects/:id/auto-export/status ï¿½?Get active task status
   router.get("/projects/:id/auto-export/status", (req: Request, res: Response) => {
     const projectId = param(req, "id");
     for (const [tid, queue] of activeTasks) {
@@ -188,10 +189,25 @@ async function processAutoExport(
         projectId,
         chapterId: event.chapterId,
         chapterIndex: event.chapterIndex,
+        sceneId: (event as any).sceneId,
+        sceneIndex: (event as any).sceneIndex,
+        sceneCount: (event as any).sceneCount,
         stage: event.stage,
         status: event.status as any,
         message: event.message,
-        data: { taskId },
+        // Stage-3 Phase 4: chapter stats ride completed-event data (beside
+        // the existing taskId â€” old fields untouched).
+        ...(event.stage === "completed"
+          ? {
+              data: {
+                taskId,
+                stagesRun: (event as any).stagesRun,
+                stagesCached: (event as any).stagesCached,
+                stagesDegraded: (event as any).stagesDegraded,
+                tokens: (event as any).tokens,
+              },
+            }
+          : { data: { taskId } }),
       });
     };
 
@@ -238,7 +254,16 @@ async function processAutoExport(
 
     emit("complete", "completed",
       `Done: ${successCount}/${queueChapters.length} chapters`,
-      { outputPath: exportResult.outputPath, successCount, failedCount });
+      {
+        outputPath: exportResult.outputPath,
+        successCount,
+        failedCount,
+        // Stage-3 Phase 4: book totals = straight sums over chapter
+        // run-manifests (old fields untouched).
+        ...sumManifests(
+          queue.getCompletedChapters().map((cid) => readRunManifest(config.dataDir, projectId, cid)),
+        ),
+      });
   } catch (err) {
     emit("complete", "failed", err instanceof Error ? err.message : String(err));
   }

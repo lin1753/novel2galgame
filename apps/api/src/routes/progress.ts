@@ -8,10 +8,20 @@ export type ProgressEvent = {
   chapterId?: string;
   chapterIndex?: number;
   sceneId?: string;
+  sceneIndex?: number;
+  sceneCount?: number;
   stage: string;
   status: ProgressStatus;
   message?: string;
   data?: unknown;
+  // Stage-3 Phase 4: chapter run stats — present on `completed` data only
+  // (queue fan-out copies these into `data` at the broadcast sites).
+  // ChapterProgressEvent in task-queue.ts is the typed source; these stay
+  // optional here so old consumers never break.
+  stagesRun?: number;
+  stagesCached?: number;
+  stagesDegraded?: number;
+  tokens?: { prompt: number; completion: number };
 };
 
 // projectId -> SSE connections

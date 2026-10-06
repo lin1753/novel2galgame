@@ -130,6 +130,20 @@ export class BaseCollection {
     return deleted;
   }
 
+  /** Delete records by exact id. Returns count deleted. */
+  deleteByIds(ids: string[]): number {
+    if (ids.length === 0) return 0;
+    const doomed = new Set(ids);
+    const before = this.records.length;
+    this.records = this.records.filter((r) => !doomed.has(r.id));
+    const deleted = before - this.records.length;
+    if (deleted > 0) {
+      this.rebuildIndex();
+      this.save();
+    }
+    return deleted;
+  }
+
   // ── Vector Search ────────────────────────────────────
 
   search(queryVector: number[], options?: SearchOptions): SearchResult[] {
