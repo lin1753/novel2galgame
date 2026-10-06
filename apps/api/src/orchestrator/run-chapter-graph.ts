@@ -10,6 +10,7 @@ import { CheckpointManager } from "@novel2gal/pipeline";
 import { PendingProposalStore } from "@novel2gal/pipeline";
 import { createRunAccumulator, writeRunManifestSafe } from "@novel2gal/pipeline";
 import type { ChapterRunManifest } from "@novel2gal/pipeline";
+import type { CacheMissDiagnosis } from "@novel2gal/pipeline/stages/stage-cache";
 import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
 
 /**
@@ -67,6 +68,8 @@ export interface RunChapterGraphResult {
   outcome: "succeeded" | "failed" | "cancelled" | "waiting_review";
   /** Stage-3 Phase 4: chapter run-manifest (also written to disk). */
   manifest: ChapterRunManifest;
+  /** Stage-3 cache-miss diagnoses in emission order (always present, possibly empty). */
+  cacheMisses: CacheMissDiagnosis[];
 }
 
 /** Process-wide checkpoint manager singleton (checkpoints.db under dataDir/config). */
@@ -109,6 +112,9 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
   // every stage ctx's cache.stats bucket AND tokenAcc point at these objects,
   // so manifest/SSE caliber matches the legacy path exactly.
   const runStats = createRunAccumulator();
+  // Stage-3 cache-miss diagnoses (smoke `--strict-cache`): every withStageCache
+  // miss in this run appends here via deps.onCacheMiss (emission order).
+  const cacheMisses: CacheMissDiagnosis[] = [];
 
   const deps: ChapterGraphDeps = {
     dataDir,
@@ -122,6 +128,7 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
     signal,
     onProgress,
     runStats,
+    onCacheMiss: (d) => cacheMisses.push(d),
   };
 
   const graph = buildChapterGraph(deps, cm.saver);
@@ -205,6 +212,7 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
         runStats,
         Array.isArray(finalState?.degradedStages) ? finalState.degradedStages : [],
       ),
+      cacheMisses,
     };
   } catch (err: any) {
     // Hard crash / abort mid-run: distinguish cancel from failure.

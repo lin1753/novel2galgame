@@ -22,11 +22,11 @@ import {
 } from "../stages/chapter-stages.js";
 import type { StageCtx } from "../stages/types.js";
 import { STAGE_VERSIONS } from "../stages/types.js";
-import type { ChapterRunAccumulator } from "../stages/run-manifest.js";
 import {
   inputHashOf,
   promptHashFor,
   withStageCache,
+  buildSubHashes,
 } from "../stages/stage-cache.js";
 import {
   narrativeOutputSchema,
@@ -111,13 +111,15 @@ function degradedOrFail(degraded: string | undefined, policy: "allow" | "fail"):
  * constants, same as projectId/chapterId). Without a shared accumulator the
  * ctx gets a throwaway bucket and nothing is aggregated.
  */
-function cacheCtx(ctx: StageCtx, runStats?: ChapterRunAccumulator): StageCtx {
-  if (runStats) {
-    ctx.cache = { stats: runStats.stats };
+function cacheCtx(ctx: StageCtx, deps: ChapterGraphDeps): StageCtx {
+  const stats = deps.runStats?.stats;
+  if (stats) {
+    ctx.cache = { stats, ...(deps.onCacheMiss ? { onMiss: deps.onCacheMiss } : {}) };
     return ctx;
   }
   if (!ctx.cache) ctx.cache = { stats: { run: 0, cached: 0, degraded: 0 } };
   else if (!ctx.cache.stats) ctx.cache.stats = { run: 0, cached: 0, degraded: 0 };
+  if (deps.onCacheMiss && !ctx.cache.onMiss) ctx.cache.onMiss = deps.onCacheMiss;
   return ctx;
 }
 
@@ -163,7 +165,7 @@ export async function narrativeNode(ctx: NodeCtx): Promise<Partial<ChapterGraphS
   const text = fs.readFileSync(resolveProjectPath(deps, state, state.chapterTextPath), "utf-8");
   const stageInput = { chapterId: state.chapterId, chapterTitle: state.chapterTitle, chapterText: text };
   const stageAgent = agent(ctx, "narrative");
-  const sctx = cacheCtx(stageCtx(ctx), deps.runStats);
+  const sctx = cacheCtx(stageCtx(ctx), deps);
   // Stage-3 cache: input = the stage function's full input (the whole chapter
   // text — any edit invalidates); artifact = the existing chapter artifact.
   const cached = await withStageCache(
@@ -173,6 +175,10 @@ export async function narrativeNode(ctx: NodeCtx): Promise<Partial<ChapterGraphS
       artifactPath: chapterArtifactPath(deps, state, FILE_NAMES.narrativeUnits),
       outputSchema: narrativeOutputSchema,
       inputHash: inputHashOf(stageInput),
+      inputSubHashes: buildSubHashes([
+        ["chapterText", text],
+        ["chapterTitle", state.chapterTitle],
+      ]),
       promptHash: promptHashFor("narrative-parsing"),
       model: stageAgent.model,
       ctx: sctx,
@@ -222,7 +228,7 @@ export async function attributionNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
 
   const stageInput = { chapterId: state.chapterId, units: narrative.units, characterKnowledge, knownCharacters };
   const stageAgent = agent(ctx, "attribution");
-  const sctx = cacheCtx(stageCtx(ctx, { rag: { knownCharacters } }), deps.runStats);
+  const sctx = cacheCtx(stageCtx(ctx, { rag: { knownCharacters } }), deps);
   const artifactPath = chapterArtifactPath(deps, state, FILE_NAMES.attributedUnits);
   // Stage-3 cache: input = the stage function's full input (units + both RAG
   // slots). The M4 post-processing below (resolver/isGroup/pending) runs on
@@ -238,6 +244,11 @@ export async function attributionNode(ctx: NodeCtx): Promise<Partial<ChapterGrap
       artifactPath,
       outputSchema: attributionOutputSchema,
       inputHash: inputHashOf(stageInput),
+      inputSubHashes: buildSubHashes([
+        ["units", narrative.units],
+        ["knownCharacters", knownCharacters],
+        ["characterKnowledge", characterKnowledge],
+      ]),
       promptHash: promptHashFor("attribution"),
       model: stageAgent.model,
       ctx: sctx,
@@ -442,7 +453,7 @@ export async function segmentationNode(ctx: NodeCtx): Promise<Partial<ChapterGra
 
   const stageInput = { chapterId: state.chapterId, units: attr.units, sceneHints };
   const stageAgent = agent(ctx, "segmentation");
-  const sctx = cacheCtx(stageCtx(ctx), deps.runStats);
+  const sctx = cacheCtx(stageCtx(ctx), deps);
   const artifactPath = chapterArtifactPath(deps, state, FILE_NAMES.segmentation);
   // Stage-3 cache: input = the stage function's full input (attributed units
   // + sceneHints RAG slot). runSceneFixup (unitIds remap + sceneId prefixing)
@@ -458,6 +469,10 @@ export async function segmentationNode(ctx: NodeCtx): Promise<Partial<ChapterGra
       artifactPath,
       outputSchema: segmentationOutputSchema,
       inputHash: inputHashOf(stageInput),
+      inputSubHashes: buildSubHashes([
+        ["units", attr.units],
+        ["sceneHints", sceneHints],
+      ]),
       promptHash: promptHashFor("scene-segmentation"),
       model: stageAgent.model,
       ctx: sctx,
@@ -589,7 +604,7 @@ export async function sceneWorkerNode(
     return { error: `scene ${input.sceneId} not found in segmentation.json` };
   }
   const sceneUnits = (attr?.units ?? []).filter((u: any) => scene.unitIds.includes(u.unitId));
-  const workerCtx = cacheCtx(baseCtx, deps.runStats);
+  const workerCtx = cacheCtx(baseCtx, deps);
   const vnAgent = deps.agentModels?.vnMapping ?? { provider: deps.provider, model: deps.model };
   const fidelityAgent = deps.agentModels?.fidelityReview ?? { provider: deps.provider, model: deps.model };
   const vnArtifactPath = sceneArtifactPath(deps, state, input.sceneId, FILE_NAMES.vnScript);
@@ -607,6 +622,12 @@ export async function sceneWorkerNode(
         // Repair rounds hash repairContext INTO the key (old repairSalt role):
         // a repair never reuses the failed script it is fixing.
         inputHash: sceneInputHash(input.sceneId, scene, sceneUnits, { mappingMode: "standard", repairContext }),
+        inputSubHashes: buildSubHashes([
+          ["sceneContent", { scene, units: sceneUnits }],
+          ["mappingMode", "standard"],
+          ["repairContext", repairContext],
+        ]),
+        sceneId: input.sceneId,
         promptHash: promptHashFor("vn-mapping"),
         model: vnAgent.model,
         ctx: workerCtx,
@@ -660,6 +681,11 @@ export async function sceneWorkerNode(
           // a fresh review instead of hitting the stale failed report (the
           // old vnScriptHash role, folded into the unified key).
           inputHash: sceneInputHash(input.sceneId, scene, sceneUnits, { vnScript: vnData }),
+          inputSubHashes: buildSubHashes([
+            ["sceneContent", { scene, units: sceneUnits }],
+            ["vnScript", vnData],
+          ]),
+          sceneId: input.sceneId,
           promptHash: promptHashFor("fidelity-review"),
           model: fidelityAgent.model,
           ctx: workerCtx,
@@ -715,6 +741,13 @@ export async function sceneWorkerNode(
           styleTemplate: state.styleTemplate,
           characterKnowledge,
         }),
+        inputSubHashes: buildSubHashes([
+          ["sceneContent", { scene, units: sceneUnits }],
+          ["characters", attr?.characters ?? []],
+          ["styleTemplate", state.styleTemplate],
+          ["characterKnowledge", characterKnowledge],
+        ]),
+        sceneId: input.sceneId,
         promptHash: promptHashFor("visual-prompt"),
         model: vpAgent.model,
         ctx: workerCtx,

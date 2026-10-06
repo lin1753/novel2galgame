@@ -1,6 +1,7 @@
 import type { LLMProvider } from "@novel2gal/providers";
 import type { PendingProposalStore } from "./pending-store.js";
 import type { ChapterRunAccumulator } from "../stages/run-manifest.js";
+import type { CacheMissDiagnosis } from "../stages/stage-cache.js";
 
 /**
  * Runtime dependencies injected into the chapter graph at build time (stage
@@ -42,4 +43,6 @@ export interface ChapterGraphDeps {
    * throwaway local bucket and no manifest is aggregated.
    */
   runStats?: ChapterRunAccumulator;
+  /** Stage-3 cache-miss diagnosis hook — wired into every stage ctx's cache.onMiss. */
+  onCacheMiss?: (d: CacheMissDiagnosis) => void;
 }

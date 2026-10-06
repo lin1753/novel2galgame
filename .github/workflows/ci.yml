@@ -22,7 +22,8 @@ jobs:
 
   # Windows job: better-sqlite3 native-module proof (maintainer decision
   # 2a-2). Full build is skipped here; only the packages whose tests touch
-  # the native module run: pipeline (SqliteSaver smoke) and storage.
+  # the native module run: pipeline (SqliteSaver smoke), storage, and api
+  # (CheckpointManager + smoke dry-run via ScriptedProvider).
   verify-windows:
     runs-on: windows-latest
     steps:
@@ -36,4 +37,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @novel2gal/core --filter @novel2gal/ir --filter @novel2gal/providers --filter @novel2gal/agents --filter @novel2gal/storage --filter @novel2gal/rag --filter @novel2gal/asset --filter @novel2gal/runtime --filter @novel2gal/export --filter @novel2gal/evaluation run build
-      - run: pnpm --filter @novel2gal/storage --filter @novel2gal/pipeline test
+      - run: pnpm --filter @novel2gal/storage --filter @novel2gal/pipeline --filter @novel2gal/api test

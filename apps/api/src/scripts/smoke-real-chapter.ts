@@ -1,167 +1,207 @@
 /**
- * 2c-10: real-LLM smoke script — runs ONE chapter through the GRAPH engine
- * (ENGINE=graph path) against the live model, then runs the M7 manifest
- * assertions (11/11 from the character-bible acceptance).
+ * smoke:real — 薄 CLI。真实逻辑在 ./smoke-lib.ts（可被 vitest 直接导入）。
  *
- * Usage:
- *   pnpm smoke:real                          # default: 62ec chapter 0011
+ * 用法：
+ *   pnpm smoke:real                                        # 默认项目/章节，1 轮
  *   pnpm smoke:real -- <projectId> <chapterIndex1Based>
+ *   pnpm smoke:real -- --twice <projectId> <chapterIndex>   # 同一章节连跑两轮
+ *   pnpm smoke:real -- --twice --strict-cache ...           # 第二轮只允许 vp 因 characterKnowledge 未命中
+ *   pnpm smoke:real -- --twice --thrice ...                # 加跑第三轮（验证全命中；第二轮重跑 vp 需消耗 token）
+ *   pnpm smoke:real -- --allow-skip ...                    # 真实运行中允许跳过（默认跳过即失败）
+ *   pnpm smoke:dry                                          # dry-run：ScriptedProvider + tmp 数据目录，零 token，共 3 轮
+ *   pnpm smoke:dry -- --dataDir <dir>                       # 复用指定 tmp 目录（调试用）
  *
- * Costs real tokens (maintainer runs it before the stage-4 switch).
- * Exit code 0 = all assertions passed.
+ * exit code：0 全过 / 1 断言或门禁失败 / 2 预检失败（LLM 调用之前退出）。
+ *
+ * 真实运行消耗真实 token，由 maintainer 执行。
  */
 
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import "dotenv/config";
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
 import { FetchLLMProvider } from "@novel2gal/providers";
-import { getActiveProfile } from "../config/index.js";
-import { runChapterWithGraph } from "../orchestrator/run-chapter-graph.js";
-import { createDatabase, ProjectRepository, ChapterRepository, SceneRepository } from "@novel2gal/storage";
+import { config, getActiveProfile } from "../config/index.js";
+import {
+  makeTempDataDir,
+  runSmoke,
+  setupDryRunProject,
+} from "./smoke-lib.js";
 
-interface Args { projectId: string; chapterIndex: number; }
+interface CliArgs {
+  projectId: string;
+  chapterIndex1Based: number;
+  dryRun: boolean;
+  twice: boolean;
+  thrice: boolean;
+  strictCache: boolean;
+  allowSkip: boolean;
+  dataDir: string;
+  model?: string;
+  keepTmp: boolean;
+}
 
-function parseArgs(): Args {
-  const argv = process.argv.slice(2).filter((a) => !a.startsWith("-"));
+function parseArgs(): CliArgs {
+  const raw = process.argv.slice(2);
+  const flags = new Set(raw.filter((a) => a.startsWith("-")));
+  const positional = raw.filter((a) => !a.startsWith("-"));
+  const val = (name: string): string | undefined => {
+    const i = raw.indexOf(name);
+    return i >= 0 && i + 1 < raw.length && !raw[i + 1].startsWith("-") ? raw[i + 1] : undefined;
+  };
+  const dryRun = flags.has("--dry-run");
+  const twice = flags.has("--twice");
+  const thrice = flags.has("--thrice");
   return {
-    projectId: argv[0] ?? "project_62ec436e1938",
-    chapterIndex: Number(argv[1] ?? 11),
+    projectId: positional[0] ?? (dryRun ? "smokeproj" : "project_62ec436e1938"),
+    chapterIndex1Based: Number(positional[1] ?? (dryRun ? 1 : 11)),
+    dryRun,
+    twice,
+    thrice,
+    strictCache: flags.has("--strict-cache"),
+    allowSkip: flags.has("--allow-skip"),
+    dataDir: val("--dataDir") ?? val("--data-dir") ?? config.dataDir,
+    model: val("--model"),
+    keepTmp: flags.has("--keep-tmp"),
   };
 }
 
 async function main() {
-  const { projectId, chapterIndex } = parseArgs();
-  const dataDir = path.resolve("data");
-  const chapterId = `${projectId}_chapter_${String(chapterIndex).padStart(4, "0")}`;
+  const args = parseArgs();
+  const runs = args.dryRun ? 3 : args.thrice ? 3 : args.twice ? 2 : 1;
 
-  const db = createDatabase(path.join(dataDir, "config", "app.db"));
-  const projectRepo = new ProjectRepository(db);
-  const chapterRepo = new ChapterRepository(db);
-  const sceneRepo = new SceneRepository(db);
-  const project = projectRepo.getById(projectId);
-  if (!project) throw new Error(`Project ${projectId} not found in DB`);
-  const chapter = chapterRepo.getById(chapterId);
-  if (!chapter) throw new Error(`Chapter ${chapterId} not found`);
+  // dry-run 默认使用全新 tmp 数据目录（零 token，不碰真实数据）；
+  // --dataDir 显式指定时复用（调试门禁行为用）。
+  let dataDir = args.dataDir;
+  let tmpOwned = false;
+  if (args.dryRun && !process.argv.includes("--dataDir") && !process.argv.includes("--data-dir")) {
+    dataDir = makeTempDataDir();
+    tmpOwned = true;
+  }
 
-  const sourcePath = path.join(dataDir, "projects", projectId, "chapters", chapterId, "source.txt");
-  if (!fs.existsSync(sourcePath)) throw new Error(`source.txt missing for ${chapterId}`);
-  const chapterText = fs.readFileSync(sourcePath, "utf-8");
-  console.log(`[smoke] ${chapterId} — ${chapterText.length} chars, title: ${chapter.title}`);
+  if (args.dryRun) {
+    // 动态导入 fixtures：只在 dry-run 路径加载，真实路径零依赖。
+    const fixtures = await import(
+      "../../../../packages/pipeline/src/stages/__test__/fixtures.js"
+    );
+    const {
+      ScriptedProvider,
+      whenNarrative,
+      whenAttribution,
+      whenSegmentation,
+      whenFidelity,
+      whenVisualPrompt,
+      FIXTURE_NARRATIVE,
+      FIXTURE_ATTRIBUTION,
+      FIXTURE_SEGMENTATION,
+      FIXTURE_VN_SCRIPT,
+      FIXTURE_FIDELITY,
+      FIXTURE_VISUAL_PROMPT,
+      FIXTURE_CHAPTER,
+    } = fixtures as typeof import("../../../../packages/pipeline/src/stages/__test__/fixtures.js");
 
+    const projectId = args.projectId;
+    const chapterId = setupDryRunProject(dataDir, projectId, args.chapterIndex1Based, FIXTURE_CHAPTER.chapterTitle);
+
+    const sceneIds = [`${chapterId}_scene_0001`, `${chapterId}_scene_0002`];
+    const makeProvider = () =>
+      new ScriptedProvider([
+        whenNarrative({ kind: "json", value: { ...FIXTURE_NARRATIVE, chapterId } }),
+        whenAttribution({ kind: "json", value: { ...FIXTURE_ATTRIBUTION, chapterId } }),
+        whenSegmentation({
+          kind: "json",
+          value: {
+            ...FIXTURE_SEGMENTATION,
+            chapterId,
+            scenes: FIXTURE_SEGMENTATION.scenes.map((s, i) => ({
+              ...s,
+              sceneId: sceneIds[i],
+              chapterId,
+              unitIds: s.unitIds,
+              startUnitId: s.startUnitId,
+              endUnitId: s.endUnitId,
+            })),
+            sceneUnitMap: Object.fromEntries(
+              FIXTURE_SEGMENTATION.scenes.map((s, i) => [sceneIds[i], s.unitIds]),
+            ),
+          },
+        }),
+        whenFidelity({ kind: "json", value: FIXTURE_FIDELITY("any") }),
+        whenVisualPrompt({ kind: "json", value: FIXTURE_VISUAL_PROMPT("any") }),
+        ...sceneIds.map((sid) => ({
+          when: `场景ID: ${sid}`,
+          response: { kind: "json", value: FIXTURE_VN_SCRIPT(sid) } as const,
+        })),
+      ]);
+
+    try {
+      const result = await runSmoke(
+        {
+          dataDir,
+          projectId,
+          chapterIndex1Based: args.chapterIndex1Based,
+          model: "scripted",
+          dryRun: true,
+          runs,
+        },
+        {
+          makeProvider: makeProvider as any,
+          providerLabel: "scripted(dry-run)",
+          llmKeyConfigured: true,
+          chapterTextOverride: FIXTURE_CHAPTER.chapterText,
+        },
+      );
+      console.log(result.output);
+      process.exit(result.exitCode);
+    } finally {
+      if (tmpOwned && !args.keepTmp) {
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      } else if (tmpOwned) {
+        console.log(`[smoke] tmp 数据目录保留: ${dataDir}`);
+      }
+    }
+    return;
+  }
+
+  // 真实路径：active profile 的 apiKey，否则 OPENAI_API_KEY。
   const profile = getActiveProfile();
   const apiKey = profile?.apiKey ?? process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("No LLM API key (active profile or OPENAI_API_KEY)");
-  const provider = new FetchLLMProvider({
-    apiKey,
-    baseUrl: profile?.baseUrl ?? (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
-    defaultModel: profile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "",
-    name: profile?.name ?? "smoke",
-  });
-  console.log(`[smoke] LLM: ${provider.name} (${profile?.defaultModel ?? "?"})`);
-
-  const t0 = Date.now();
-  const result = await runChapterWithGraph({
-    dataDir,
-    project,
-    chapterId,
-    chapterIndex: chapterIndex - 1,
-    chapterTitle: chapter.title,
-    chapterText,
-    provider,
-    model: profile?.defaultModel ?? "",
-    signal: new AbortController().signal,
-    onProgress: (stage, message) => console.log(`  [${stage}] ${message.slice(0, 100)}`),
-    sceneRepo,
-  });
-  console.log(`[smoke] outcome=${result.outcome} scenes=${result.sceneCount} in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
-  if (result.outcome !== "succeeded") {
-    console.error(`[smoke] FAILED: outcome ${result.outcome}, error: ${JSON.stringify((result.state as any).error ?? null)}`);
-    process.exit(1);
+  const model = args.model ?? profile?.defaultModel ?? process.env.DEFAULT_MODEL ?? "";
+  if (!apiKey) {
+    console.error("[smoke][预检失败] 未配置 LLM key（active profile 的 apiKey 或 OPENAI_API_KEY 为空）");
+    process.exit(2);
   }
+  const makeProvider = () =>
+    new FetchLLMProvider({
+      apiKey,
+      baseUrl: profile?.baseUrl ?? (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"),
+      defaultModel: model,
+      name: profile?.name ?? "smoke",
+    });
 
-  // ── M7 manifest assertions (11) ──
-  const projDir = path.join(dataDir, "projects", projectId);
-  let pass = 0, fail = 0;
-  const ok = (cond: boolean, label: string) => {
-    if (cond) { pass++; console.log(`  ✓ ${label}`); }
-    else { fail++; console.error(`  ✗ ${label}`); }
-  };
-
-  const chaptersDir = path.join(projDir, "chapters", chapterId);
-  const seg = JSON.parse(fs.readFileSync(path.join(chaptersDir, "segmentation.json"), "utf-8"));
-  const sceneIds: string[] = seg.scenes.map((s: any) => s.sceneId);
-  ok(sceneIds.length > 0, `segmentation has ${sceneIds.length} scenes`);
-  const withScript = sceneIds.filter((sid) => fs.existsSync(path.join(projDir, "scenes", sid, "vn_script.json")));
-  ok(withScript.length === sceneIds.length, `all ${sceneIds.length} scenes have vn_script.json (${withScript.length})`);
-
-  const manifestPath = path.join(projDir, "export", "M7_", "assets", "manifest.json");
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
-  const charMap = manifest.assets?.character ?? {};
-  const entries: Array<{ characterId: string; expression: string; prompt: string }> = [];
-  for (const [cid, c] of Object.entries<any>(charMap)) {
-    for (const [expr, e] of Object.entries<any>(c.expressions ?? {})) {
-      entries.push({ characterId: cid, expression: expr, prompt: e.prompt ?? "" });
-    }
-  }
-  ok(entries.length > 0, `manifest has ${entries.length} character expression entries`);
-
-  const FEMALE_RE = /\b(young woman|woman|girl|lady|female|she)\b|\b1girl\b/i;
-  const MALE_RE = /\b(young man|man|boy|male|he)\b|\b1man\b|\b1boy\b/i;
-  const LITERAL = /peach[-\s]?blossom|phoenix[-\s]?eye|willow(?:[-\s]?leaf)?[-\s]?(eyebrow|brow)|sword[-\s]?(brow|eyebrow)|\bfox\s*[-\s]?\s*eyes?\b|cherry[-\s]?mouth|goose[-\s]?egg|silkworm/i;
-  const CANON = new Set(["neutral","smile","happy","smug","blushing","sad","crying","troubled","angry","serious","cold","thinking","surprised","shocked","determined","fearful"]);
-
-  let anchored = 0, residue = 0, badExpr = 0, checked = 0;
-  for (const e of entries) {
-    if (!e.prompt) continue;
-    checked++;
-    if (FEMALE_RE.test(e.prompt) || MALE_RE.test(e.prompt)) anchored++;
-    if (LITERAL.test(e.prompt)) residue++;
-    if (e.expression && !CANON.has(e.expression) && !/^[a-z][a-z_]*$/.test(e.expression) && !/[一-鿿]/.test(e.expression)) badExpr++;
-  }
-  ok(checked === 0 || anchored === checked, `gender anchors present: ${anchored}/${checked}`);
-  ok(residue === 0, `no literal-translation residue (${residue} hits)`);
-  ok(badExpr === 0, `expressions canonical or passthrough`);
-
-  const profiles = JSON.parse(fs.readFileSync(path.join(projDir, "character_profiles.json"), "utf-8"));
-  let bad = 0;
-  for (const v of Object.values<any>(profiles)) if (!v.baseline || !Array.isArray(v.aliasSet)) bad++;
-  ok(bad === 0, `all ${Object.keys(profiles).length} profiles master-format (${bad} bad)`);
-  let mirrorBad = 0;
-  for (const v of Object.values<any>(profiles)) {
-    if (typeof v.basePrompt !== "string" || v.basePrompt !== ((v.baseline?.basePrompt) ?? "")) mirrorBad++;
-  }
-  ok(mirrorBad === 0, `top-level basePrompt mirrors baseline (${mirrorBad} mismatches)`);
-
-  try {
-    const cols = await fetch("http://localhost:8021/api/v2/tenants/default_tenant/databases/default_database/collections").then((r) => r.json());
-    const charCol = (cols as any[]).find((c) => /character/i.test(c.name));
-    ok(!!charCol, `character collection found: ${charCol?.name}`);
-    if (charCol) {
-      const q = await fetch(`http://localhost:8021/api/v2/tenants/default_tenant/databases/default_database/collections/${charCol.id}/get`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ where: { projectId }, limit: 500 }),
-      });
-      const data = await q.json();
-      const chIds = ((data.ids as string[]) ?? []).filter((id) => id.includes(chapterId));
-      ok(chIds.length > 0, `chapter chunks in Chroma: ${chIds.length}`);
-      ok(!chIds.some((id) => /\d{10,}/.test(id)), `no Date.now()-style IDs`);
-    }
-  } catch (e) {
-    ok(false, `Chroma check failed: ${(e as Error).message}`);
-  }
-
-  const pending = JSON.parse(fs.readFileSync(path.join(projDir, "pending", "pending.json"), "utf-8"));
-  const pendingCount = Object.keys(pending).length;
-  console.log(`\n[smoke] pending merge proposals produced by this run: ${pendingCount}`);
-  for (const p of Object.values<any>(pending)) {
-    console.log(`  - ${p.candidateName} (${p.candidateId}) → ${p.targetCanonicalName} (${p.targetCharacterId}), score ${p.similarityScore.toFixed(2)}, ${p.matchedBy}`);
-  }
-
-  console.log(`\nM7 ACCEPTANCE: ${pass} passed, ${fail} failed`);
-  process.exit(fail > 0 ? 1 : 0);
+  const result = await runSmoke(
+    {
+      dataDir,
+      projectId: args.projectId,
+      chapterIndex1Based: args.chapterIndex1Based,
+      model,
+      runs,
+      strictCache: args.strictCache,
+      allowSkip: args.allowSkip,
+    },
+    {
+      makeProvider: makeProvider as any,
+      providerLabel: profile?.name ?? "smoke",
+      llmKeyConfigured: true,
+      llmKeyHint: `model=${model || "(empty)"} ${path.resolve(dataDir)}`,
+    },
+  );
+  console.log(result.output);
+  process.exit(result.exitCode);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

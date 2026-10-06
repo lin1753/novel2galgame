@@ -117,6 +117,12 @@
 | F4.2 | **测试连接按钮缺失**：后端 `test-connection/test-image/test-video` 零前端调用 | routes/config.ts 有，pages 无 | ConfigPage 加"测试文本/图像/视频连接"三按钮（F2 用户配错 key 早发现） |
 | F4.3 | **model-assignments 无 UI**：后端支持 per-type 模型分配，前端只能改 profile 默认 | 同上 | 按需：Bible M3 的题材模板选择可同屏加 |
 
+### F5. 角色基线时序（2026-10-07 smoke dry-run 待办，不要现在处理）
+
+| # | 问题 | 证据 | 修复方向 |
+|---|------|------|---------|
+| F5.1 | **场景并行时新角色的 vp 在无基线条件下生成**：同章多个场景并行跑 visual_prompt，bible 基线尚未落盘，各场景按各自的 characterPrompts 独立生成外貌；`bible_commit` 事后只选其一（write-once 首锁）作为全局基线，其他场景的外貌可能与锁定基线不一致——可能是同角色立绘漂移的来源之一 | `chapter-nodes.ts` sceneWorker（vp 并行提案）→ `bibleCommitNode`（串行提交，首锁胜出）；smoke dry-run 三轮收敛门 KNOWN_LIMITATION 同源 | 后续考虑在场景扇出前先定下本章新角色的基线（预锁定），再进场景并行 |
+
 ---
 
 ## G. 执行建议顺序（后续统一修改时）

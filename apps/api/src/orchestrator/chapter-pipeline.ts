@@ -36,7 +36,9 @@ import {
   withStageCache,
   inputHashOf,
   promptHashFor,
+  buildSubHashes,
 } from "@novel2gal/pipeline/stages/stage-cache";
+import type { InputSubHashes } from "@novel2gal/pipeline/stages/stage-cache";
 import {
   narrativeOutputSchema,
   attributionOutputSchema,
@@ -150,6 +152,8 @@ async function runAgentWithMetrics<T>(opts: {
     artifactPath: string;
     outputSchema: { parse: (raw: unknown) => T };
     inputHash: string;
+    inputSubHashes?: InputSubHashes;
+    sceneId?: string;
     promptHash: string;
     ctx?: StageCtx;
     keepDegraded?: boolean;
@@ -174,6 +178,8 @@ async function runAgentWithMetrics<T>(opts: {
         artifactPath: opts.cache.artifactPath,
         outputSchema: opts.cache.outputSchema,
         inputHash: opts.cache.inputHash,
+        ...(opts.cache.inputSubHashes ? { inputSubHashes: opts.cache.inputSubHashes } : {}),
+        ...(opts.cache.sceneId !== undefined ? { sceneId: opts.cache.sceneId } : {}),
         promptHash: opts.cache.promptHash,
         model: opts.model,
         ctx: opts.cache.ctx,
@@ -334,6 +340,10 @@ export async function runChapterPipeline(
         artifactPath: chapterArtifactPath(FILE_NAMES.narrativeUnits),
         outputSchema: narrativeOutputSchema,
         inputHash: inputHashOf(stageInput),
+        inputSubHashes: buildSubHashes([
+          ["chapterText", chapterText],
+          ["chapterTitle", chapterTitle],
+        ]),
         promptHash: promptHashFor("narrative-parsing"),
       },
       fn: () => runNarrativeStage(
@@ -391,6 +401,11 @@ export async function runChapterPipeline(
         artifactPath: chapterArtifactPath(FILE_NAMES.attributedUnits),
         outputSchema: attributionOutputSchema,
         inputHash: inputHashOf(attrStageInput),
+        inputSubHashes: buildSubHashes([
+          ["units", narrativeData.units],
+          ["knownCharacters", knownCharacters],
+          ["characterKnowledge", characterKnowledge],
+        ]),
         promptHash: promptHashFor("attribution"),
       },
       fn: () => runAttributionStage(
@@ -543,6 +558,10 @@ export async function runChapterPipeline(
         artifactPath: chapterArtifactPath(FILE_NAMES.segmentation),
         outputSchema: segmentationOutputSchema,
         inputHash: inputHashOf(segStageInput),
+        inputSubHashes: buildSubHashes([
+          ["units", attributionData.units],
+          ["sceneHints", sceneHints],
+        ]),
         promptHash: promptHashFor("scene-segmentation"),
       },
       fn: () => runSegmentationStage(
@@ -672,6 +691,12 @@ export async function runChapterPipeline(
           artifactPath: sceneArtifactPath(scene.sceneId, FILE_NAMES.vnScript),
           outputSchema: vnMappingOutputSchema,
           inputHash: sceneInputHash(scene.sceneId, scene, sceneUnits, { mappingMode: "standard" }),
+          inputSubHashes: buildSubHashes([
+            ["sceneContent", { scene, units: sceneUnits }],
+            ["mappingMode", "standard"],
+            ["repairContext", undefined],
+          ]),
+          sceneId: scene.sceneId,
           promptHash: promptHashFor("vn-mapping"),
         },
         fn: () => runVNMappingStage(
@@ -712,6 +737,11 @@ export async function runChapterPipeline(
             artifactPath: sceneArtifactPath(scene.sceneId, FILE_NAMES.fidelityReport),
             outputSchema: fidelityOutputSchema,
             inputHash: sceneInputHash(scene.sceneId, scene, sceneUnits, { vnScript: vnData }),
+            inputSubHashes: buildSubHashes([
+              ["sceneContent", { scene, units: sceneUnits }],
+              ["vnScript", vnData],
+            ]),
+            sceneId: scene.sceneId,
             promptHash: promptHashFor("fidelity-review"),
           },
           fn: () => runFidelityStage(
@@ -816,6 +846,13 @@ export async function runChapterPipeline(
               styleTemplate: resolvedStyleTemplate,
               characterKnowledge,
             }),
+            inputSubHashes: buildSubHashes([
+              ["sceneContent", { scene, units: sceneUnits }],
+              ["characters", attrCharacters],
+              ["styleTemplate", resolvedStyleTemplate],
+              ["characterKnowledge", characterKnowledge],
+            ]),
+            sceneId: scene.sceneId,
             promptHash: promptHashFor("visual-prompt"),
           },
           fn: () => runVisualPromptStage(

@@ -32,6 +32,7 @@ export interface StageCtx {
   cache?: {
     keepDegraded?: boolean;
     stats?: { run: number; cached: number; degraded: number };
+    onMiss?: (d: import("./stage-cache.js").CacheMissDiagnosis) => void;
   };
 }
 

@@ -256,6 +256,28 @@ export class FetchLLMProvider implements LLMProvider {
    * (see requestWithRetry resolution order).
    */
   private readonly defaultOnWait?: OnWaitFn;
+  /**
+   * Cumulative per-instance run stats (smoke:real output). requestOnce counts
+   * every HTTP round trip once (success or failure); backoff scheduling adds
+   * one retry + its delay to the matching 429/transport pair. Read-only
+   * reference — mutate via resetStats(), never reassign.
+   */
+  readonly stats = {
+    llmCalls: 0,
+    retries429: 0,
+    waited429Ms: 0,
+    retriesTransport: 0,
+    waitedTransportMs: 0,
+  };
+
+  /** Zero all cumulative run stats (e.g. between smoke runs sharing a provider). */
+  resetStats(): void {
+    this.stats.llmCalls = 0;
+    this.stats.retries429 = 0;
+    this.stats.waited429Ms = 0;
+    this.stats.retriesTransport = 0;
+    this.stats.waitedTransportMs = 0;
+  }
 
   constructor(config: LLMProviderConfig & { name?: string; onWait?: OnWaitFn }) {
     this.name = config.name ?? "fetch-llm";
@@ -285,6 +307,7 @@ export class FetchLLMProvider implements LLMProvider {
    * the retry loop falls back to full-jitter backoff.
    */
   private async requestOnce(path: string, body: object, signal?: AbortSignal): Promise<any> {
+    this.stats.llmCalls++;
     if (signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
@@ -381,8 +404,12 @@ export class FetchLLMProvider implements LLMProvider {
             );
           }
           waitedMs += delay;
+          this.stats.retries429++;
+          this.stats.waited429Ms += delay;
           console.log(`[FetchLLM] 429 retry ${attempt + 1}/${TRANSPORT_ATTEMPTS} in ${delay}ms (cumulative ${waitedMs}ms/${budgetMs}ms): ${err instanceof Error ? err.message.slice(0, 100) : err}`);
         } else {
+          this.stats.retriesTransport++;
+          this.stats.waitedTransportMs += delay;
           console.log(`[FetchLLM] transport retry ${attempt + 1}/${TRANSPORT_ATTEMPTS} in ${delay}ms: ${err instanceof Error ? err.message.slice(0, 100) : err}`);
         }
         await sleepWithHeartbeat(delay, signal, heartbeat, why);

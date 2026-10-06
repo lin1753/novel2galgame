@@ -94,6 +94,102 @@ export function inputHashOf(stageInput: unknown): string {
 }
 
 /**
+ * Per-field input hashes (the `.meta.json` diagnosis channel).
+ *
+ * The cache KEY still uses the single whole-input `inputHash` (key semantics
+ * unchanged); these sub-hashes are stored in the meta sidecar so a later
+ * key_mismatch can report WHICH field changed (stageVersion/input/prompt/
+ * model disambiguation for smoke `--strict-cache`). `undefined` values are
+ * skipped (e.g. optional RAG slots); every other value is hashed with
+ * `inputHashOf`.
+ */
+export type InputSubHashes = Record<string, string>;
+
+export function buildSubHashes(entries: Array<[string, unknown]>): InputSubHashes {
+  const out: InputSubHashes = {};
+  for (const [name, value] of entries) {
+    if (value === undefined) continue;
+    out[name] = inputHashOf(value);
+  }
+  return out;
+}
+
+// ── Miss diagnosis (smoke `--strict-cache`) ────────────────────────────────
+
+export type MissReason = "first_run" | "stage_version" | "prompt" | "model" | "input_fields" | "input_opaque";
+
+export interface CacheMissDiagnosis {
+  stage: CacheStageType;
+  sceneId?: string;
+  reason: MissReason;
+  changedFields?: string[];
+  detail: string;
+}
+
+export interface FreshCacheKey {
+  stage: CacheStageType;
+  sceneId?: string;
+  stageVersion: number;
+  promptHash: string;
+  model: string;
+  inputHash: string;
+  inputSubHashes?: InputSubHashes;
+}
+
+function shortHash(h: string): string {
+  return h.length > 12 ? h.slice(0, 12) : h;
+}
+
+/**
+ * Compare a stored meta against the freshly computed key parts, in key order:
+ * stageVersion → prompt → model → inputHash. An inputHash drift with sub-hashes
+ * on BOTH sides reports the changed field names (`input_fields`); without both
+ * sides it is `input_opaque`. A missing/unreadable stored meta is `first_run`.
+ * The cache KEY itself is untouched (still the whole-input `inputHash`).
+ */
+export function diagnoseMiss(
+  stored: StageCacheMeta | null | undefined,
+  fresh: FreshCacheKey,
+): CacheMissDiagnosis {
+  const scope = { stage: fresh.stage, ...(fresh.sceneId !== undefined ? { sceneId: fresh.sceneId } : {}) };
+  if (!stored || !stored.keyParts) {
+    return {
+      ...scope,
+      reason: "first_run",
+      detail: `first run (no cached meta for ${fresh.stage}${fresh.sceneId ? ` scene ${fresh.sceneId}` : ""})`,
+    };
+  }
+  const kp = stored.keyParts;
+  if (kp.stageVersion !== fresh.stageVersion) {
+    return { ...scope, reason: "stage_version", detail: `stageVersion ${kp.stageVersion} → ${fresh.stageVersion}` };
+  }
+  if (kp.promptHash !== fresh.promptHash) {
+    return { ...scope, reason: "prompt", detail: `prompt changed (${shortHash(kp.promptHash)} → ${shortHash(fresh.promptHash)})` };
+  }
+  if (kp.model !== fresh.model) {
+    return { ...scope, reason: "model", detail: `model ${kp.model} → ${fresh.model}` };
+  }
+  if (kp.inputHash !== fresh.inputHash) {
+    const a = stored.inputSubHashes;
+    const b = fresh.inputSubHashes;
+    if (a && b) {
+      const changed = Array.from(new Set([...Object.keys(a), ...Object.keys(b)]))
+        .filter((k) => a[k] !== b[k])
+        .sort();
+      if (changed.length > 0) {
+        return { ...scope, reason: "input_fields", changedFields: changed, detail: `input fields changed: ${changed.join(", ")}` };
+      }
+    }
+    return {
+      ...scope,
+      reason: "input_opaque",
+      detail: `input changed (no field breakdown; inputHash ${shortHash(kp.inputHash)} → ${shortHash(fresh.inputHash)})`,
+    };
+  }
+  return { ...scope, reason: "input_opaque", detail: "key mismatch with identical key parts (possible manual meta edit)" };
+}
+
+/**
  * Effective prompt hash for an agent: `loadPrompt(agentName, DEFAULT)` as it
  * actually runs (external `data/prompts/<name>.md` wins when present, else
  * the code default), normalized + hashed with the prompt-loader's own
@@ -115,6 +211,8 @@ export interface StageCacheMeta {
   keyParts: StageKeyParts;
   /** ISO timestamp of the producing run. */
   generatedAt: string;
+  /** Per-field input hashes for key_mismatch diagnosis (`.meta.json`记账). */
+  inputSubHashes?: InputSubHashes;
   /** Set when the producing run was degraded (explicit agent marker). */
   degraded?: string;
   degradedReason?: string;
@@ -141,7 +239,7 @@ export type CacheMissReason =
   | "schema_reject"
   | "io_error";
 
-export type CacheRead<T> = { hit: true; data: T; meta: StageCacheMeta } | { hit: false; reason: CacheMissReason };
+export type CacheRead<T> = { hit: true; data: T; meta: StageCacheMeta } | { hit: false; reason: CacheMissReason; meta?: StageCacheMeta };
 
 function tryReadFile(p: string): { ok: true; text: string } | { ok: false; missing: boolean } {
   try {
@@ -171,7 +269,7 @@ export function readCache<T>(
     return { hit: false, reason: "meta_unparseable" };
   }
   if (!meta || typeof meta.key !== "string") return { hit: false, reason: "meta_unparseable" };
-  if (meta.key !== expectedKey) return { hit: false, reason: "key_mismatch" };
+  if (meta.key !== expectedKey) return { hit: false, reason: "key_mismatch", meta };
   const artFile = tryReadFile(artifactPath);
   if (!artFile.ok) return { hit: false, reason: artFile.missing ? "artifact_missing" : "io_error" };
   let raw: unknown;
@@ -248,6 +346,10 @@ export interface WithStageCacheOpts<T> {
   outputSchema: { parse: (raw: unknown) => T };
   /** Precomputed via `inputHashOf` over the fully assembled stage input. */
   inputHash: string;
+  /** Per-field input hashes via `buildSubHashes` (diagnosis only; key still uses `inputHash`). */
+  inputSubHashes?: InputSubHashes;
+  /** Scene scope for diagnosis (scene-level stages). */
+  sceneId?: string;
   /** Via `promptHashFor(agentName)`. */
   promptHash: string;
   model: string;
@@ -288,6 +390,15 @@ export async function withStageCache<T>(
   const keepDegraded = opts.keepDegraded ?? ctx?.cache?.keepDegraded ?? false;
   const keyParts: StageKeyParts = { stage, stageVersion, inputHash, promptHash, model };
   const key = buildKey(keyParts);
+  const fresh = {
+    stage,
+    ...(opts.sceneId !== undefined ? { sceneId: opts.sceneId } : {}),
+    stageVersion,
+    promptHash,
+    model,
+    inputHash,
+    ...(opts.inputSubHashes ? { inputSubHashes: opts.inputSubHashes } : {}),
+  };
 
   const read = readCache<T>(artifactPath, key, outputSchema);
   if (read.hit) {
@@ -298,6 +409,8 @@ export async function withStageCache<T>(
       return { data: read.data, cached: true, ...(degraded ? { degraded } : {}), key };
     }
     // Degraded artifact without keepDegraded: fall through to recompute.
+  } else if (read.reason === "meta_missing" || read.reason === "key_mismatch") {
+    ctx?.cache?.onMiss?.(diagnoseMiss(read.meta, fresh));
   }
 
   const before = ctx?.tokenAcc ? { ...ctx.tokenAcc } : { prompt: 0, completion: 0 };
@@ -310,6 +423,7 @@ export async function withStageCache<T>(
     key,
     keyParts,
     generatedAt: new Date().toISOString(),
+    ...(opts.inputSubHashes ? { inputSubHashes: opts.inputSubHashes } : {}),
     ...(degraded ? { degraded } : {}),
     ...(degradedReason ? { degradedReason } : {}),
     tokens: {
