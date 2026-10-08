@@ -32,10 +32,37 @@ export function createServer(
   }));
   app.use(express.json({ limit: "10mb" }));
 
-  // Set long timeout for image generation requests
+  // Timeout policy (acceptance item 2, 2026-10-07) — three tiers:
+  // 1. SSE /progress streams are long-lived by design: exempt (0 = no cap)
+  //    and kept alive by the 20s heartbeat in routes/progress.ts, so a
+  //    multi-hour pipeline never severs an idle event stream.
+  // 2. Image/video generation + export + consistency/visual-prompt runs can
+  //    legitimately take many minutes: 15 min per request.
+  // 3. Everything else keeps the 5-minute global default.
+  // The chapter pipeline itself is background + SSE, not a long HTTP request.
+  const isProgressSse = (req: { path: string; method: string }): boolean =>
+    req.method === "GET" && /^\/projects\/[^/]+\/progress$/.test(req.path);
+  const longRouteTimeoutMs = (req: { path: string; method: string }): number | null => {
+    if (req.method !== "POST") return null;
+    const p = req.path;
+    if (p.startsWith("/images/") || p.startsWith("/videos/")) return 15 * 60_000;
+    if (p === "/config/test-image" || p === "/config/test-video") return 15 * 60_000;
+    if (p.startsWith("/projects/") && (
+      p.endsWith("/export/renpy") || p.endsWith("/export/generate-assets") ||
+      p.endsWith("/assets/generate") || p.endsWith("/visual-prompt/run") ||
+      p.endsWith("/visual-prompt") || p.endsWith("/consistency/run")
+    )) return 15 * 60_000;
+    return null;
+  };
   app.use((req, res, next) => {
-    req.setTimeout(300_000);  // 5 minutes
-    res.setTimeout(300_000);
+    if (isProgressSse(req)) {
+      req.setTimeout(0); // no idle cap on the event stream; heartbeat keeps it alive
+      res.setTimeout(0);
+    } else {
+      const longMs = longRouteTimeoutMs(req);
+      req.setTimeout(longMs ?? 300_000);
+      res.setTimeout(longMs ?? 300_000);
+    }
     next();
   });
 

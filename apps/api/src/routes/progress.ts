@@ -56,10 +56,14 @@ export function createProgressRoutes() {
     if (!connections.has(projectId)) connections.set(projectId, new Set());
     connections.get(projectId)!.add(res);
 
+    // 20s heartbeat (acceptance item 2): without traffic, a 5-min proxy/agent
+    // idle timeout would sever a live pipeline stream; a ping every 20s keeps
+    // every hop from treating it as dead. Comment lines (":\n\n") are SSE
+    // keep-alives invisible to EventSource consumers.
     const pingInterval = setInterval(() => {
       res.write(":\n\n");
       if (typeof (res as any).flush === 'function') (res as any).flush();
-    }, 15000);
+    }, 20_000);
 
     req.on("close", () => {
       clearInterval(pingInterval);
