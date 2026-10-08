@@ -52,6 +52,19 @@ export const SYSTEM_PROMPT = `你是一个中文小说文本分析专家。你�
   ]
 }`;
 
+/**
+ * Single source of truth for narrative chunking (Task-3 convergence).
+ *
+ * 取值依据 (500):
+ * - 中文约 1.5–2 tokens/字 → 500 字 ≈ 750–1000 tokens 输入；
+ * - LLM 输出 JSON 需回声 originalText + 单元字段，膨胀约 2–3 倍 ≈ 2000–3000 tokens，
+ *   加上 system prompt (~1000 tokens) 仍远低于单次调用 maxTokens=16384；
+ * - 500 字约覆盖若干自然段，保留段落级上下文做对话/归属判断，切更碎会丢上下文，
+ *   切更大则 JSON 输出逼近 maxTokens 易被截断（finish_reason=length → 空/残数据）。
+ * 分块逻辑与测试必须引用本常量，禁止在别处硬编码第二份 500。
+ */
+export const NARRATIVE_CHUNK_MAX_CHARS = 500;
+
 export async function runNarrativeParsingAgent(
   input: NarrativeParsingInput,
   provider: LLMProvider,
@@ -64,9 +77,8 @@ export async function runNarrativeParsingAgent(
     return { success: false, failureLevel: "hard", errorMessage: "Empty chapter text" };
   }
 
-  // 章节过长时分段处理 (500字每段，保障 JSON 展开后不超过 max_tokens)
-  const MAX_CHARS = 500;
-  const textChunks = splitText(chapterText, MAX_CHARS);
+  // 章节过长时分段处理（分段宽度见 NARRATIVE_CHUNK_MAX_CHARS）
+  const textChunks = splitText(chapterText, NARRATIVE_CHUNK_MAX_CHARS);
   const allUnits: NarrativeUnit[] = [];
   // S11a: count chunks produced by the L0 line-split fallback (LLM threw or
   // returned no usable units) so the result carries an explicit marker.
@@ -171,7 +183,7 @@ ${sanitizeForPrompt(chunk)}
   };
 }
 
-function splitText(text: string, maxChars: number): string[] {
+export function splitText(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text];
   const chunks: string[] = [];
   const paragraphs = text.split(/\n/);
