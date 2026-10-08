@@ -14,13 +14,18 @@ export function detectAndDecode(input: Buffer | string): { text: string; encodin
     return { text: input.subarray(3).toString("utf-8"), encoding: "utf-8-bom" };
   }
 
-  // Check for UTF-16 BOM
+  // Check for UTF-16 BOM (strip it — toString("utf16le") keeps U+FEFF otherwise)
   if (input.length >= 2) {
     if (input[0] === 0xff && input[1] === 0xfe) {
-      return { text: input.toString("utf16le"), encoding: "utf-16le" };
+      return { text: input.subarray(2).toString("utf16le"), encoding: "utf-16le" };
     }
     if (input[0] === 0xfe && input[1] === 0xff) {
-      return { text: input.subarray(2).toString("utf16le"), encoding: "utf-16be" };
+      const swapped = Buffer.allocUnsafe(input.length - 2);
+      for (let i = 0; i < swapped.length; i += 2) {
+        swapped[i] = input[i + 3];
+        swapped[i + 1] = input[i + 2];
+      }
+      return { text: swapped.toString("utf16le"), encoding: "utf-16be" };
     }
   }
 
@@ -30,7 +35,10 @@ export function detectAndDecode(input: Buffer | string): { text: string; encodin
     return { text: asUtf8, encoding: "utf-8" };
   }
 
-  // Try GB18030 (superset of GBK, wider CJK coverage)
+  // Try GB18030 first (superset of GBK, wider CJK coverage). GB-first order
+  // matters: short GBK fragments can accidentally pass the CJK-ratio check
+  // under Big5 (half-wrong decodes), while true GBK bytes always decode
+  // correctly as GB18030. Big5 additionally requires zero U+FFFD.
   try {
     const decoder = new TextDecoder("gb18030");
     const asGb18030 = decoder.decode(input);
@@ -43,7 +51,7 @@ export function detectAndDecode(input: Buffer | string): { text: string; encodin
   try {
     const decoder = new TextDecoder("big5");
     const asBig5 = decoder.decode(input);
-    if (hasReasonableCJK(asBig5)) {
+    if (!asBig5.includes("�") && hasReasonableCJK(asBig5)) {
       return { text: asBig5, encoding: "big5" };
     }
   } catch {}

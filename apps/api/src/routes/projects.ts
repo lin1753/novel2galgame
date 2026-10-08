@@ -202,17 +202,41 @@ export function createProjectRoutes(
       }
     }
 
-    // Use displayName from form field (sent by frontend) to avoid encoding issues
-    const originalName = (req.body.displayName as string) || req.file.originalname;
+    // Use displayName from form field (sent by frontend) to avoid encoding issues.
+    // multer 1.x 经 busboy 以 latin1 解码 originalname：中文 UTF-8 字节被逐字节
+    // 映射为 U+0000–U+00FF 即 mojibake（验收 B3 实证：latin1→bytes→utf-8 可逆）。
+    // displayName 优先（前端已发）；否则尝试 latin1 逆修复；ASCII 不受影响。
+    const rawName = (req.body.displayName as string) || req.file.originalname;
+    let originalName = rawName;
+    if (!req.body.displayName) {
+      try {
+        const fixed = Buffer.from(rawName, "latin1").toString("utf-8");
+        // 只有逆修复后无 U+FFFD 才采用（GBK 直传等不可逆情形保留原值 + 告警）
+        if (!fixed.includes("�")) originalName = fixed;
+      } catch { /* 保留原值 */ }
+    }
 
     project.sourceFileName = originalName;
     project.sourceFilePath = destPath;
+    // 入库前乱码检测（验收 B4）：含 U+FFFD 即在响应里警告，不静默存乱码。
+    const mojibakeHits: string[] = [];
+    if (originalName.includes("�")) mojibakeHits.push(`sourceFileName 含 U+FFFD（上传文件名疑似乱码）`);
+    // 标题优先级：用户输入 > 文件首行（structure/run 回填 bookTitle）> 文件名。
+    // import 时若标题仍为默认占位，用解码后的文件名（去扩展名）回填。
+    if (!project.title || project.title === "Untitled") {
+      const fromFile = originalName.replace(/\.[^.]*$/, "");
+      if (fromFile && !fromFile.includes("�")) {
+        project.title = fromFile;
+      } else if (fromFile) {
+        mojibakeHits.push(`文件名回填标题跳过（含 U+FFFD，保留 Untitled）`);
+      }
+    }
     writeProjectState(config.dataDir, project);
     projectRepo.updateStatus(param(req, "id"), "created");
-    db.prepare("UPDATE projects SET source_file_name = ?, source_file_path = ?, updated_at = ? WHERE project_id = ?")
-      .run(originalName, destPath, new Date().toISOString(), param(req, "id"));
+    db.prepare("UPDATE projects SET title = ?, source_file_name = ?, source_file_path = ?, updated_at = ? WHERE project_id = ?")
+      .run(project.title, originalName, destPath, new Date().toISOString(), param(req, "id"));
 
-    res.json({ message: "File imported", path: destPath });
+    res.json({ message: "File imported", path: destPath, ...(mojibakeHits.length > 0 ? { encodingWarning: mojibakeHits } : {}) });
   });
 
   // POST /projects/:id/structure/run - Run Structure Agent
@@ -248,6 +272,15 @@ export function createProjectRoutes(
     project.totalChapters = result.data.chapters.length;
     project.status = "structured";
     project.updatedAt = new Date().toISOString();
+    // 标题优先级第二级：文件首行（bookTitle）> 文件名。若标题仍为默认占位或
+    // 文件名回填值，且 bookTitle 干净，则用 bookTitle 回填（含 U+FFFD 时跳过 + 警告）。
+    let titleWarning: string | undefined;
+    if (result.data.bookTitle && !result.data.bookTitle.includes("�") &&
+        (!project.title || project.title === "Untitled" || project.title === project.sourceFileName.replace(/\.[^.]*$/, ""))) {
+      project.title = result.data.bookTitle;
+    } else if (result.data.bookTitle?.includes("�")) {
+      titleWarning = "bookTitle 含 U+FFFD（正文首行疑似乱码），标题未回填";
+    }
     projectRepo.updateStatus(param(req, "id"), "structured");
     projectRepo.updateChapterCounts(param(req, "id"), { total: result.data.chapters.length });
     writeProjectState(config.dataDir, project);
@@ -286,6 +319,7 @@ export function createProjectRoutes(
       chapterCount: result.data.chapters.length,
       confidence: result.data.structureConfidence,
       warnings: result.data.warnings,
+      ...(titleWarning ? { titleWarning } : {}),
       chapters: result.data.chapters.map((c) => ({
         chapterId: c.chapterId,
         index: c.index,
