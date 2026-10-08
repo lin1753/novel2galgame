@@ -1,4 +1,3 @@
-import { z } from "zod";
 import {
   runNarrativeParsingAgent,
   runAttributionAgent,
@@ -27,6 +26,7 @@ import type {
 } from "./schemas.js";
 import type { StageCtx, StageAgent } from "./types.js";
 import { instrumentProvider } from "./lib.js";
+import { dumpRawEvidence } from "./raw-evidence.js";
 import {
   narrativeOutputSchema,
   attributionOutputSchema,
@@ -76,6 +76,83 @@ export function agentFailureToError<T>(result: AgentResult<T>): Error {
   return new Error(`${result.failureLevel ?? "unknown"}: ${result.errorMessage ?? "no data"}`);
 }
 
+/**
+ * W2: zod-parse wrapper for ALL stage functions — the shared generalization of
+ * runAttributionStage's ZodError enhancement (the ch1 lesson: issue paths
+ * must travel inline with the throw). On parse failure it:
+ *   1. dumps the raw agent output that failed validation (run log dir only —
+ *      raw-evidence.ts; no dataDir → no dump, the error still throws),
+ *   2. rethrows with the evidence file path + issue paths in the message and
+ *      `evidencePath` hanging on the error, so the task row / SSE / DB full
+ *      text can reference the file.
+ * Aborts pass through untouched (they are not parse failures).
+ *
+ * Uses safeParse instead of instanceof ZodError: zod 3.25 ships an
+ * `@zod/source` export condition, so in-source and externalized-dist importers
+ * can hold two distinct zod module instances in one process — instanceof is
+ * unreliable across them. safeParse returns the failure result from the SAME
+ * instance that ran the validation, sidestepping the identity question.
+ */
+interface StageParseFailure {
+  issues: ReadonlyArray<{ path: ReadonlyArray<string | number>; message: string }>;
+}
+
+function parseStageOutput<T>(
+  stage: string,
+  schema: { safeParse: (raw: unknown) => { success: true; data: T } | { success: false; error: StageParseFailure } },
+  raw: unknown,
+  ctx: StageCtx,
+): T {
+  const parsed = schema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+
+  const issues = parsed.error.issues;
+  const paths = issues.map(
+    (i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`,
+  );
+  const evidencePath = dumpRawEvidence({
+    dataDir: ctx.dataDir,
+    projectId: ctx.projectId,
+    chapterId: ctx.chapterId,
+    stage,
+    attempt: ctx.attempt,
+    raw,
+  });
+  const e = new Error(
+    `${stage} stage validation failed (${issues.length} issue(s)): ${paths.slice(0, 12).join("; ")}${paths.length > 12 ? `; …+${paths.length - 12} more` : ""}\n` +
+      (evidencePath ? `Raw-output evidence: ${evidencePath}\n` : "") +
+      `Full issues JSON: ${JSON.stringify(issues)}`,
+  );
+  (e as { evidencePath?: string | null }).evidencePath = evidencePath;
+  throw e;
+}
+
+/**
+ * W2: agent-level quality failures may carry the offending raw units on
+ * `err.rawOutput` (attribution invalid-rate threshold — attribution-agent.ts
+ * attaches them so the payload never gets serialized into the message).
+ * Dump them the same way parse failures are dumped and reference the file
+ * from the error. Non-carrying errors pass through untouched.
+ */
+function dumpAgentRawOutput(err: unknown, stage: string, ctx: StageCtx): void {
+  const carrier = err as { rawOutput?: unknown; evidencePath?: string | null } | null;
+  if (!carrier || carrier.rawOutput === undefined || carrier.evidencePath !== undefined) return;
+  const evidencePath = dumpRawEvidence({
+    dataDir: ctx.dataDir,
+    projectId: ctx.projectId,
+    chapterId: ctx.chapterId,
+    stage,
+    attempt: ctx.attempt,
+    raw: carrier.rawOutput,
+  });
+  if (evidencePath) {
+    carrier.evidencePath = evidencePath;
+    if (err instanceof Error) {
+      err.message = `${err.message}\n[raw-output evidence] ${evidencePath}`;
+    }
+  }
+}
+
 /** Instrument a stage agent: metrics + signal threading. */
 function stageInstrument(agent: StageAgent, ctx: StageCtx) {
   return instrumentProvider(agent.provider, (r) => {
@@ -95,25 +172,20 @@ export async function runNarrativeStage(
   assertNotAborted(ctx);
   ctx.onProgress?.("narrative_parsing", `Parsing chapter ${input.chapterTitle}`);
 
-  try {
-    const result = await runNarrativeParsingAgent(
-      { chapterId: input.chapterId, chapterTitle: input.chapterTitle, chapterText: input.chapterText },
-      stageInstrument(agent, ctx),
-      agent.model,
-    );
-    if (!result.success || !result.data) throw agentFailureToError(result);
-    const out = narrativeOutputSchema.parse(result.data);
-    // S11a: explicit passthrough — the agent marks its own L0 fallback.
-    // No heuristic re-inference (old detector → degraded-detectors.test.ts).
-    if (result.degraded) {
-      out.degraded = result.degraded;
-      out.degradedReason = result.fallbackReason;
-    }
-    return out;
-  } catch (err) {
-    if (isAbort(err, ctx)) throw err;
-    throw err;
+  const result = await runNarrativeParsingAgent(
+    { chapterId: input.chapterId, chapterTitle: input.chapterTitle, chapterText: input.chapterText },
+    stageInstrument(agent, ctx),
+    agent.model,
+  );
+  if (!result.success || !result.data) throw agentFailureToError(result);
+  const out = parseStageOutput("narrative_parsing", narrativeOutputSchema, result.data, ctx);
+  // S11a: explicit passthrough — the agent marks its own L0 fallback.
+  // No heuristic re-inference (old detector → degraded-detectors.test.ts).
+  if (result.degraded) {
+    out.degraded = result.degraded;
+    out.degradedReason = result.fallbackReason;
   }
+  return out;
 }
 
 // ── Stage 2: attribution ──
@@ -125,52 +197,56 @@ export async function runAttributionStage(
   assertNotAborted(ctx);
   ctx.onProgress?.("attribution", `Attributing ${input.units.length} units`);
 
-  const result = await runAttributionAgent(
-    {
-      chapterId: input.chapterId,
-      units: input.units as any,
-      characterKnowledge: input.characterKnowledge,
-      knownCharacters: input.knownCharacters as any,
-      ...(input.maxInvalidAttributionRate !== undefined
-        ? { maxInvalidAttributionRate: input.maxInvalidAttributionRate }
-        : {}),
-    },
-    stageInstrument(agent, ctx),
-    agent.model,
-  );
-  if (!result.success || !result.data) throw agentFailureToError(result);
-  let out: AttributionStageOutput;
   try {
-    out = attributionOutputSchema.parse(result.data);
-  } catch (err) {
-    // Zod crash → rethrow with issue paths inline (ch1 lesson: a 150-char
-    // truncation hid the failing field). Stage output stays the single throw
-    // site; full detail travels in the message while SSE/DB slicing happens
-    // at the API boundary (task-queue keeps summaries, DB keeps full text).
-    if (err instanceof z.ZodError) {
-      const paths = err.issues.map(
-        (i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`,
-      );
-      throw new Error(
-        `attribution stage validation failed (${err.issues.length} issue(s)): ${paths.slice(0, 12).join("; ")}${paths.length > 12 ? `; …+${paths.length - 12} more` : ""}\nFull issues JSON: ${JSON.stringify(err.issues)}`,
-      );
+    const result = await runAttributionAgent(
+      {
+        chapterId: input.chapterId,
+        units: input.units as any,
+        characterKnowledge: input.characterKnowledge,
+        knownCharacters: input.knownCharacters as any,
+        ...(input.maxInvalidAttributionRate !== undefined
+          ? { maxInvalidAttributionRate: input.maxInvalidAttributionRate }
+          : {}),
+      },
+      stageInstrument(agent, ctx),
+      agent.model,
+    );
+    if (!result.success || !result.data) {
+      // Quality-threshold failure: the agent attaches the offending raw units
+      // on rawOutput (never in the message) — propagate so the catch below
+      // can dump them.
+      const err = agentFailureToError(result);
+      if (result.rawOutput !== undefined) {
+        (err as { rawOutput?: unknown }).rawOutput = result.rawOutput;
+      }
+      throw err;
     }
+    // Zod crash → shared enhancement: evidence dump + issue paths inline (the
+    // ch1 lesson: a 150-char truncation hid the failing field). Stage output
+    // stays the single throw site; full detail travels in the message while
+    // SSE/DB slicing happens at the API boundary.
+    const out = parseStageOutput("attribution", attributionOutputSchema, result.data, ctx);
+
+    // Post-process parity: extract characters from units when LLM returned none
+    if (extractCharactersFromUnits(out as any, input.knownCharacters as any)) {
+      ctx.onProgress?.("attribution", `Post-processed ${out.characters.length} characters from units`);
+    }
+
+    // Degradation: explicit passthrough of the agent's own L0 marker
+    // (old all-pass-through heuristic → degraded-detectors.test.ts).
+    if (result.degraded) {
+      out.degraded = result.degraded;
+      out.degradedReason = result.fallbackReason;
+    }
+
+    return out;
+  } catch (err) {
+    if (isAbort(err, ctx)) throw err;
+    // W2: threshold/quality failures carry rawOutput — dump it (parse
+    // failures already dumped inside parseStageOutput and carry evidencePath).
+    dumpAgentRawOutput(err, "attribution", ctx);
     throw err;
   }
-
-  // Post-process parity: extract characters from units when LLM returned none
-  if (extractCharactersFromUnits(out as any, input.knownCharacters as any)) {
-    ctx.onProgress?.("attribution", `Post-processed ${out.characters.length} characters from units`);
-  }
-
-  // Degradation: explicit passthrough of the agent's own L0 marker
-  // (old all-pass-through heuristic → degraded-detectors.test.ts).
-  if (result.degraded) {
-    out.degraded = result.degraded;
-    out.degradedReason = result.fallbackReason;
-  }
-
-  return out;
 }
 
 // ── Stage 3: segmentation ──
@@ -188,7 +264,7 @@ export async function runSegmentationStage(
     agent.model,
   );
   if (!result.success || !result.data) throw agentFailureToError(result);
-  const out = segmentationOutputSchema.parse(result.data);
+  const out = parseStageOutput("scene_segmentation", segmentationOutputSchema, result.data, ctx);
 
   // Degradation: explicit passthrough of the agent's own L0 marker
   // (old confidence-plus-summary-text heuristic → degraded-detectors.test.ts).
@@ -267,7 +343,7 @@ export async function runVNMappingStage(
     agent.model,
   );
   if (!result.success || !result.data) throw agentFailureToError(result);
-  const out = vnMappingOutputSchema.parse(result.data);
+  const out = parseStageOutput("vn_mapping", vnMappingOutputSchema, result.data, ctx);
 
   // Degradation: explicit passthrough of the agent's own L0 marker
   // (old exact-1:1-passthrough heuristic → degraded-detectors.test.ts).
@@ -293,7 +369,7 @@ export async function runFidelityStage(
     agent.model,
   );
   if (!result.success || !result.data) throw agentFailureToError(result);
-  return fidelityOutputSchema.parse(result.data);
+  return parseStageOutput("fidelity_review", fidelityOutputSchema, result.data, ctx);
 }
 
 // ── Stage 7: visual prompt (per scene) ──
@@ -320,5 +396,5 @@ export async function runVisualPromptStage(
     agent.model,
   );
   if (!result.success || !result.data) throw agentFailureToError(result);
-  return visualPromptOutputSchema.parse(result.data);
+  return parseStageOutput("visual_prompt", visualPromptOutputSchema, result.data, ctx);
 }

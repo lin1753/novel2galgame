@@ -40,6 +40,7 @@ import type { LLMProvider } from "@novel2gal/providers";
 import { broadcastProgress } from "./progress.js";
 import { applyPendingMerge } from "./pending-merge.js";
 import { readRunManifest, bookChapterStats } from "@novel2gal/pipeline";
+import { errorSummary } from "../task-queue/error-format.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -493,6 +494,10 @@ export function createProjectRoutes(
           stage: event.stage,
           status: event.status as any,
           message: event.message,
+          // W1: last reached stage rides the chapter_failed event (the
+          // frontend failure list reads it); undefined elsewhere.
+          lastStage: (event as any).lastStage,
+          evidencePath: (event as any).evidencePath,
           // Stage-3 Phase 4: chapter stats ride the completed event's data
           // (only that event carries them; all other events leave data empty).
           ...(event.stage === "completed"
@@ -514,11 +519,17 @@ export function createProjectRoutes(
           if (queue.successCount > 0) {
             broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
           } else {
-            const msg = "Chapter pipeline failed (see retry/failed events)";
-            broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: msg });
+            // W2 truncation fix (ch1 lesson): pipeline_runs.error_message is
+            // TEXT — store the FULL failure detail from the queue (summary in
+            // SSE, full text in the DB), never a generic/sliced message.
+            const full = queue.getChapterLastErrorFull(cid)
+              ?? queue.getChapterLastError(cid)
+              ?? "Chapter pipeline failed (see retry/failed events)";
+            const summary = errorSummary(full);
+            broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: summary });
             chapterRepo.updateStatus(cid, "failed");
             db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
-              .run("failed", now(), msg.slice(0, 500), runId);
+              .run("failed", now(), full, runId);
           }
         })
         .catch((err: any) => {
@@ -526,8 +537,10 @@ export function createProjectRoutes(
           const isCancelled = ac.signal.aborted || msg.includes("ABORTED");
           broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: msg });
           chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
+          // Full text into the DB row (TEXT column — the 500-char slice hid
+          // zod issue paths in the ch1 incident).
           db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
-            .run(isCancelled ? "cancelled" : "failed", now(), msg.slice(0, 500), runId);
+            .run(isCancelled ? "cancelled" : "failed", now(), msg, runId);
         })
         .finally(() => {
           if (runningPipelines.get(cid) === ac) runningPipelines.delete(cid);
@@ -588,11 +601,14 @@ export function createProjectRoutes(
       const errMsg = finalState?.error ?? null;
       if (errMsg) {
         const isCancelled = String(errMsg).includes("ABORTED");
-        broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: String(errMsg).slice(0, 300) });
+        // W2 truncation fix: SSE carries the 150-char SUMMARY (ch1 lesson —
+        // the DB keeps the full text); DB rows are TEXT — full message, no slice.
+        const errSummary = errorSummary(errMsg);
+        broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: errSummary });
         chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
         db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
-          .run(isCancelled ? "cancelled" : "failed", now(), String(errMsg).slice(0, 500), runId);
-        console.error(`[LangGraph] ${cid} ended with error: ${String(errMsg).slice(0, 200)}`);
+          .run(isCancelled ? "cancelled" : "failed", now(), String(errMsg), runId);
+        console.error(`[LangGraph] ${cid} ended with error: ${errSummary}`);
         return;
       }
 
@@ -609,7 +625,7 @@ export function createProjectRoutes(
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: msg });
       chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
       db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
-        .run(isCancelled ? "cancelled" : "failed", now(), msg.slice(0, 500), runId);
+        .run(isCancelled ? "cancelled" : "failed", now(), msg, runId);
       console.error(`[LangGraph] ${cid} ${isCancelled ? "cancelled" : 'failed'}:`, msg);
     }).finally(() => {
       // Only remove our own controller — a concurrent re-run may have replaced it

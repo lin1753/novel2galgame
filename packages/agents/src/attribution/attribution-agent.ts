@@ -74,9 +74,9 @@ export const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析
       "chapterId": "<chapterId>",
       "confidence": 0.9,
       "attribution": {
-        "speakerId": "char_001 或 null",
-        "actorId": "char_001 或 null",
-        "thinkerId": "char_001 或 null",
+        "speakerId": "char_001",
+        "actorId": "char_001",
+        "thinkerId": "char_001",
         "participantIds": ["char_001"],
         "uncertain": false,
         "evidence": ["判定依据"]
@@ -88,6 +88,13 @@ export const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析
   "uncertainUnitIds": ["unitId"],
   "speakerIdToCharId": {"char_001": "char_001"}
 }
+
+字段归属规则（按 unit 的 type 填写，其余角色字段直接省略，绝对不要输出 null）:
+- dialogue 类型: attribution 必须含 "speakerId" (说话人) 与 "participantIds"
+- action 类型: attribution 必须含 "actorId" (动作执行者) 与 "participantIds"
+- thought 类型: attribution 必须含 "thinkerId" (思考者) 与 "participantIds"
+- narration 与 scene_description 类型: 省略 speakerId/actorId/thinkerId 字段（这三个字段一律不输出，也不允许输出 null），只填 "participantIds" (场景中出现过的角色)
+- 无法确定归属时用 uncertain: true 表示，字段值仍然必须是明确的字符串 ID，绝不允许 null
 
 【强制格式约束】
 你输出的 JSON 字符串值中严禁出现未转义的控制字符和英文双引号 (")！
@@ -261,6 +268,9 @@ export async function runAttributionAgent(
   let repairedUnits = 0;
   let invalidUnits = 0;
   const repairIssuePaths: string[] = [];
+  // W2: raw LLM unit payloads per chunk, collected for the whole-run threshold
+  // failure's evidence dump (not serialized into errorMessage).
+  const allRawChunkUnits: unknown[] = [];
 
   for (let i = 0; i < units.length; i += CHUNK_SIZE) {
     const chunkUnits = units.slice(i, i + CHUNK_SIZE);
@@ -321,6 +331,8 @@ ${unitsText}
         chunkUnits,
         chapterId,
       );
+      // W2: keep the raw chunk payload for the whole-run threshold's evidence.
+      if (Array.isArray(result?.units)) allRawChunkUnits.push(...result.units);
       repairedUnits += repairReport.repaired;
       invalidUnits += repairReport.invalid;
       repairIssuePaths.push(...repairReport.issuePaths);
@@ -331,12 +343,17 @@ ${unitsText}
       }
       const chunkInvalidRate = repairReport.invalid / Math.max(1, chunkUnits.length);
       if (chunkInvalidRate > maxInvalidRate) {
-        throw new Error(
+        // W2 evidence: the offending RAW LLM units ride the error object (never
+        // the message — payload stays out of DB/SSE text); the stage catch
+        // dumps them to the run log dir.
+        const err = new Error(
           `hard: attribution invalid rate ${repairReport.invalid}/${chunkUnits.length} ` +
             `(${chunkInvalidRate.toFixed(2)}) exceeds threshold ${maxInvalidRate} ` +
             `in chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chapterId}): ` +
             repairReport.issuePaths.slice(0, 8).join("; "),
         );
+        (err as { rawOutput?: unknown }).rawOutput = result?.units ?? null;
+        throw err;
       }
 
       finalAlignedUnits.push(...chunkAlignedUnits);
@@ -386,6 +403,9 @@ ${unitsText}
         `hard: attribution invalid rate ${invalidUnits}/${units.length} ` +
         `(${totalInvalidRate.toFixed(2)}) exceeds threshold ${maxInvalidRate} ` +
         `(${chapterId}): ${repairIssuePaths.slice(0, 8).join("; ")}`,
+      // W2 evidence channel: the raw LLM unit payloads collected this run (the
+      // message keeps only paths/counts). Stage-side catch dumps them.
+      rawOutput: allRawChunkUnits,
     };
   }
 

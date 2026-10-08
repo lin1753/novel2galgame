@@ -204,8 +204,13 @@ async function runAgentWithMetrics<T>(opts: {
     const msg = err instanceof Error ? err.message : String(err);
     // tasks.error_message is TEXT: store the FULL message (ch1 lesson). The
     // rethrow below keeps the full error for the caller's DB/SSE split.
-    opts.db?.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=? WHERE task_id=?`)
-      .run(now(), durationMs, 0, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg, taskId);
+    // W2: parse-failure evidence path → tasks.output_path (the file itself is
+    // filesystem-only; the PATH in the task row is the record-keeping the
+    // acceptance asks for).
+    const evidencePath =
+      (err as { evidencePath?: string | null } | null)?.evidencePath ?? null;
+    opts.db?.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=?, output_path=? WHERE task_id=?`)
+      .run(now(), durationMs, 0, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg, evidencePath, taskId);
     throw err;
   }
 }
@@ -351,7 +356,7 @@ export async function runChapterPipeline(
       fn: () => runNarrativeStage(
         stageInput,
         narr,
-        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t0 },
+        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t0, dataDir },
       ),
     });
     recordStageResult(runStats, narrRes, t0, degradedStages);
@@ -413,7 +418,7 @@ export async function runChapterPipeline(
       fn: () => runAttributionStage(
         attrStageInput,
         attr,
-        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t1 },
+        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t1, dataDir },
       ),
     });
     recordStageResult(runStats, attrRes, t1, degradedStages);
@@ -569,7 +574,7 @@ export async function runChapterPipeline(
       fn: () => runSegmentationStage(
         segStageInput,
         seg,
-        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t2 },
+        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t2, dataDir },
       ),
     });
     recordStageResult(runStats, segRes, t2, degradedStages);
@@ -704,7 +709,7 @@ export async function runChapterPipeline(
         fn: () => runVNMappingStage(
           vnStageInput,
           vn,
-          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tv },
+          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tv, dataDir },
         ),
       });
       recordStageResult(runStats, vnRes, tv, degradedStages);
@@ -749,7 +754,7 @@ export async function runChapterPipeline(
           fn: () => runFidelityStage(
             fidelityStageInput,
             fr,
-            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tf },
+            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tf, dataDir },
           ),
         });
         recordStageResult(runStats, fidelityRes, tf, degradedStages);
@@ -860,7 +865,7 @@ export async function runChapterPipeline(
           fn: () => runVisualPromptStage(
             vpStageInput,
             vp,
-            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tvp },
+            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tvp, dataDir },
           ),
         });
         recordStageResult(runStats, vpRes, tvp, degradedStages);

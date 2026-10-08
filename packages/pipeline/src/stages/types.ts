@@ -12,6 +12,18 @@ export interface StageCtx {
   chapterId: string;
   /** Chapter ordering context (0-based) — used by cache keys and logging. */
   chapterIndex: number;
+  /**
+   * W2: base data dir for parse-failure evidence dumps. Absent (older callers,
+   * unit tests) → stage validation failures rethrow without writing evidence.
+   * See raw-evidence.ts for the write contract.
+   */
+  dataDir?: string;
+  /**
+   * W2: 1-based chapter attempt number (retry round). Threaded from the task
+   * queue through the graph so evidence file names carry the attempt.
+   * Defaults to 1 in the helper when unset.
+   */
+  attempt?: number;
   /** Aborts in-flight provider requests AND is checked between stages. */
   signal?: AbortSignal;
   /** Progress reporting: (stageName, message, extra scene context). */

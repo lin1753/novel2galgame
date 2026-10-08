@@ -55,6 +55,11 @@ export function createAutoExportRoutes(
     const model = req.body.model ?? project.config?.defaultTextModel ?? resolvedTextModel;
     const maxChapters = req.body.maxChapters ?? Infinity;
     const generateAssetsFlag = req.body.generateAssets ?? false;
+    // W1: failure policy — "continue" (default) keeps processing later
+    // chapters after one terminally fails; "stop" skips them (never started,
+    // DB status untouched — rerun without reset).
+    const onChapterFailure: "continue" | "stop" =
+      req.body.onChapterFailure === "stop" ? "stop" : "continue";
 
     const provider = getProvider();
     if (!provider) return res.status(503).json({ error: "No LLM provider configured" });
@@ -65,10 +70,10 @@ export function createAutoExportRoutes(
     };
 
     // Respond immediately
-    res.json({ status: "started", projectId, taskId, maxChapters });
+    res.json({ status: "started", projectId, taskId, maxChapters, onChapterFailure });
 
     // Start background processing
-    processAutoExport(projectId, project, provider, model, maxChapters, generateAssetsFlag, emit, taskId, sceneRepo, projectRepo, chapterRepo, db, rag)
+    processAutoExport(projectId, project, provider, model, maxChapters, generateAssetsFlag, onChapterFailure, emit, taskId, sceneRepo, projectRepo, chapterRepo, db, rag)
       .catch((err) => {
         emit("complete", "failed", err instanceof Error ? err.message : String(err));
       });
@@ -140,6 +145,7 @@ async function processAutoExport(
   model: string,
   maxChapters: number,
   generateAssetsFlag: boolean,
+  onChapterFailure: "continue" | "stop",
   emit: (stage: string, status: string, message?: string, data?: unknown) => void,
   taskId: string,
   sceneRepo: SceneRepository,
@@ -179,6 +185,7 @@ async function processAutoExport(
       chapterRepo,
       db,
       rag,
+      onChapterFailure,
     });
     activeTasks.set(taskId, queue);
     taskProject.set(taskId, projectId);
@@ -195,6 +202,10 @@ async function processAutoExport(
         stage: event.stage,
         status: event.status as any,
         message: event.message,
+        // W1: last reached stage rides the chapter_failed event; undefined
+        // on every other event (old consumers unaffected).
+        lastStage: (event as any).lastStage,
+        evidencePath: (event as any).evidencePath,
         // Stage-3 Phase 4: chapter stats ride completed-event data (beside
         // the existing taskId — old fields untouched).
         ...(event.stage === "completed"
@@ -229,7 +240,12 @@ async function processAutoExport(
 
     if (successCount === 0) {
       emit("pipeline", "failed", "All chapters failed");
-      emit("complete", "failed", "All chapters failed, no export generated");
+      emit("complete", "failed", "All chapters failed, no export generated", {
+        // W1: failure detail even on the all-failed path (skipped chapters
+        // in stop mode never ran — not listed as failed).
+        failedChapters: queue.getFailedChapters(),
+        skippedChapters: queue.getSkippedChapters(),
+      });
       return;
     }
 
@@ -258,6 +274,13 @@ async function processAutoExport(
         outputPath: exportResult.outputPath,
         successCount,
         failedCount,
+        // W1: failure list + affected chapters (completed after a failed
+        // predecessor ran without its cross-chapter context). Skipped
+        // chapters (stop mode) never ran — their DB status is untouched and
+        // they appear in neither list; re-running them needs no reset.
+        failedChapters: queue.getFailedChapters(),
+        affectedChapters: queue.getAffectedChapters(),
+        skippedChapters: queue.getSkippedChapters(),
         // Stage-3 Phase 4: book totals = straight sums over chapter
         // run-manifests (old fields untouched).
         ...sumManifests(

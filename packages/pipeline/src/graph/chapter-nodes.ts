@@ -65,6 +65,10 @@ function stageCtx(ctx: NodeCtx, over: Partial<StageCtx> = {}): StageCtx {
     projectId: ctx.state.projectId,
     chapterId: ctx.state.chapterId,
     chapterIndex: ctx.state.chapterIndex,
+    // W2: parse-failure evidence plumbing — deps.dataDir enables the dump,
+    // deps.attempt (queue retry round) names the file.
+    dataDir: ctx.deps.dataDir,
+    attempt: ctx.deps.attempt,
     signal,
     onProgress: ctx.deps.onProgress,
     // Phase 4: one chapter-level token counter shared by reference — the same
@@ -592,6 +596,9 @@ export async function sceneWorkerNode(
   const sceneExtra = { sceneId: input.sceneId, sceneIndex: input.sceneIndex, sceneCount: input.sceneCount };
   const baseCtx: StageCtx = {
     projectId: state.projectId, chapterId: state.chapterId, chapterIndex: state.chapterIndex,
+    // W2: evidence plumbing for the per-scene stages (vn_mapping/fidelity/visual
+    // prompt) — same deps the chapter-level nodes carry.
+    dataDir: deps.dataDir, attempt: deps.attempt,
     signal, onProgress: (stage, message, extra) => deps.onProgress?.(stage, message, { ...sceneExtra, ...extra }),
     // Phase 4: scene workers share the run accumulator by reference via deps
     // (Send payloads cannot carry live objects; deps travel the closure).

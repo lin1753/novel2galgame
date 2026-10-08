@@ -51,6 +51,12 @@ export interface RunChapterGraphOptions {
   /** fallbackPolicy: allow L0 artifacts (production) or fail on them (eval). */
   fallbackPolicy?: "allow" | "fail";
   /**
+   * W2: 1-based attempt (retry round), from the task queue's _runChapterAttempt.
+   * Threaded into ChapterGraphDeps so parse-failure evidence file names carry
+   * the attempt. Optional — callers without retry semantics omit it.
+   */
+  attempt?: number;
+  /**
    * Watchdog pause hook: called when the run enters waiting_review so the
    * caller's inactivity watchdog stops timing (the review TTL owns the
    * lifecycle; a human may take days).
@@ -90,7 +96,7 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
   const {
     dataDir, project, chapterId, chapterIndex, chapterTitle, chapterText,
     provider, model, agentModels, signal, onProgress, sceneRepo, rag,
-    reviewMode = false, fallbackPolicy = "allow", onWaitingReview,
+    reviewMode = false, fallbackPolicy = "allow", onWaitingReview, attempt,
   } = opts;
 
   // 2c-2: THE queue/caller writes the source file; the graph only reads it.
@@ -118,6 +124,8 @@ export async function runChapterWithGraph(opts: RunChapterGraphOptions): Promise
 
   const deps: ChapterGraphDeps = {
     dataDir,
+    // W2: attempt rides deps → every stage ctx → evidence file names.
+    attempt,
     provider,
     model,
     agentModels: agentModels as any,

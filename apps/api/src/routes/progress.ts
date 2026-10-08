@@ -22,6 +22,11 @@ export type ProgressEvent = {
   stagesCached?: number;
   stagesDegraded?: number;
   tokens?: { prompt: number; completion: number };
+  /** W1: last pipeline stage a chapter reached before failing — present on
+   * the chapter_failed event only. Optional: old consumers never break. */
+  lastStage?: string;
+  /** W2: parse-failure evidence file path — chapter_failed event only. */
+  evidencePath?: string;
 };
 
 // projectId -> SSE connections

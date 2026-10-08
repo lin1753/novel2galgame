@@ -31,9 +31,9 @@
       "chapterId": "<chapterId>",
       "confidence": 0.9,
       "attribution": {
-        "speakerId": "char_001 或 null",
-        "actorId": "char_001 或 null",
-        "thinkerId": "char_001 或 null",
+        "speakerId": "char_001",
+        "actorId": "char_001",
+        "thinkerId": "char_001",
         "participantIds": ["char_001"],
         "uncertain": false,
         "evidence": ["判定依据"]
@@ -45,6 +45,13 @@
   "uncertainUnitIds": ["unitId"],
   "speakerIdToCharId": {"char_001": "char_001"}
 }
+
+字段归属规则（按 unit 的 type 填写，其余角色字段直接省略，绝对不要输出 null）:
+- dialogue 类型: attribution 必须含 "speakerId" (说话人) 与 "participantIds"
+- action 类型: attribution 必须含 "actorId" (动作执行者) 与 "participantIds"
+- thought 类型: attribution 必须含 "thinkerId" (思考者) 与 "participantIds"
+- narration 与 scene_description 类型: 省略 speakerId/actorId/thinkerId 字段（这三个字段一律不输出，也不允许输出 null），只填 "participantIds" (场景中出现过的角色)
+- 无法确定归属时用 uncertain: true 表示，字段值仍然必须是明确的字符串 ID，绝不允许 null
 
 【强制格式约束】
 你输出的 JSON 字符串值中严禁出现未转义的控制字符和英文双引号 (")！

@@ -15,6 +15,12 @@ export interface ChapterGraphDeps {
   dataDir: string;
   provider: LLMProvider;
   model: string;
+  /**
+   * W2: 1-based chapter attempt (retry round), threaded from the task queue
+   * so parse-failure evidence file names carry the attempt. Optional — older
+   * callers omit it and the evidence helper defaults to 1.
+   */
+  attempt?: number;
   /** Per-stage model routing (falls back to provider/model when unset). */
   agentModels?: Record<string, { provider: LLMProvider; model: string }>;
   /** Scene-level parallelism for the Send fan-out. Default 3. */

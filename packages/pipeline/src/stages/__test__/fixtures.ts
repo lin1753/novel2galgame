@@ -45,12 +45,16 @@ export class ScriptedProvider implements LLMProvider {
       if (resp.name) err.name = resp.name;
       throw err;
     }
-    return {
+    const response: LLMResponse = {
       content: JSON.stringify(resp.value),
       model: options.model,
       usage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
       finishReason: "stop",
     };
+    // Mirror the real providers: fire onResponse so caller-side response
+    // capture (W2 evidence) is exercised by the scripted replay too.
+    options.onResponse?.(response);
+    return response;
   }
 
   async chatJson<T>(options: LLMRequestOptions): Promise<T> {
