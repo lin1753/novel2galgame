@@ -36,4 +36,12 @@ samplegame/
 data/rag/
 data/test_image_experiments/
 docker/
-scripts/
+# Root-level model download scripts only — apps/api/src/scripts is tracked source
+/scripts/
+
+# Archived runtime data — never commit (2026-10-07 app.db incident:
+# `git checkout` rolled back the live DB while -wal/-shm lingered → cross-lineage corruption)
+data_archive/
+data/temp/
+data/chroma/
+*.sqlite
