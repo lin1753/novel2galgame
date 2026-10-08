@@ -4,6 +4,8 @@
  * 用法：
  *   pnpm smoke:real                                        # 默认项目/章节，1 轮
  *   pnpm smoke:real -- <projectId> <chapterIndex1Based>
+ *   pnpm smoke:real -- project_a082 1                      # 项目 ID 前缀唯一匹配亦可
+ *   pnpm smoke:real -- --list                              # 列出数据目录下真实项目后退出（零 token）
  *   pnpm smoke:real -- --twice <projectId> <chapterIndex>   # 同一章节连跑两轮
  *   pnpm smoke:real -- --twice --strict-cache ...           # 第二轮只允许 vp 因 characterKnowledge 未命中
  *   pnpm smoke:real -- --twice --thrice ...                # 加跑第三轮（验证全命中；第二轮重跑 vp 需消耗 token）
@@ -22,6 +24,7 @@ import "dotenv/config";
 import dns from "node:dns";
 dns.setDefaultResultOrder("ipv4first");
 import { FetchLLMProvider } from "@novel2gal/providers";
+import { createDatabase, ProjectRepository, ChapterRepository } from "@novel2gal/storage";
 import { config, getActiveProfile } from "../config/index.js";
 import {
   makeTempDataDir,
@@ -40,6 +43,7 @@ interface CliArgs {
   dataDir: string;
   model?: string;
   keepTmp: boolean;
+  list: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -64,12 +68,49 @@ function parseArgs(): CliArgs {
     dataDir: val("--dataDir") ?? val("--data-dir") ?? config.dataDir,
     model: val("--model"),
     keepTmp: flags.has("--keep-tmp"),
+    list: flags.has("--list"),
   };
+}
+
+/** --list：列出数据目录下真实项目（DB 行 + 章节数 + 盘上孤儿），零 token，exit 0。 */
+function listProjects(dataDir: string): void {
+  const resolved = path.resolve(dataDir);
+  console.log(`[smoke] 数据目录: ${resolved}`);
+  const db = createDatabase(dataDir);
+  try {
+    const projects = new ProjectRepository(db).list();
+    const chapterRepo = new ChapterRepository(db);
+    console.log(`[smoke] DB 项目 ${projects.length} 个:`);
+    for (const p of projects as any[]) {
+      let chCount = 0;
+      try { chCount = chapterRepo.listByProject(p.projectId).length; } catch { /* best-effort */ }
+      console.log(`  - ${p.projectId} | ${p.title} | status=${p.status} | chapters=${chCount} (total=${p.totalChapters} ready=${p.readyChapters} failed=${p.failedChapters})`);
+    }
+    try {
+      const projDir = path.join(dataDir, "projects");
+      const dbIds = new Set((projects as any[]).map((p) => p.projectId));
+      const orphans = fs.existsSync(projDir)
+        ? fs.readdirSync(projDir).filter((d) => {
+          try { return fs.statSync(path.join(projDir, d)).isDirectory() && !dbIds.has(d); } catch { return false; }
+        })
+        : [];
+      if (orphans.length > 0) {
+        console.log(`[smoke] 盘上有 DB 无记录的孤儿目录 ${orphans.length} 个: ${orphans.join(", ")}（H1 reindex 缺失）`);
+      }
+    } catch { /* best-effort */ }
+  } finally {
+    db.close();
+  }
 }
 
 async function main() {
   const args = parseArgs();
   const runs = args.dryRun ? 3 : args.thrice ? 3 : args.twice ? 2 : 1;
+
+  if (args.list) {
+    listProjects(args.dataDir);
+    return;
+  }
 
   // dry-run 默认使用全新 tmp 数据目录（零 token，不碰真实数据）；
   // --dataDir 显式指定时复用（调试门禁行为用）。

@@ -11,6 +11,9 @@ import {
   analyzeManifest,
   assertBasePromptMirror,
   assertProfilesMasterFormat,
+  resolveProject,
+  projectNotFoundMessage,
+  preflight,
 } from "../scripts/smoke-lib.js";
 import {
   ScriptedProvider,
@@ -134,6 +137,66 @@ describe("smoke dry-run（三轮收敛门）", () => {
     expect(m.passed).toBe(true);
     const mm = assertBasePromptMirror(profiles);
     expect(mm.passed).toBe(true);
+  });
+});
+
+describe("smoke 项目解析与预检信息（验收项：前缀/列表/dataDir 来源）", () => {
+  it("输出打印数据目录与来源（单轮门禁必挂，只验输出行）", async () => {
+    const result = await runSmoke(
+      { dataDir, projectId: PROJECT_ID, chapterIndex1Based: CHAPTER_INDEX, model: "scripted", dryRun: true, runs: 1 },
+      {
+        makeProvider: makeProvider as any,
+        providerLabel: "scripted(dry-run-test)",
+        llmKeyConfigured: true,
+        chapterTextOverride: FIXTURE_CHAPTER.chapterText,
+      },
+    );
+    expect(result.exitCode).toBe(1); // dry-run 门禁要求 3 轮报告，单轮必挂——只验输出行
+    expect(result.output).toMatch(/\[smoke\] 数据目录: .*（来源：.*）/);
+  });
+
+  it("前缀唯一匹配解析到真实项目", async () => {
+    const db = (await import("@novel2gal/storage")).createDatabase(dataDir);
+    try {
+      const got = resolveProject(db, PROJECT_ID.slice(0, 4));
+      expect(got?.projectId).toBe(PROJECT_ID);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("歧义前缀返回 null 且失败信息列出候选", async () => {
+    const { createDatabase } = await import("@novel2gal/storage");
+    const dir2 = makeTempDataDir("smoke-prefix-test-");
+    try {
+      const db = createDatabase(dir2);
+      try {
+        setupDryRunProject(dir2, "abc_one", 1, "t");
+        setupDryRunProject(dir2, "abc_two", 1, "t");
+        expect(resolveProject(db, "abc")).toBeNull();
+        const msg = projectNotFoundMessage(db, { dataDir: dir2, projectId: "abc", chapterIndex1Based: 1 }, dir2, "test");
+        expect(msg).toMatch(/abc_one/);
+        expect(msg).toMatch(/abc_two/);
+        expect(msg).toMatch(/请写全 ID/);
+      } finally {
+        db.close();
+      }
+    } finally {
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
+  it("章节越界失败信息含现有章节列表与 1-based 提示", async () => {
+    const pf = await preflight(
+      { dataDir, projectId: PROJECT_ID, chapterIndex1Based: 99 },
+      { makeProvider: makeProvider as any, providerLabel: "t", llmKeyConfigured: true, chapterTextOverride: "x" },
+    );
+    expect(pf.ok).toBe(false);
+    if (!pf.ok) {
+      expect(pf.failures.join("")).toMatch(/现有章节/);
+      expect(pf.failures.join("")).toMatch(/1-based/);
+      expect(pf.dataDirResolved.length).toBeGreaterThan(0);
+    }
   });
 });
 

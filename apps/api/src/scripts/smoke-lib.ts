@@ -170,17 +170,23 @@ export interface PreflightOk {
   ok: true;
   db: ReturnType<typeof createDatabase>;
   project: ProjectState;
+  /** 解析后的真实项目 ID（精确或唯一前缀匹配结果，下游一律用它）。 */
+  projectId: string;
   chapter: ChapterState;
   chapterId: string;
   chapterText: string;
   chromaReachable: boolean;
   warnings: string[];
+  dataDirResolved: string;
+  dataDirSource: string;
 }
 
 export interface PreflightFail {
   ok: false;
   failures: string[];
   warnings: string[];
+  dataDirResolved: string;
+  dataDirSource: string;
 }
 
 export async function preflight(opts: SmokeOptions, deps: SmokeDeps): Promise<PreflightOk | PreflightFail> {
@@ -188,11 +194,21 @@ export async function preflight(opts: SmokeOptions, deps: SmokeDeps): Promise<Pr
   const warnings: string[] = [];
   const chapterId = chapterIdFor(opts.projectId, opts.chapterIndex1Based);
 
+  // 数据目录来源永远打印在第一行（验收项：确认"对当前真实 data 目录跑"的到底是哪个目录）。
+  const dataDirResolved = path.resolve(opts.dataDir);
+  const dataDirSource = process.env.DATA_DIR
+    ? "DATA_DIR 环境变量"
+    : fs.existsSync("D:\\Project\\novel2glagame\\data")
+      ? "仓库默认 data/（DATA_DIR 未设置）"
+      : "相对路径回退 ../../../data（DATA_DIR 未设置）";
+
   if (!fs.existsSync(opts.dataDir)) {
     return {
       ok: false,
-      failures: [`数据目录不存在: ${opts.dataDir}（用 --dataDir 指定，或确认 DATA_DIR 指向正确位置）`],
+      failures: [`数据目录不存在: ${dataDirResolved}（来源：${dataDirSource}；用 --dataDir 指定，或确认 DATA_DIR 指向正确位置）`],
       warnings,
+      dataDirResolved,
+      dataDirSource,
     };
   }
 
@@ -200,37 +216,41 @@ export async function preflight(opts: SmokeOptions, deps: SmokeDeps): Promise<Pr
   try {
     db = createDatabase(opts.dataDir);
   } catch (e) {
-    return { ok: false, failures: [`app.db 无法打开: ${(e as Error).message}`], warnings };
+    return { ok: false, failures: [`app.db 无法打开: ${(e as Error).message}`], warnings, dataDirResolved, dataDirSource };
   }
 
-  const project = new ProjectRepository(db).getById(opts.projectId);
+  const project = resolveProject(db, opts.projectId, { dataDirResolved, dataDirSource });
   if (!project) {
     db.close();
     return {
       ok: false,
-      failures: [`项目不存在: ${opts.projectId}（dataDir=${opts.dataDir}，确认项目已创建并在该数据目录下）`],
+      failures: [projectNotFoundMessage(db, opts, dataDirResolved, dataDirSource)],
       warnings,
+      dataDirResolved,
+      dataDirSource,
     };
   }
   const chapter = new ChapterRepository(db).getById(chapterId);
   if (!chapter) {
-    const existing = new ChapterRepository(db).listByProject(opts.projectId).map((c) => c.chapterId);
+    const existing = new ChapterRepository(db).listByProject(project.projectId).map((c) => c.chapterId);
     db.close();
     return {
       ok: false,
       failures: [
-        `章节不存在: ${chapterId}（项目 ${opts.projectId} 现有章节: ${existing.length > 0 ? existing.join(", ") : "（无）"}）`,
+        `章节不存在: ${chapterIdFor(project.projectId, opts.chapterIndex1Based)}（项目 ${project.projectId} 现有章节 ${existing.length} 个: ${existing.length > 0 ? existing.join(", ") : "（无）"}；序号为 1-based，超出范围请检查）`,
       ],
       warnings,
+      dataDirResolved,
+      dataDirSource,
     };
   }
 
   let chapterText = deps.chapterTextOverride ?? "";
   if (!chapterText) {
-    const sourcePath = path.join(opts.dataDir, "projects", opts.projectId, "chapters", chapterId, "source.txt");
+    const sourcePath = path.join(opts.dataDir, "projects", project.projectId, "chapters", chapterIdFor(project.projectId, opts.chapterIndex1Based), "source.txt");
     if (!fs.existsSync(sourcePath)) {
       db.close();
-      return { ok: false, failures: [`source.txt 缺失: ${sourcePath}`], warnings };
+      return { ok: false, failures: [`source.txt 缺失: ${sourcePath}`], warnings, dataDirResolved, dataDirSource };
     }
     chapterText = fs.readFileSync(sourcePath, "utf-8");
   }
@@ -241,6 +261,8 @@ export async function preflight(opts: SmokeOptions, deps: SmokeDeps): Promise<Pr
       ok: false,
       failures: ["未配置 LLM key（active profile 的 apiKey 或 OPENAI_API_KEY 为空）；dry-run 使用 ScriptedProvider，不受此限"],
       warnings,
+      dataDirResolved,
+      dataDirSource,
     };
   }
 
@@ -258,10 +280,60 @@ export async function preflight(opts: SmokeOptions, deps: SmokeDeps): Promise<Pr
     fs.accessSync(cfgDir, fs.constants.W_OK);
   } catch (e) {
     db.close();
-    return { ok: false, failures: [`checkpoints.db 不可写: ${(e as Error).message}`], warnings };
+    return { ok: false, failures: [`checkpoints.db 不可写: ${(e as Error).message}`], warnings, dataDirResolved, dataDirSource };
   }
 
-  return { ok: true, db, project, chapter, chapterId, chapterText, chromaReachable, warnings };
+  return { ok: true, db, project, projectId: project.projectId, chapter, chapterId: chapterIdFor(project.projectId, opts.chapterIndex1Based), chapterText, chromaReachable, warnings, dataDirResolved, dataDirSource };
+}
+
+/**
+ * 项目解析：精确匹配优先；否则按前缀匹配（验收项 --project 前缀）。
+ * 0 个 → null（调用方报"项目不存在" + 候选列表）；1 个 → 直接用；
+ * 多个 → null（调用方报歧义 + 候选列表，绝不猜）。
+ */
+export function resolveProject(
+  db: ReturnType<typeof createDatabase>,
+  input: string,
+  _ctx?: { dataDirResolved: string; dataDirSource: string },
+): ProjectState | null {
+  const repo = new ProjectRepository(db);
+  const exact = repo.getById(input);
+  if (exact) return exact as unknown as ProjectState;
+  const all = repo.list();
+  const cands = (all as unknown as ProjectState[]).filter((p) => p.projectId.startsWith(input));
+  if (cands.length === 1) return cands[0];
+  return null;
+}
+
+/** 歧义/缺失时的候选列表行（DB 项目 + 盘上孤儿目录）。 */
+export function projectNotFoundMessage(
+  db: ReturnType<typeof createDatabase>,
+  opts: SmokeOptions,
+  dataDirResolved: string,
+  _dataDirSource: string,
+): string {
+  const all = new ProjectRepository(db).list() as unknown as ProjectState[];
+  const cands = all.filter((p) => p.projectId.startsWith(opts.projectId));
+  let diskOnly: string[] = [];
+  try {
+    const projDir = path.join(opts.dataDir, "projects");
+    if (fs.existsSync(projDir)) {
+      const dbIds = new Set(all.map((p) => p.projectId));
+      diskOnly = fs.readdirSync(projDir).filter((d) => {
+        try { return fs.statSync(path.join(projDir, d)).isDirectory() && !dbIds.has(d); } catch { return false; }
+      });
+    }
+  } catch { /* best-effort */ }
+  const lines = [
+    `项目不存在或歧义: "${opts.projectId}"（dataDir=${dataDirResolved}；DB 现有项目 ${all.length} 个: ${all.length > 0 ? all.map((p) => p.projectId).join(", ") : "（无）"}）`,
+  ];
+  if (cands.length > 1) {
+    lines.push(`前缀 "${opts.projectId}" 匹配到 ${cands.length} 个: ${cands.map((p) => p.projectId).join(", ")}，请写全 ID`);
+  }
+  if (diskOnly.length > 0) {
+    lines.push(`盘上有 DB 无记录的孤儿目录 ${diskOnly.length} 个: ${diskOnly.join(", ")}（H1 reindex 缺失，暂需经 API 重建索引）`);
+  }
+  return lines.join("；");
 }
 
 // ── M7 纯断言函数（正反例单测直接覆盖） ──────────────────────────────────────
@@ -338,14 +410,14 @@ function sceneRepoStub() {
   };
 }
 
-async function runAssertions(opts: SmokeOptions, chapterId: string, chromaReachable: boolean): Promise<AssertionResult[]> {
+async function runAssertions(opts: SmokeOptions, projectId: string, chapterId: string, chromaReachable: boolean): Promise<AssertionResult[]> {
   const out: AssertionResult[] = [];
-  const projDir = path.join(opts.dataDir, "projects", opts.projectId);
+  const projDir = path.join(opts.dataDir, "projects", projectId);
 
   // A1/A2：segmentation（两模式都真实断言）。
   try {
     const seg = readChapterJson<{ scenes?: Array<{ sceneId: string }> }>(
-      opts.dataDir, opts.projectId, chapterId, "segmentation.json",
+      opts.dataDir, projectId, chapterId, "segmentation.json",
     );
     const sceneIds = (seg?.scenes ?? []).map((s) => s.sceneId).filter(Boolean);
     out.push({
@@ -401,7 +473,7 @@ async function runAssertions(opts: SmokeOptions, chapterId: string, chromaReacha
 
   // A7/A8：character_profiles.json —— bible_commit 真实产出，两模式都真实断言。
   try {
-    const profiles = readCharacterProfiles(opts.dataDir, opts.projectId) ?? {};
+    const profiles = readCharacterProfiles(opts.dataDir, projectId) ?? {};
     const m = assertProfilesMasterFormat(profiles);
     out.push({
       label: "A7 profiles 母版格式", status: m.passed ? "passed" : "failed", detail: `${m.total} profiles, ${m.bad} bad`,
@@ -444,7 +516,7 @@ async function runAssertions(opts: SmokeOptions, chapterId: string, chromaReacha
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ where: { projectId: opts.projectId }, limit: 500 }),
+            body: JSON.stringify({ where: { projectId }, limit: 500 }),
           },
         );
         const data = (await q.json()) as { ids?: string[] };
@@ -493,7 +565,11 @@ export async function runSmoke(opts: SmokeOptions, deps: SmokeDeps): Promise<Smo
     return { reports: [], output: lines.join("\n"), exitCode: 2, summary: { passed: 0, skipped: 0, failed: 0 }, gateFailures: pf.failures };
   }
   for (const w of pf.warnings) lines.push(`[smoke][warn] ${w}`);
-  const { db, project, chapter, chapterId, chapterText, chromaReachable } = pf;
+  const { db, project, projectId, chapter, chapterId, chapterText, chromaReachable, dataDirResolved, dataDirSource } = pf;
+  lines.push(`[smoke] 数据目录: ${dataDirResolved}（来源：${dataDirSource}）`);
+  if (opts.projectId !== projectId) {
+    lines.push(`[smoke] 项目前缀 "${opts.projectId}" 唯一匹配 → ${projectId}`);
+  }
   lines.push(`[smoke] ${chapterId} — ${chapterText.length} chars, title: ${chapter.title}`);
   lines.push(`[smoke] provider: ${deps.providerLabel}${deps.llmKeyHint ? ` (${deps.llmKeyHint})` : ""}`);
 
@@ -529,14 +605,14 @@ export async function runSmoke(opts: SmokeOptions, deps: SmokeDeps): Promise<Smo
       const state = (result?.state ?? {}) as any;
       const assertions = runError
         ? [{ label: "运行完成", status: "failed" as AssertionStatus, detail: runError }]
-        : await runAssertions(opts, chapterId, chromaReachable);
+        : await runAssertions(opts, projectId, chapterId, chromaReachable);
       const passed = assertions.filter((a) => a.status === "passed").length;
       const skipped = assertions.filter((a) => a.status === "skipped").length;
       const failed = assertions.filter((a) => a.status === "failed").length;
 
       let pending: PendingDetail[] = [];
       try {
-        pending = new PendingProposalStore(opts.dataDir, opts.projectId)
+        pending = new PendingProposalStore(opts.dataDir, projectId)
           .listFor(chapterId)
           .map((p) => ({
             candidateName: p.candidateName,
