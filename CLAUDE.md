@@ -203,3 +203,21 @@ Comprehensive code audit across all 12 packages and 2 apps (~22,000 LOC). ~60 bu
 - Pipeline `tasks` table rows leaked on error (no cleanup in catch blocks)
 - Frontend chapter/scene truncation (`slice(0, 20)`) hiding data
 - Various `res.ok` checks missing on API calls, error states not guarded
+
+## Runtime Data Safety (2026-10-07 app.db incident — read before touching data/ or git)
+
+A `git checkout -- data/config/app.db` rolled the live DB back to a 09-02 blob while
+-wal/-shm lingered; the next open replayed foreign WAL frames into the old base →
+cross-lineage SQLITE_CORRUPT. Rules:
+
+- `data/` is git-ignored runtime (DBs, projects, archives). Legit tracked exceptions:
+  `data/prompts/*.md` (E0-synced), `data/eval/*`, `data/evaluation/*` fixtures,
+  `data/config/model-profiles.example.json`. Never `git add` anything else under `data/`.
+- NEVER run against runtime paths: `git checkout -- <path>`, `git restore`, `git clean`,
+  `git reset --hard` (deny rules in `.claude/settings.json` enforce this; do not weaken them).
+- Workspace cleanup: show `git status` + the diff FIRST, get explicit approval before
+  discarding anything.
+- Before touching any `.db` file: stop the API (port 3002) and confirm no process holds
+  the file. `-wal`/`-shm` travel WITH their `.db` — never copy/move/delete one without the others.
+- A fresh `app.db` is auto-created on API start; startup runs `PRAGMA quick_check`
+  (failure → auto-backup + recovery hint, never silent) and `/health` reports integrity.
