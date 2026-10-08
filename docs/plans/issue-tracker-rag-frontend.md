@@ -136,4 +136,51 @@
 
 ---
 
+## H. 数据完整性与计数事实源（2026-10-07 app.db 损坏核查结论；H1/H2 用户已定方向、本轮不实现）
+
+> 背景：app.db 确认损坏——2026-10-03 16:21:34 一次 `git checkout -- data/config/app.db` 把
+> 被 git 追踪的主库回滚到 09-02 blob（7445ec1），残留的 -wal/-shm（含 9/17 之后的提交帧）
+> 在下次打开时被 SQLite 跨谱系回放进旧基座，形成索引/表内容不一致的嵌合体
+> （integrity_check SQLITE_CORRUPT；scenes 索引有 62ec:49 而表扫描为 09-02 状态）。
+> 62ec 的 projects 行丢失，磁盘产物完整。用户决策：旧库归档不重建；
+> 磁盘产物为事实源、SQLite 只做索引。
+
+| # | 问题 | 证据 | 修复方向 |
+|---|------|------|---------|
+| H1 | **projects:reindex 缺失**：无"磁盘产物 → DB 索引"的重建入口，坏库后项目在 UI 不可见 | 62ec 产物完整在盘（structure 92 章、49 个 vn_script.json、character_profiles.json），DB 行丢失；重建只能从磁盘推导 | 实现 projects:reindex（扫描 project.json + 产物推导章节/场景/状态 → 重建 DB 行）。用户已定暂缓，时机后拍板 |
+| H2 | **项目计数双存且单向更新**：totalChapters/readyChapters/failedChapters 在 DB 与磁盘 project.json 各存一份；完成事件只写 DB | projects.ts:988 完成路径只 updateChapterCounts，无 writeProjectState；62ec 磁盘 readyChapters=0 而 ch0011 实际完成（49 场景 vn_script 在盘）；DB 损坏后两边都不可用 | 计数只从产物推导（扫描 chapters/<id>/ 下 vn_script.json 等），删除双存；列入之后的审计清单统一处理 |
+| H3 | **三个 sqlite 文件被 git 追踪**，.gitignore 的 `*.db` 规则被先追踪文件架空——本次损坏的直接前置条件（checkout 可在服务运行时回滚主库） | git ls-files：data/config/app.db、data/database.sqlite、data/db.sqlite 均在版本库；10-03 的 checkout 即触发回滚 | `git rm --cached` 三件让 *.db 规则生效；随本轮归档实施，不留在待办 |
+
+---
+
+## Q. 架构调研吸收项（2026-10-07 survey → tracker；来源 `docs/audits/architecture-survey-2026-10-07.md`）
+
+> 只收"值得吸收、可执行"的条目；Q-1/Q-2（LangGraph 选型/checkpoints.db 价值）为开放架构质疑，
+> 不进 tracker，进 Stage 4 评审会议题。Q-5 与 F5.1 合并记一处。
+
+| # | 问题 | 证据 | 修复方向 |
+|---|------|------|---------|
+| Q-3 | **Chroma 双写静默降级**：ingest 双写（JSON recordId 带 content-hash 后缀 vs Chroma chromaId 去 hash 规范 ID），`chromaUpsert` 失败仅 `console.warn`；读侧 Chroma-first + JSON 回退，失败静默 = 薛定谔的主存储 | survey §8.1 Q-3；`chroma-base.ts` ID 双轨 + catch 内 `console.warn` | 二选一写死：单写 Chroma + 读失败显式失败（配 `/health/rag` 门），或承认 JSON 为主、Chroma 为索引并改名；"双写 + 静默 fallback"不作长期架构 |
+| Q-5/F5.1 | **Bible 基线锁定规则 + 并行竞态**：`baseline.version=1` 后只追加 history/evidence；F5.1 下 first-wins 的是并行竞态中按 scene 序确定的一个（语义任意）——"第一章第一次见到的外貌"（信息最少）被锁成永恒母版 | survey §8.1 Q-5 + §4 F5.1；`smoke-lib.ts` KNOWN_LIMITATION | 至少其一：fan-out 前预锁本章新角色基线；或"母版升级提案 + 人工确认"（pending 队列）；或"高证据版本可替换低证据版本"显式规则。U-11 盲评实验定方向 |
+| Q-8 | **生产 `fallbackPolicy: allow` 放行 L0 降级无显性标识**：LLM 失败则 attribution/vn-mapping 走 unit-passthrough 等 L0 fallback，`degradedStages` 有记录但流程继续；评估用 `fail` 而生产用 `allow` | survey §8.1 Q-8；`degradedStages` + fallbackPolicy | degraded 产物在 UI 不可忽略标识，并计入完成率分母降权；否则 production 完成率掺水（R1 假绿前车之鉴） |
+| U-7 | **stage-cache key 五元组完备性靠约定**：`inputHashOf` "调用方必须包含一切"，漏字段 = 静默 stale | survey §8.3 U-7 | 故障注入门：故意漏 `styleTemplate/bibleProfiles` 看测试是否变红；不变红则 key 设计不可信（Stage 4 前置门 (c) 的一部分） |
+| U-8 | **`STAGE_VERSIONS` 防漏只有 schema 快照门**：逻辑/后处理变更不 bump 无人拦 | survey §8.3 U-8；`schema-hashes.json` 只 hash schema | Stage 4 前置门 (d)：阶段目录源码相对基线有改动而版本号未递增时警告/失败 |
+| T-13 | **RAG 聚合硬编码 9 人名单**：某本小说残留跨项目复用，新书必错 | `projects.ts:576-586`（tracker §F2.6 引） | 删硬编码，改由 resolver/项目角色表驱动 |
+| B4 | **`chapter-pipeline.ts:434-453` RAG ingest 整块复制两次**，每章 embedding 翻倍 | tracker 引 survey §8.2 T-4 | 删重复块（低风险即刻可删；Stage 4 删单体时自然消失，之前先删） |
+| T-11 | **`pending-merge.ts:230` TODO**：legacy store 删除路径不完整（无 `deleteCharacterChunks`）= 数据残留 | 全仓唯一真 code TODO | 补删除路径或 Stage 4 随 legacy store 一起删并验证无残留 |
+
+---
+
+## S4. Stage 4 前置门（2026-10-07 验收项 8；legacy 删除不开工除非全绿）
+
+| 门 | 内容 | 证据/落地 |
+|---|---|---|
+| (a) D3 关闭 | D3 关闭需要 parity 证据，不能只凭倾向 (b) | 同一章双跑（单体 vs 图）：diff artifact + token + M1–M5 门检出率（survey U-12 实验）；证据进 tracker 后 D3 方可关闭 |
+| (b) consistency 去留 | 删旧图/单体之前先决定：把 `runConsistencyReviewAgent` 移植进新图，或明确放弃并记录 | 旧图节点默认跳过 + 单体 `autoRunConsistencyReview: false` 写死——删 legacy 不丢能力，但须"接线或摘牌"，parity"接受差异"须同步更新 |
+| (c) 缓存键敏感性 | 对每个阶段，逐个改动每个输入字段（章节文本、knownCharacters、characterKnowledge、sceneHints、bibleProfiles、风格模板、mappingMode、repairContext、fallbackPolicy），断言缓存键必须变化 | 新测试：`stage-cache-key-sensitivity.test.ts`（故障注入式；U-7 的一部分） |
+| (d) STAGE_VERSIONS 防漏 | 阶段目录源码相对基线有改动而版本号未递增时警告 | schema 快照门只 hash schema；新增源码-vs-版本一致性检查（U-8） |
+| (e) 删除零残留 + 禁令成测试 | 删除后 `grep N2G_ENGINE`、`chapter-pipeline`、旧 `graph.ts`/`nodes/` 引用必须为零，并写成测试；`maxConcurrency` invoke 禁令也加测试 | 新测试：`stage4-cleanup.test.ts`（断言零引用；注意 `known-defects.test.ts` 的 D1 pin 本身含 `maxConcurrency: 1` invoke 调用——测试须排除 pin 文件自身；队列 `PipelineTaskQueue` 的章节并发参数同名但合法，不在此列） |
+
+---
+
 *汇总完毕，未改代码。分支 `feature/character-bible` 上仅有方案文档提交。下一步：用户拍板执行顺序后统一修改。*
