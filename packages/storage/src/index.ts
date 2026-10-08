@@ -1,4 +1,5 @@
-export { createDatabase } from "./db/index.js";
+export { createDatabase, checkDatabaseIntegrity, precheckExistingDatabase } from "./db/index.js";
+export type { DbIntegrityResult, DbPrecheckResult } from "./db/index.js";
 export {
   ProjectRepository,
   ChapterRepository,

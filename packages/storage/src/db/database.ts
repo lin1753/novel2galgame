@@ -85,6 +85,155 @@ CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(type);
 `;
 
+export interface DbIntegrityResult {
+  ok: boolean;
+  /** "ok", the first corruption message, or the thrown error message. */
+  detail: string;
+}
+
+/**
+ * Startup integrity gate (2026-10-07 app.db incident — H3 in
+ * docs/plans/issue-tracker-rag-frontend.md).
+ *
+ * `git checkout -- data/config/app.db` rolled the live DB back to an old blob
+ * while -wal/-shm lingered; the next open replayed foreign WAL frames into the
+ * old base → cross-lineage SQLITE_CORRUPT that surfaced only as mysterious
+ * query failures much later. Run this right after createDatabase() and NEVER
+ * continue silently on failure (auto-backup + explicit recovery hint + exit).
+ *
+ * NOTE: on a database like the archived corrupt one, `PRAGMA quick_check`
+ * THROWS SQLITE_CORRUPT instead of returning error rows (verified against the
+ * archived trio) — this function normalizes both shapes.
+ */
+export function checkDatabaseIntegrity(db: Database.Database): DbIntegrityResult {
+  let rows: unknown[];
+  try {
+    rows = db.prepare("PRAGMA quick_check").all() as unknown[];
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+  }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { ok: false, detail: "quick_check returned no rows" };
+  }
+  const bad = (rows as Array<Record<string, unknown>>)
+    .map((r) => String(Object.values(r)[0]))
+    .filter((v) => v !== "ok");
+  if (bad.length > 0) {
+    return { ok: false, detail: bad[0].slice(0, 300) };
+  }
+  return { ok: true, detail: "ok" };
+}
+
+export interface DbPrecheckResult {
+  ok: boolean;
+  /** "ok", the first corruption message, or the thrown error message. */
+  detail: string;
+  /** Absolute path of the file-level trio backup (app.db + -wal + -shm), taken BEFORE any open. */
+  backupDir: string;
+  /** False when the backup copy failed (warned, integrity check still ran). */
+  backedUp: boolean;
+}
+
+/** Retention cap for precheck backups (acceptance item 4). Env: N2G_PRECHECK_BACKUP_KEEP. */
+const DEFAULT_MAX_PRECHECK_BACKUPS = 3;
+
+function envBackupKeep(): number {
+  const raw = parseInt(process.env.N2G_PRECHECK_BACKUP_KEEP ?? "", 10);
+  return Number.isFinite(raw) && raw >= 1 ? raw : DEFAULT_MAX_PRECHECK_BACKUPS;
+}
+
+/** Delete oldest precheck-backup-* dirs beyond the keep count. Touches nothing else. */
+function prunePrecheckBackups(dbDir: string, keep: number): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dbDir);
+  } catch {
+    return;
+  }
+  const dirs = entries
+    .filter((n) => n.startsWith("precheck-backup-"))
+    .map((n) => path.join(dbDir, n))
+    .filter((p) => {
+      try {
+        return fs.statSync(p).isDirectory();
+      } catch {
+        return false;
+      }
+    })
+    .sort(); // ISO stamps sort lexicographically → oldest first
+  for (const dir of dirs.slice(0, Math.max(0, dirs.length - keep))) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (e) {
+      console.warn(`[DB Gate] failed to prune old backup ${dir}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+}
+
+/**
+ * Startup precheck for an EXISTING database (2026-10-07 app.db incident — H3).
+ *
+ * Order matters, and this function enforces it:
+ *   1. File-level copy of the trio (app.db + -wal + -shm) WITHOUT opening it.
+ *   2. Read-only open + `PRAGMA quick_check`.
+ * Only if quick_check passes may the caller proceed to open read-write and run
+ * migrations (createDatabase's CREATE TABLE / ALTER TABLE must NOT run before
+ * the check — a corrupt DB must never be mutated by migration writes).
+ *
+ * Retention & failure policy (acceptance item 4, 2026-10-08):
+ * - Keeps only the latest `maxBackups` (default 3, env N2G_PRECHECK_BACKUP_KEEP)
+ *   precheck backups; older ones are pruned after a successful copy.
+ * - A FAILED backup copy is a warning, NOT a startup blocker: the integrity
+ *   check below still runs and still decides. A partial backup dir is removed
+ *   so a truncated trio never masquerades as a valid recovery point.
+ *
+ * NOTE: on a database like the archived corrupt one, `PRAGMA quick_check`
+ * THROWS SQLITE_CORRUPT instead of returning error rows (verified against the
+ * archived trio) — this function normalizes both shapes.
+ */
+export function precheckExistingDatabase(
+  dataDir: string,
+  opts?: { maxBackups?: number },
+): DbPrecheckResult {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dbDir = path.join(dataDir, "config");
+  const backupDir = path.join(dbDir, `precheck-backup-${stamp}`);
+  let backedUp = false;
+  try {
+    fs.mkdirSync(backupDir, { recursive: true });
+    for (const f of ["app.db", "app.db-wal", "app.db-shm"]) {
+      const src = path.join(dbDir, f);
+      if (fs.existsSync(src)) fs.copyFileSync(src, path.join(backupDir, f));
+    }
+    backedUp = true;
+  } catch (e) {
+    console.warn(
+      `[DB Gate] pre-open backup FAILED (${e instanceof Error ? e.message : String(e)}); ` +
+      "continuing with the integrity check WITHOUT a fresh backup copy.",
+    );
+    try {
+      fs.rmSync(backupDir, { recursive: true, force: true });
+    } catch { /* best effort cleanup */ }
+  }
+  if (backedUp) {
+    const keep = Math.max(1, opts?.maxBackups ?? envBackupKeep());
+    prunePrecheckBackups(dbDir, keep);
+  }
+
+  const dbPath = path.join(dbDir, "app.db");
+  let db: Database.Database;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : String(e), backupDir, backedUp };
+  }
+  try {
+    return { ...checkDatabaseIntegrity(db), backupDir, backedUp };
+  } finally {
+    db.close();
+  }
+}
+
 export function createDatabase(dataDir: string): Database.Database {
   const dbDir = path.join(dataDir, "config");
   fs.mkdirSync(dbDir, { recursive: true });

@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { createDatabase } from "@novel2gal/storage";
+import { createDatabase, checkDatabaseIntegrity } from "@novel2gal/storage";
 import { createProjectRoutes } from "../routes/projects.js";
 import { createSceneRoutes } from "../routes/scenes.js";
 import { createConfigRoutes } from "../routes/config.js";
@@ -66,8 +66,29 @@ export function createServer(
   // Asset management routes
   app.use("/", createAssetRoutes());
 
+  // GET /health — includes live DB integrity (2026-10-07 app.db incident).
+  // Cached 60s: quick_check on a large DB is not free, and /health is polled.
+  // Corruption returns 503 with the detail so ops notice immediately instead
+  // of debugging later query failures. Only /health (not /health/rag) carries this.
+  let healthCache: { at: number; body: Record<string, unknown>; status: number } | null = null;
   app.get("/health", (_req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    if (healthCache && Date.now() - healthCache.at < 60_000) {
+      res.status(healthCache.status).json(healthCache.body);
+      return;
+    }
+    let db_status: Record<string, unknown>;
+    try {
+      const integrity = checkDatabaseIntegrity(db);
+      db_status = integrity.ok
+        ? { integrity: "ok" }
+        : { integrity: "corrupt", detail: integrity.detail };
+    } catch (err) {
+      db_status = { integrity: "corrupt", detail: err instanceof Error ? err.message : String(err) };
+    }
+    const body = { status: "ok", timestamp: new Date().toISOString(), db: db_status };
+    const status = (db_status as { integrity: string }).integrity === "corrupt" ? 503 : 200;
+    healthCache = { at: Date.now(), body, status };
+    res.status(status).json(body);
   });
 
   // GET /health/rag — Chroma connectivity + collection counts (issue-tracker A5).

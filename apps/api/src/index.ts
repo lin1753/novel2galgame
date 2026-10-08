@@ -1,6 +1,8 @@
 import "dotenv/config";
 import dns from "node:dns";
-import { createDatabase } from "@novel2gal/storage";
+import fs from "node:fs";
+import path from "node:path";
+import { createDatabase, precheckExistingDatabase } from "@novel2gal/storage";
 
 // Force IPv4 DNS resolution to avoid proxy/VPN IPv6 TLS issues
 dns.setDefaultResultOrder("ipv4first");
@@ -11,6 +13,26 @@ import { config, getActiveProfile } from "./config/index.js";
 import { EmbeddingService, KnowledgeStore } from "@novel2gal/rag";
 import { extractCharacterKnowledge, extractScenePatterns } from "@novel2gal/rag";
 import { auditExternalPrompts, AGENT_PROMPT_DEFAULTS } from "@novel2gal/agents";
+
+// DB integrity gate (2026-10-07 app.db incident): order is load-bearing —
+// 1. precheckExistingDatabase() copies the trio WITHOUT opening it, then
+//    read-only quick_check; 2. only on pass does createDatabase() open
+//    read-write and run CREATE/ALTER migrations. A corrupt DB is never mutated
+//    by migration writes. Fail = exit(1) with backup path + recovery hint,
+//    never continue silently.
+if (fs.existsSync(path.join(config.dataDir, "config", "app.db"))) {
+  const precheck = precheckExistingDatabase(config.dataDir);
+  if (!precheck.ok) {
+    console.error(`[DB Gate] ⚠️ integrity check FAILED (${precheck.detail}).`);
+    console.error(`[DB Gate] A pre-open copy was saved to ${precheck.backupDir}.`);
+    console.error("[DB Gate] Recovery: stop ALL processes holding data/config/app.db,");
+    console.error("[DB Gate] verify the backup, then restore a known-good app.db + its");
+    console.error("[DB Gate] -wal/-shm TOGETHER (never mix lineages), or let a fresh");
+    console.error("[DB Gate] app.db be created and re-import projects via the API.");
+    process.exit(1);
+  }
+  console.log("[DB Gate] integrity OK (quick_check, pre-open)");
+}
 
 const db = createDatabase(config.dataDir);
 
