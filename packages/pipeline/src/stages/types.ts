@@ -107,7 +107,7 @@ export interface StageCacheDb {
 
 export const STAGE_VERSIONS: Record<CacheStageType, number> = {
   narrative_parsing: 1,
-  attribution: 1,
+  attribution: 2,
   scene_segmentation: 1,
   vn_mapping: 1,
   fidelity_review: 1,

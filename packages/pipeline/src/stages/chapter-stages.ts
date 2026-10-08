@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   runNarrativeParsingAgent,
   runAttributionAgent,
@@ -130,12 +131,32 @@ export async function runAttributionStage(
       units: input.units as any,
       characterKnowledge: input.characterKnowledge,
       knownCharacters: input.knownCharacters as any,
+      ...(input.maxInvalidAttributionRate !== undefined
+        ? { maxInvalidAttributionRate: input.maxInvalidAttributionRate }
+        : {}),
     },
     stageInstrument(agent, ctx),
     agent.model,
   );
   if (!result.success || !result.data) throw agentFailureToError(result);
-  const out = attributionOutputSchema.parse(result.data);
+  let out: AttributionStageOutput;
+  try {
+    out = attributionOutputSchema.parse(result.data);
+  } catch (err) {
+    // Zod crash → rethrow with issue paths inline (ch1 lesson: a 150-char
+    // truncation hid the failing field). Stage output stays the single throw
+    // site; full detail travels in the message while SSE/DB slicing happens
+    // at the API boundary (task-queue keeps summaries, DB keeps full text).
+    if (err instanceof z.ZodError) {
+      const paths = err.issues.map(
+        (i) => `${i.path.map(String).join(".") || "(root)"}: ${i.message}`,
+      );
+      throw new Error(
+        `attribution stage validation failed (${err.issues.length} issue(s)): ${paths.slice(0, 12).join("; ")}${paths.length > 12 ? `; …+${paths.length - 12} more` : ""}\nFull issues JSON: ${JSON.stringify(err.issues)}`,
+      );
+    }
+    throw err;
+  }
 
   // Post-process parity: extract characters from units when LLM returned none
   if (extractCharactersFromUnits(out as any, input.knownCharacters as any)) {

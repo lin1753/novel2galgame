@@ -202,8 +202,10 @@ async function runAgentWithMetrics<T>(opts: {
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     const msg = err instanceof Error ? err.message : String(err);
+    // tasks.error_message is TEXT: store the FULL message (ch1 lesson). The
+    // rethrow below keeps the full error for the caller's DB/SSE split.
     opts.db?.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=? WHERE task_id=?`)
-      .run(now(), durationMs, 0, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg.slice(0, 500), taskId);
+      .run(now(), durationMs, 0, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg, taskId);
     throw err;
   }
 }

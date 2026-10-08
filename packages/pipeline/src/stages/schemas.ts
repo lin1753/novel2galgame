@@ -72,6 +72,15 @@ export const attributionInputSchema = z.object({
       }),
     )
     .optional(),
+  /**
+   * Max tolerated per-unit attribution repair rate (agent-level threshold,
+   * default 0.3 in the agent). Optional here so old callers keep working;
+   * threaded straight into the agent. NOTE on cache semantics: this field is
+   * part of the assembled stage input, so a non-default value changes the
+   * inputHash and misses the cache once — by design (different tolerance ⇒
+   * different result), not accidental invalidation.
+   */
+  maxInvalidAttributionRate: z.number().min(0).max(1).optional(),
 });
 export const attributionOutputSchema = attributionResultSchema.extend({
   speakerIdToCharId: z.record(z.string()).optional(),

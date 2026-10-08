@@ -194,8 +194,11 @@ export async function attributionNode(
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[attributionNode] Error: ${msg}`);
     try {
+      // error_message is TEXT: store the FULL message (ch1 lesson — the stage
+      // error now carries zod issue paths; slicing would hide them again).
+      // state.error below already carries the full msg for the graph path.
       state.db?.prepare("UPDATE tasks SET status='failed', finished_at=?, error_message=? WHERE chapter_id=? AND status='running'")
-        .run(now(), msg.slice(0, 500), state.chapterId);
+        .run(now(), msg, state.chapterId);
     } catch {}
     return { error: msg, currentStage: "handle_error", stageTimings: { attribution: Date.now() - t0 } };
   }

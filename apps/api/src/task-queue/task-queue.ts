@@ -381,13 +381,18 @@ export class PipelineTaskQueue {
   private _recordAttempt(chapterId: string, attempt: number, final: boolean, errMsg: string | null): void {
     try {
       if (final) {
+        // chapters.last_error is TEXT: store the FULL message (ch1 lesson —
+        // truncation hid the zod issue path). _parseAttemptCount only matches
+        // the leading "attempt N " prefix, so full text stays parseable.
         this.chapterRepo?.updateLastError?.(chapterId, errMsg);
       } else {
         // Attempt failed but will be retried: persist stage flags (already written
         // incrementally via onChapterFlags) + attempt counter, keep chapter runnable.
         // NOTE: status is intentionally left untouched here — the caller resets it
         // to "running" when the retry actually starts.
-        this.chapterRepo?.updateLastError?.(chapterId, `attempt ${attempt} failed: ${(errMsg ?? "unknown").slice(0, 300)} — retrying`);
+        // Full text (not sliced): last_error is TEXT and the retry counter
+        // parse only reads the leading prefix.
+        this.chapterRepo?.updateLastError?.(chapterId, `attempt ${attempt} failed: ${errMsg ?? "unknown"} — retrying`);
       }
     } catch {}
   }
@@ -481,16 +486,22 @@ export class PipelineTaskQueue {
           return;
         }
 
-        const errMsg = isTimedOut
+        // Error completeness (ch1 lesson: a 150-char slice hid the zod issue
+        // path, and .omc/tmp/ch1-lasterror.json kept only 150 bytes).
+        // errFull travels UNTRUNCATED into the DB (chapters.last_error via
+        // _recordAttempt); SSE/log lines carry errSummary only. The tasks table
+        // and chapters.last_error columns are TEXT — no slicing needed there.
+        const errFull = isTimedOut
           ? `Chapter watchdog timeout (no-progress ${this.noProgressTimeoutMs / 1000}s / absolute ${this.absoluteTimeoutMs / 1000}s) — auto skipping`
-          : err instanceof Error ? err.message.slice(0, 150) : String(err);
+          : err instanceof Error ? err.message : String(err);
+        const errSummary = errFull.length > 150 ? `${errFull.slice(0, 147)}…` : errFull;
 
-        console.error(`[PipelineTaskQueue] Chapter ${chapter.chapterId} failed (attempt ${attempt}): ${errMsg}`);
+        console.error(`[PipelineTaskQueue] Chapter ${chapter.chapterId} failed (attempt ${attempt}): ${errSummary}`);
 
         // Retry once: completed stages hit the stage cache, so attempt 2 is much
         // cheaper than attempt 1. (Cancellation already returned above.)
         if (attempt <= this.maxChapterRetries) {
-          this._recordAttempt(chapter.chapterId, attempt, false, errMsg);
+          this._recordAttempt(chapter.chapterId, attempt, false, errFull);
           // "retry_scheduled" is a transient marker so cancel() can disarm the
           // pending retry; cleared when the retry fires or the run is cancelled.
           this.results.set(chapter.chapterId, "retry_scheduled");
@@ -499,7 +510,7 @@ export class PipelineTaskQueue {
             chapterIndex: chapter.index,
             status: "running",
             stage: "retry_scheduled",
-            message: `Attempt ${attempt} failed (${errMsg.slice(0, 100)}), retrying in ${this.retryDelayMs / 1000}s…`,
+            message: `Attempt ${attempt} failed (${errSummary}), retrying in ${this.retryDelayMs / 1000}s…`,
             attempt,
           });
           watchdog.dispose();
@@ -529,14 +540,14 @@ export class PipelineTaskQueue {
 
         this.results.set(chapter.chapterId, "failed");
         try { this.chapterRepo?.updateStatus(chapter.chapterId, "failed"); } catch {}
-        this._recordAttempt(chapter.chapterId, attempt, true, errMsg);
+        this._recordAttempt(chapter.chapterId, attempt, true, errFull);
 
         this._emit({
           chapterId: chapter.chapterId,
           chapterIndex: chapter.index,
           status: "failed",
           stage: "failed",
-          message: errMsg,
+          message: errSummary,
           attempt,
         });
       })

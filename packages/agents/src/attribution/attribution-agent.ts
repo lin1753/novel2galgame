@@ -1,8 +1,9 @@
 import type { AttributedNarrativeUnit, AttributionResult, CharacterRef } from "@novel2gal/core";
 import { countPronounGender, normalizeGender } from "@novel2gal/core";
+import { schemas } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
-import { normalizeAttributionUnits, sanitizeForPrompt } from "../shared/normalize.js";
+import { normalizeAttributionUnits, sanitizeForPrompt, stripLlmNulls } from "../shared/normalize.js";
 import { loadPrompt } from "../prompt-loader.js";
 
 export interface AttributionInput {
@@ -11,7 +12,34 @@ export interface AttributionInput {
   knownCharacters?: CharacterRef[];
   /** RAG-retrieved character knowledge from previous chapters */
   characterKnowledge?: string;
+  /**
+   * Max tolerated per-unit repair rate (0..1, default 0.3). Repaired units are
+   * marked uncertain:true with "repaired: ..." evidence and the result carries
+   * degraded="l0_attribution"; exceeding the rate fails the whole agent call.
+   */
+  maxInvalidAttributionRate?: number;
 }
+
+/** Result of per-unit attribution repair (agent side — parsed units only). */
+export interface AttributionRepairReport {
+  /** Every unit touched by any repair (null-substitution, type repair,
+   * dialogue-speaker fill) — drives the degraded marker. */
+  repaired: number;
+  /**
+   * Units with GENUINELY INVALID LLM output (zod type failures, or a dialogue
+   * unit with no speaker after substitution) — drives the failure threshold.
+   * Pure-null substitution (`attribution: null` → neutral default) marks
+   * repaired but is NOT invalid: absence is less harmful than garbage, and the
+   * pre-fix code tolerated it silently. Counting absence toward the failure
+   * threshold would turn previously-passing chapters red.
+   */
+  invalid: number;
+  invalidUnitIndexes: number[];
+  issuePaths: string[];
+  nullCount: number;
+}
+
+const DEFAULT_MAX_INVALID_ATTRIBUTION_RATE = 0.3;
 
 export const DEFAULT_SYSTEM_PROMPT = `你是一个中文小说角色归属分析专家。你的任务是为每个叙事单元标注角色归属。
 
@@ -68,6 +96,145 @@ originalText 里的半角双引号必须替换为中文双引号 (“ ”) 或�
 
 const CHUNK_SIZE = 20;
 
+const attributionInfoSchema = schemas.attributionInfoSchema;
+
+/**
+ * Per-unit attribution repair: strip LLM nulls, validate each unit's
+ * attribution with `attributionInfoSchema.safeParse`, and fall back invalid
+ * units to a uniform repaired value (uncertain:true, "repaired: ..." evidence;
+ * dialogue units additionally get speakerId "unknown").
+ *
+ * The fallback shape is deliberately IDENTICAL to the whole-chunk LLM-failure
+ * fallback below — one meaning in one home: any unit the LLM did not cleanly
+ * attribute is uncertain, needs review, and says so in its evidence.
+ */
+export function repairAttributionUnits(
+  raw: unknown[],
+  baseUnits: AttributedNarrativeUnit[],
+  chapterId: string,
+): { units: AttributedNarrativeUnit[]; report: AttributionRepairReport } {
+  const normalized = normalizeAttributionUnits(raw);
+  const llmByUnitId = new Map<string, AttributedNarrativeUnit>();
+  const llmByOrder = new Map<number, AttributedNarrativeUnit>();
+  for (const u of normalized) {
+    if (u.unitId) llmByUnitId.set(u.unitId, u);
+    if (typeof u.order === "number") llmByOrder.set(u.order, u);
+  }
+  // Parallel lookup over the RAW LLM items: normalizeAttributionUnits maps an
+  // explicit `attribution: null` to undefined (falsy check), so the explicit-
+  // null signal (morphology A) is only visible here, pre-normalize.
+  const rawByUnitId = new Map<string, unknown>();
+  const rawByOrder = new Map<number, unknown>();
+  if (Array.isArray(raw)) {
+    for (const r of raw as Array<{ unitId?: unknown; order?: unknown }>) {
+      if (r && typeof r === "object") {
+        if (typeof r.unitId === "string") rawByUnitId.set(r.unitId, r);
+        if (typeof r.order === "number") rawByOrder.set(r.order, r);
+      }
+    }
+  }
+
+  let nullCount = 0;
+  let repaired = 0;
+  let invalid = 0;
+  const invalidUnitIndexes: number[] = [];
+  const issuePaths: string[] = [];
+
+  const units = baseUnits.map((baseUnit, idx) => {
+    const match =
+      llmByUnitId.get(baseUnit.unitId) ??
+      llmByOrder.get(baseUnit.order) ??
+      normalized[idx];
+    // Explicit-null signal, read PRE-normalize (normalize maps
+    // `attribution: null` → undefined, erasing the LLM's explicit null).
+    const rawMatch =
+      rawByUnitId.get(baseUnit.unitId) ?? rawByOrder.get(baseUnit.order);
+    const explicitNull =
+      !!rawMatch &&
+      typeof rawMatch === "object" &&
+      (rawMatch as { attribution?: unknown }).attribution === null;
+    // Strip LLM literal nulls (the ch1 shape: prompt says "或 null", LLM obeys)
+    // before validation — null is the REPAIRABLE case, not the failure case.
+    const stripped = stripLlmNulls<unknown>(match?.attribution);
+    nullCount += stripped.nullCount;
+    const candidate = stripped.value as unknown;
+
+    const parsed = attributionInfoSchema.safeParse(candidate ?? undefined);
+    let attribution: AttributedNarrativeUnit["attribution"];
+    if (parsed.success && candidate !== undefined && candidate !== null) {
+      attribution = parsed.data as AttributedNarrativeUnit["attribution"];
+    } else if (candidate === undefined || candidate === null) {
+      // No attribution at all (incl. morphology A `attribution: null`):
+      // keep the aligned base value or the neutral default.
+      attribution = (match?.attribution as AttributedNarrativeUnit["attribution"]) ??
+        baseUnit.attribution ?? {
+          participantIds: [],
+          uncertain: false,
+          evidence: [],
+        };
+      if (stripped.nullCount > 0 || match?.attribution === null || explicitNull) {
+        // The LLM explicitly nulled this unit — mark it repaired (degraded),
+        // but NOT invalid: pure absence falls back to the neutral default and
+        // must not trip the failure threshold on its own.
+        repaired++;
+        issuePaths.push(`units.${baseUnit.order}.attribution`);
+        attribution = {
+          ...(attribution ?? {}),
+          participantIds: (attribution as { participantIds?: string[] })?.participantIds ?? [],
+          uncertain: true,
+          evidence: [
+            ...(((attribution as { evidence?: string[] })?.evidence) ?? []),
+            "repaired: invalid attribution",
+          ],
+        };
+      }
+    } else {
+      // Invalid attribution (wrong types etc.): uniform repaired fallback.
+      // This IS invalid — garbage types trip the failure threshold.
+      repaired++;
+      invalid++;
+      invalidUnitIndexes.push(idx);
+      for (const issue of parsed.success ? [] : (parsed as { error: { issues: Array<{ path: Array<string | number> }> } }).error.issues) {
+        issuePaths.push(
+          `units.${baseUnit.order}.attribution${issue.path.length ? `.${issue.path.join(".")}` : ""}`,
+        );
+      }
+      attribution = {
+        participantIds: [],
+        uncertain: true,
+        evidence: ["repaired: invalid attribution"],
+      };
+    }
+
+    if (baseUnit.type === "dialogue" && !(attribution as { speakerId?: string })?.speakerId) {
+      const alreadyRepaired = ((attribution as { evidence?: string[] })?.evidence ?? []).some((e) =>
+        e.startsWith("repaired:"),
+      );
+      if (!alreadyRepaired) {
+        // Dialogue with no speaker after substitution — invalid: a speaker-
+        // less dialogue line is a fidelity-relevant data loss, not mere absence.
+        repaired++;
+        invalid++;
+        invalidUnitIndexes.push(idx);
+        issuePaths.push(`units.${baseUnit.order}.attribution.speakerId`);
+      }
+      attribution = {
+        ...(attribution as object),
+        speakerId: "unknown",
+        uncertain: true,
+        evidence: [
+          ...(((attribution as { evidence?: string[] })?.evidence) ?? []),
+          ...(alreadyRepaired ? [] : ["repaired: missing speakerId"]),
+        ],
+      } as AttributedNarrativeUnit["attribution"];
+    }
+
+    return { ...baseUnit, chapterId, attribution };
+  });
+
+  return { units, report: { repaired, invalid, invalidUnitIndexes, issuePaths, nullCount } };
+}
+
 export async function runAttributionAgent(
   input: AttributionInput,
   provider: LLMProvider,
@@ -87,8 +254,13 @@ export async function runAttributionAgent(
   
   // Create a growing list of known characters that updates as we process chunks
   let currentKnownCharacters = [...(knownCharacters ?? [])];
+  const maxInvalidRate = input.maxInvalidAttributionRate ?? DEFAULT_MAX_INVALID_ATTRIBUTION_RATE;
   // S11a: count chunks produced by the L0 pass-through fallback (LLM threw).
   let fallbackChunks = 0;
+  // Per-unit repairs across all chunks (LLM answered but attribution invalid).
+  let repairedUnits = 0;
+  let invalidUnits = 0;
+  const repairIssuePaths: string[] = [];
 
   for (let i = 0; i < units.length; i += CHUNK_SIZE) {
     const chunkUnits = units.slice(i, i + CHUNK_SIZE);
@@ -141,53 +313,80 @@ ${unitsText}
       Object.assign(finalSpeakerIdToCharId, result?.speakerIdToCharId ?? {});
       finalUncertainUnitIds.push(...(result?.uncertainUnitIds ?? []));
 
-      const llmByUnitId = new Map<string, AttributedNarrativeUnit>();
-      const llmByOrder = new Map<number, AttributedNarrativeUnit>();
-      for (const u of rawLlmUnits) {
-        if (u.unitId) llmByUnitId.set(u.unitId, u);
-        if (typeof u.order === "number") llmByOrder.set(u.order, u);
+      // Per-unit repair: strip LLM nulls, safeParse each attribution, fall back
+      // invalid units to the uniform repaired value (same shape as the
+      // whole-chunk fallback below). LLM nulls are REPAIRED, not fatal.
+      const { units: chunkAlignedUnits, report: repairReport } = repairAttributionUnits(
+        result?.units ?? [],
+        chunkUnits,
+        chapterId,
+      );
+      repairedUnits += repairReport.repaired;
+      invalidUnits += repairReport.invalid;
+      repairIssuePaths.push(...repairReport.issuePaths);
+      if (repairReport.nullCount > 0) {
+        console.warn(
+          `[AttributionAgent] stripped ${repairReport.nullCount} LLM null field(s) in chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chapterId})`,
+        );
+      }
+      const chunkInvalidRate = repairReport.invalid / Math.max(1, chunkUnits.length);
+      if (chunkInvalidRate > maxInvalidRate) {
+        throw new Error(
+          `hard: attribution invalid rate ${repairReport.invalid}/${chunkUnits.length} ` +
+            `(${chunkInvalidRate.toFixed(2)}) exceeds threshold ${maxInvalidRate} ` +
+            `in chunk ${Math.floor(i / CHUNK_SIZE) + 1} (${chapterId}): ` +
+            repairReport.issuePaths.slice(0, 8).join("; "),
+        );
       }
 
-      const chunkAlignedUnits: AttributedNarrativeUnit[] = chunkUnits.map((baseUnit, idx) => {
-        const match = llmByUnitId.get(baseUnit.unitId) ?? llmByOrder.get(baseUnit.order) ?? rawLlmUnits[idx];
-        const attribution = match?.attribution ?? baseUnit.attribution ?? {
-          participantIds: [],
-          uncertain: false,
-          evidence: [],
-        };
-
-        if (baseUnit.type === "dialogue" && !attribution.speakerId) {
-          attribution.speakerId = "unknown";
-          attribution.uncertain = true;
-          attribution.evidence = [...(attribution.evidence ?? []), "fallback: missing speakerId"];
-        }
-
-        return { ...baseUnit, chapterId, attribution };
-      });
-      
       finalAlignedUnits.push(...chunkAlignedUnits);
       
     } catch (err: any) {
       if (err?.name === "AbortError" || err?.message?.includes("Aborted")) throw err;
+      // Threshold breach: per-unit repair failed too often — the whole stage
+      // must fail (no silent pass-through). Re-throw so runAttributionStage
+      // surfaces the issue paths; aborts above still propagate untouched.
+      if (err?.message?.startsWith("hard: attribution invalid rate")) throw err;
       console.error(`[AttributionAgent] LLM failed for chunk ${Math.floor(i/CHUNK_SIZE)+1} in chapter ${chapterId}:`, err);
       console.warn(`[AttributionAgent] LLM failed, using fallback pass-through for chunk.`);
       fallbackChunks++;
 
+      // Unified fallback: IDENTICAL shape to per-unit repair — uncertain:true,
+      // "fallback pass-through" evidence, dialogue speaker "unknown".
       const fallbackUnits: AttributedNarrativeUnit[] = chunkUnits.map((u) => ({
         ...u,
         chapterId,
-        attribution: u.attribution ?? {
-          speakerId: undefined,
-          actorId: undefined,
-          thinkerId: undefined,
-          participantIds: [],
+        attribution: {
+          ...(u.attribution ?? {}),
+          participantIds: (u.attribution as { participantIds?: string[] } | undefined)?.participantIds ?? [],
           uncertain: true,
-          evidence: ["fallback pass-through"],
+          evidence: [
+            ...((u.attribution as { evidence?: string[] } | undefined)?.evidence ?? []),
+            "fallback pass-through",
+          ],
+          ...(u.type === "dialogue" &&
+          !(u.attribution as { speakerId?: string } | undefined)?.speakerId
+            ? { speakerId: "unknown" }
+            : {}),
         },
       }));
       finalAlignedUnits.push(...fallbackUnits);
       finalUncertainUnitIds.push(...fallbackUnits.map(u => u.unitId));
     }
+  }
+
+  // Whole-run threshold: aggregate INVALID rate across chunks (genuinely bad
+  // LLM output — pure-null substitution does not count; see report docs).
+  const totalInvalidRate = invalidUnits / Math.max(1, units.length);
+  if (totalInvalidRate > maxInvalidRate) {
+    return {
+      success: false,
+      failureLevel: "hard",
+      errorMessage:
+        `hard: attribution invalid rate ${invalidUnits}/${units.length} ` +
+        `(${totalInvalidRate.toFixed(2)}) exceeds threshold ${maxInvalidRate} ` +
+        `(${chapterId}): ${repairIssuePaths.slice(0, 8).join("; ")}`,
+    };
   }
 
   // 自动补全 speakerIdToCharId
@@ -236,13 +435,24 @@ ${unitsText}
   return {
     success: true,
     // S11a: explicit degraded marker (replaces chapter-stages heuristic).
-    // NOTE: the L157-160 local patch (missing-speakerId → "unknown" with
-    // "fallback: missing speakerId" evidence) is an LLM-output repair, NOT a
-    // fallback — it must NOT set degraded. Only whole-chunk LLM failure counts.
-    ...(fallbackChunks > 0
+    // REVISED: per-unit LLM-output repair ("repaired: ..." evidence) IS a
+    // degradation of the ideal path — it means the LLM did not produce clean
+    // output. degraded="l0_attribution" now covers three repair sources:
+    // whole-chunk LLM failure (pass-through), per-unit repair under threshold,
+    // and LLM-null stripping. Only a fully clean run returns no marker.
+    // fallbackPolicy=fail consumers (graph degradedOrFail) treat any marker
+    // as an error — unchanged semantics, broader trigger set.
+    ...(fallbackChunks > 0 || repairedUnits > 0
       ? {
           degraded: "l0_attribution",
-          fallbackReason: `${fallbackChunks} chunk(s) LLM failed, pass-through`,
+          fallbackReason: [
+            fallbackChunks > 0
+              ? `${fallbackChunks} chunk(s) LLM failed, pass-through`
+              : null,
+            repairedUnits > 0 ? `${repairedUnits} unit(s) repaired` : null,
+          ]
+            .filter(Boolean)
+            .join("; "),
         }
       : {}),
     data: {
