@@ -1,0 +1,19 @@
+version: "3.8"
+services:
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      # Host port 8021 — the RAG client's local default (chroma-base.ts
+      # resolveChromaEndpoint). Keep in sync with packages/rag.
+      - "8021:8000"
+    volumes:
+      # NOTE (issue-tracker A6): relative path resolves against THIS file's
+      # directory (docker/), NOT the repo root. From docker/ the intended
+      # repo-root data dir is ../data/chroma.
+      - ../data/chroma:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - CHROMA_SERVER_CORS_ALLOW_ORIGINS=["*"]
+    restart: unless-stopped
+

@@ -3,6 +3,20 @@ import path from "node:path";
 import type { AssetEntry, AssetProducer } from "./types.js";
 import { removeWhiteBackground, hasTransparency } from "./alpha-processor.js";
 
+/**
+ * Gender-aware danbooru token for the no-prompt character fallback.
+ * female → 1girl, male → 1man, unknown/missing → 1person + console.warn.
+ * Entries that carry a prompt are untouched (gender already anchored upstream).
+ */
+export function genderTokenForEntry(entry: Pick<AssetEntry, "gender" | "label" | "file">): string {
+  if (entry.gender === "male") return "1man";
+  if (entry.gender === "female") return "1girl";
+  console.warn(
+    `[OpenAIImage] Gender unknown for character ${entry.label || entry.file}; using neutral "1person" fallback - check Bible/attribution gender`,
+  );
+  return "1person";
+}
+
 export interface OpenAIImageProducerConfig {
   apiKey: string;
   baseUrl?: string;
@@ -62,7 +76,6 @@ export class OpenAIImageProducer implements AssetProducer {
     return ["background", "character", "cg"];
   }
 
-
   private buildPrompt(entry: AssetEntry): string {
     let p = "";
     switch (entry.type) {
@@ -91,7 +104,7 @@ export class OpenAIImageProducer implements AssetProducer {
             p = `solo, 1person, waist-up portrait, looking at viewer, simple white background, ${p}`;
           }
         } else {
-          p = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${entry.label || "character"}, expression: ${entry.expression || "neutral"}, clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background`;
+          p = `masterpiece, best quality, highres, absurdres, ${genderTokenForEntry(entry)}, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${entry.label || "character"}, expression: ${entry.expression || "neutral"}, clean fine lineart, cel shading, vibrant soft colors, simple background, solid white background`;
         }
         break;
       }

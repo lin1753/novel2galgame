@@ -4,6 +4,7 @@ export type FidelityIssueType =
   | "dialogue_rewrite"
   | "content_omission"
   | "wrong_attribution"
+  | "type_mismatch"
   | "order_changed"
   | "unsupported_addition"
   | "semantic_drift";
@@ -28,7 +29,6 @@ export interface FidelityReport {
   severity: "pass" | "minor" | "major" | "critical";
 
   issues: FidelityIssue[];
-  patchSuggestions?: string[];
 
   reviewedAt: string;
 }

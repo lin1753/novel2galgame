@@ -6,16 +6,41 @@ on:
   pull_request:
 
 jobs:
-  # H3 gate (2026-10-07 app.db incident): runtime data must never be tracked —
-  # a tracked DB can be rolled back over a live one by checkout, replaying
-  # foreign -wal frames into the old base (cross-lineage SQLITE_CORRUPT).
-  # This is the minimal CI for main until the full test infra (pnpm verify,
-  # per-package vitest) lands via the feature-branch merge.
-  h3-runtime-data-gate:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # H3 gate (2026-10-07 app.db incident): runtime data must never be
+      # tracked — a tracked DB can be rolled back over a live one by checkout.
       - name: Reject tracked runtime data
         run: |
           bad=$(git ls-files | grep -E '\.db$|\.db-shm$|\.db-wal$|\.sqlite$|-wal$|-shm$|^data/projects/|^data_archive/' || true)
           if [ -n "$bad" ]; then echo "tracked runtime data:"; echo "$bad"; exit 1; fi
+      - run: pnpm verify
+
+  # Windows job: better-sqlite3 native-module proof (maintainer decision
+  # 2a-2). Full build is skipped here; only the packages whose tests touch
+  # the native module run: pipeline (SqliteSaver smoke), storage, and api
+  # (CheckpointManager + smoke dry-run via ScriptedProvider).
+  verify-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @novel2gal/core --filter @novel2gal/ir --filter @novel2gal/providers --filter @novel2gal/agents --filter @novel2gal/storage --filter @novel2gal/rag --filter @novel2gal/asset --filter @novel2gal/runtime --filter @novel2gal/export --filter @novel2gal/evaluation run build
+      - run: pnpm --filter @novel2gal/storage --filter @novel2gal/pipeline --filter @novel2gal/api test

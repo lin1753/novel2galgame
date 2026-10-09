@@ -3,8 +3,12 @@
     "target": "ES2022",
     "module": "Node16",
     "moduleResolution": "Node16",
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": false,
@@ -16,6 +20,14 @@
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/scripts/smoke-real-chapter.ts",
+    "src/scripts/capture-parity-baseline.ts",
+    "src/__test__"
+  ]
 }

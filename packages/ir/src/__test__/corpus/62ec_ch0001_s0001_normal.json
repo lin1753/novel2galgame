@@ -1,0 +1,149 @@
+{
+ "sceneId": "project_62ec436e1938_chapter_0001_scene_0001",
+ "chapterId": "project_62ec436e1938_chapter_0001",
+ "steps": [
+  {
+   "stepId": "step_0001_0001",
+   "type": "bg",
+   "order": 0,
+   "backgroundId": "city_street_day",
+   "backgroundLabel": "城市街道·日",
+   "sourceUnitIds": [
+    "unit_0001_0001"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0002",
+   "type": "show",
+   "order": 1,
+   "characterId": "char_dingchi",
+   "expression": "tired",
+   "position": "center",
+   "shotType": "waist",
+   "emphasis": "focus",
+   "sourceUnitIds": [
+    "unit_0001_0002"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0003",
+   "type": "transition",
+   "order": 2,
+   "name": "fade",
+   "cameraEffect": "zoom_in_slow",
+   "sourceUnitIds": [
+    "unit_0001_0003"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0004",
+   "type": "show",
+   "order": 3,
+   "characterId": "char_mysterious_woman",
+   "expression": "charm",
+   "position": "right",
+   "shotType": "bust",
+   "emphasis": "focus",
+   "enterEffect": "slide_in_right",
+   "sourceUnitIds": [
+    "unit_0001_0004"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0005",
+   "type": "narration",
+   "order": 4,
+   "text": "撞见女人的第一眼，丁池先看见的是那双妩媚漂亮的狐狸眼，很勾人，也很……让人心动。",
+   "sourceUnitIds": [
+    "unit_0001_0005"
+   ]
+  },
+  {
+   "stepId": "step_0001_0006",
+   "type": "pause",
+   "order": 5,
+   "durationMs": 800,
+   "sourceUnitIds": [
+    "unit_0001_0006"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0007",
+   "type": "transition",
+   "order": 6,
+   "name": "cut",
+   "cameraEffect": null,
+   "sourceUnitIds": [
+    "unit_0001_0007"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0008",
+   "type": "hide",
+   "order": 7,
+   "characterId": "char_mysterious_woman",
+   "sourceUnitIds": [
+    "unit_0001_0008"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0009",
+   "type": "thought",
+   "order": 8,
+   "characterId": "char_dingchi",
+   "displayName": "丁池",
+   "text": "外卖不好送。",
+   "sourceUnitIds": [
+    "unit_0001_0009"
+   ]
+  },
+  {
+   "stepId": "step_0001_0010",
+   "type": "transition",
+   "order": 9,
+   "name": "dissolve",
+   "cameraEffect": "zoom_punch",
+   "sourceUnitIds": [
+    "unit_0001_0010"
+   ],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0011",
+   "type": "narration",
+   "order": 10,
+   "text": "这是丁池因为送慢一份盖码饭，迟到了五分钟，而被顾客骂了个狗血淋头的唯一想法。",
+   "sourceUnitIds": [
+    "unit_0001_0011"
+   ]
+  },
+  {
+   "stepId": "step_0001_0012",
+   "type": "show",
+   "order": 11,
+   "characterId": "char_dingchi",
+   "expression": "deadpan",
+   "position": "center",
+   "shotType": "bust",
+   "emphasis": "focus",
+   "sourceUnitIds": [],
+   "text": ""
+  },
+  {
+   "stepId": "step_0001_0013",
+   "type": "pause",
+   "order": 12,
+   "durationMs": 600,
+   "sourceUnitIds": [],
+   "text": ""
+  }
+ ],
+ "mappingMode": "standard"
+}

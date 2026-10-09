@@ -1,0 +1,62 @@
+{
+ "sceneId": "project_67636322d213_chapter_0007_scene_0003",
+ "chapterId": "project_67636322d213_chapter_0007",
+ "steps": [
+  {
+   "stepId": "step_project_67636322d213_chapter_0007_scene_0003_auto_bg",
+   "type": "bg",
+   "order": 0,
+   "backgroundId": "bg_project_67636322d213_chapter_0007_scene_0003",
+   "backgroundLabel": "豆腐坊外 → 前往传送点途中",
+   "sourceUnitIds": []
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0007_scene_0003_vuaz3h",
+   "type": "narration",
+   "order": 1,
+   "text": "小童拉着鹿时南的手出了豆腐坊，根据他的指引，任务目标随之变更为[传送到朝阳海滩]。",
+   "sourceUnitIds": [
+    "unit_project_67636322d213_0007_0045"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0007_scene_0003_30xs8i",
+   "type": "narration",
+   "order": 2,
+   "text": "朝阳海滩乃是游戏中大陆最东边的地图，毗邻茕兔村，却不是一个适合出村新手练级的地方，它的推荐等级是32到45岁。",
+   "sourceUnitIds": [
+    "unit_project_67636322d213_0007_0046"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0007_scene_0003_f3zw3j",
+   "type": "say",
+   "order": 3,
+   "characterId": "unknown",
+   "displayName": "未知",
+   "text": "游戏因为用“岁数”代替了等级，而岁数本身是个年龄概念，所以其实当玩家点到一定岁数之后，角色基础属性反而会随着年龄提升而下降。",
+   "sourceUnitIds": [
+    "unit_project_67636322d213_0007_0047"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0007_scene_0003_0sste7",
+   "type": "narration",
+   "order": 4,
+   "text": "但与此同时，技能等级上限却会水涨船高，游戏中职业众多，技能就更多了，点是点不完的，这里面就涉及不到不少取舍，可玩性很高。",
+   "sourceUnitIds": [
+    "unit_project_67636322d213_0007_0048"
+   ]
+  },
+  {
+   "stepId": "step_project_67636322d213_chapter_0007_scene_0003_3uyq7x",
+   "type": "narration",
+   "order": 5,
+   "text": "从前还是80岁版本时，大多数人选择把岁数停留在40-50岁，而这个数字在开放120岁以后变成了80岁左右。[朝阳海滩]是一个早期就开放的地图，32-45岁的等级要求已经很高了。",
+   "sourceUnitIds": [
+    "unit_project_67636322d213_0007_0049"
+   ]
+  }
+ ],
+ "mappingMode": "standard"
+}

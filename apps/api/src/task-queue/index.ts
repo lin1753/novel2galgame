@@ -2,6 +2,6 @@ export { PipelineTaskQueue } from "./task-queue.js";
 export type {
   QueueChapter,
   ChapterProgressEvent,
-  ChapterStatus,
+  QueueChapterStatus,
   TaskQueueOptions,
 } from "./task-queue.js";

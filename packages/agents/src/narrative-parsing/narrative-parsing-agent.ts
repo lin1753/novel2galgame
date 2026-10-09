@@ -2,6 +2,7 @@ import type { NarrativeUnit, NarrativeParsingResult } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
 import { sanitizeForPrompt } from "../shared/normalize.js";
+import { loadPrompt } from "../prompt-loader.js";
 
 export interface NarrativeParsingInput {
   chapterId: string;
@@ -9,7 +10,7 @@ export interface NarrativeParsingInput {
   chapterText: string;
 }
 
-const SYSTEM_PROMPT = `你是一个中文小说文本分析专家。你的任务是将小说章节文本分解为叙事单元 (NarrativeUnit)。
+export const SYSTEM_PROMPT = `你是一个中文小说文本分析专家。你的任务是将小说章节文本分解为叙事单元 (NarrativeUnit)。
 
 每个叙事单元有以下类型:
 - dialogue: 对话 (角色说出的话, 通常有引号)
@@ -24,20 +25,45 @@ const SYSTEM_PROMPT = `你是一个中文小说文本分析专家。你的任务
 3. 保持原文顺序不变, 不要修改原文内容
 4. 为每个单元分配从0开始递增的 order
 5. 为每个单元提供置信度 (0-1)
+6. JSON 转义要求: originalText 内的任何半角双引号 " 必须转义为 \\" 或替换为中文引号 “ ”，绝对禁止出现裸双引号。如果内容为空，保留空字符串。
 
-输出 JSON 格式:
+## JSON 引号处理 Good/Bad Cases
+
+### ❌ BAD — 导致 JSON 崩溃：
+{"originalText": "他说："你知道吗？"她没回答。"}
+
+### ✅ GOOD — 正确处理方式：
+方式1 - 使用中文引号（推荐）：
+{"originalText": "他说：“你知道吗？”她没回答。"}
+方式2 - 转义英文双引号：
+{"originalText": "他说：\\"你知道吗?\\"她没回答。"}
+
+输出格式必须是纯 JSON，不需要 \`\`\`json 包装，格式如下:
 {
   "units": [
     {
       "unitId": "unit_0001_0001",
       "chapterId": "<chapterId>",
       "order": 0,
-      "originalText": "原文内容",
+      "originalText": "原文内容(必须转义引号)",
       "type": "dialogue|narration|thought|action|scene_description",
       "confidence": 0.95
     }
   ]
 }`;
+
+/**
+ * Single source of truth for narrative chunking (Task-3 convergence).
+ *
+ * 取值依据 (500):
+ * - 中文约 1.5–2 tokens/字 → 500 字 ≈ 750–1000 tokens 输入；
+ * - LLM 输出 JSON 需回声 originalText + 单元字段，膨胀约 2–3 倍 ≈ 2000–3000 tokens，
+ *   加上 system prompt (~1000 tokens) 仍远低于单次调用 maxTokens=16384；
+ * - 500 字约覆盖若干自然段，保留段落级上下文做对话/归属判断，切更碎会丢上下文，
+ *   切更大则 JSON 输出逼近 maxTokens 易被截断（finish_reason=length → 空/残数据）。
+ * 分块逻辑与测试必须引用本常量，禁止在别处硬编码第二份 500。
+ */
+export const NARRATIVE_CHUNK_MAX_CHARS = 500;
 
 export async function runNarrativeParsingAgent(
   input: NarrativeParsingInput,
@@ -45,15 +71,18 @@ export async function runNarrativeParsingAgent(
   model: string
 ): Promise<AgentResult<NarrativeParsingResult>> {
   const { chapterId, chapterTitle, chapterText } = input;
+  const systemPrompt = loadPrompt("narrative-parsing", SYSTEM_PROMPT);
 
   if (!chapterText || chapterText.trim().length === 0) {
     return { success: false, failureLevel: "hard", errorMessage: "Empty chapter text" };
   }
 
-  // 章节过长时分段处理 (500字每段，保障 JSON 展开后不超过 max_tokens)
-  const MAX_CHARS = 500;
-  const textChunks = splitText(chapterText, MAX_CHARS);
+  // 章节过长时分段处理（分段宽度见 NARRATIVE_CHUNK_MAX_CHARS）
+  const textChunks = splitText(chapterText, NARRATIVE_CHUNK_MAX_CHARS);
   const allUnits: NarrativeUnit[] = [];
+  // S11a: count chunks produced by the L0 line-split fallback (LLM threw or
+  // returned no usable units) so the result carries an explicit marker.
+  let fallbackChunks = 0;
 
   for (let chunkIdx = 0; chunkIdx < textChunks.length; chunkIdx++) {
     const chunk = textChunks[chunkIdx];
@@ -73,7 +102,7 @@ ${sanitizeForPrompt(chunk)}
       const result = await provider.chatJson<{ units: NarrativeUnit[] }>({
         model,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,
@@ -93,6 +122,7 @@ ${sanitizeForPrompt(chunk)}
 
     // 智能保底：若 LLM 未返回有效单元或调用异常，按段落/对白切分规则保底
     if (chunkUnits.length === 0 && chunk.trim().length > 0) {
+      fallbackChunks++;
       const lines = chunk.split(/\n+/).filter((l) => l.trim().length > 0);
       chunkUnits = lines.map((line, lIdx) => {
         const isDialogue = line.includes("“") || line.includes("”") || line.includes("\"");
@@ -135,6 +165,16 @@ ${sanitizeForPrompt(chunk)}
 
   return {
     success: true,
+    // S11a: explicit degraded marker (replaces chapter-stages heuristic).
+    // Set ONLY when at least one chunk actually took the L0 line-split
+    // fallback (LLM threw or returned no usable units). The global unitId
+    // renumbering above is a repair, not a fallback — it never sets this.
+    ...(fallbackChunks > 0
+      ? {
+          degraded: "l0_narrative",
+          fallbackReason: `${fallbackChunks}/${textChunks.length} chunks LLM failed, line-split`,
+        }
+      : {}),
     data: {
       chapterId,
       units: allUnits,
@@ -143,7 +183,7 @@ ${sanitizeForPrompt(chunk)}
   };
 }
 
-function splitText(text: string, maxChars: number): string[] {
+export function splitText(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text];
   const chunks: string[] = [];
   const paragraphs = text.split(/\n/);

@@ -1,4 +1,5 @@
-export { createDatabase } from "./db/index.js";
+export { createDatabase, checkDatabaseIntegrity, precheckExistingDatabase } from "./db/index.js";
+export type { DbIntegrityResult, DbPrecheckResult } from "./db/index.js";
 export {
   ProjectRepository,
   ChapterRepository,
@@ -35,6 +36,8 @@ export {
   readVNScript,
   readFidelityReport,
 } from "./filesystem/index.js";
+export { pruneEvidenceFiles } from "./filesystem/evidence-retention.js";
+export type { PruneEvidenceOptions, PruneEvidenceResult } from "./filesystem/evidence-retention.js";
 export {
   computeHash,
   cacheLookup,

@@ -1,0 +1,374 @@
+{
+  "narrative_units.json": {
+    "chapterId": "testproj_chapter_0001",
+    "units": [
+      {
+        "unitId": "unit_0001_0000",
+        "chapterId": "testproj_chapter_0001",
+        "order": 0,
+        "originalText": "林晓走进咖啡馆，窗外的雨还没停。",
+        "type": "narration",
+        "confidence": 0.9
+      },
+      {
+        "unitId": "unit_0001_0001",
+        "chapterId": "testproj_chapter_0001",
+        "order": 1,
+        "originalText": "“一杯拿铁，谢谢。”她对着店员说。",
+        "type": "dialogue",
+        "confidence": 0.9
+      },
+      {
+        "unitId": "unit_0001_0002",
+        "chapterId": "testproj_chapter_0001",
+        "order": 2,
+        "originalText": "店员周明笑了笑：“好的，请稍等。”",
+        "type": "dialogue",
+        "confidence": 0.9
+      },
+      {
+        "unitId": "unit_0001_0003",
+        "chapterId": "testproj_chapter_0001",
+        "order": 3,
+        "originalText": "她找了个靠窗的位置坐下。",
+        "type": "narration",
+        "confidence": 0.9
+      }
+    ],
+    "overallConfidence": 0.9
+  },
+  "attributed_units.json": {
+    "chapterId": "testproj_chapter_0001",
+    "units": [
+      {
+        "unitId": "unit_0001_0000",
+        "chapterId": "testproj_chapter_0001",
+        "order": 0,
+        "originalText": "林晓走进咖啡馆，窗外的雨还没停。",
+        "type": "narration",
+        "confidence": 0.9,
+        "attribution": {
+          "participantIds": [
+            "char_linxiao"
+          ],
+          "uncertain": false,
+          "evidence": [
+            "test"
+          ]
+        }
+      },
+      {
+        "unitId": "unit_0001_0001",
+        "chapterId": "testproj_chapter_0001",
+        "order": 1,
+        "originalText": "“一杯拿铁，谢谢。”她对着店员说。",
+        "type": "dialogue",
+        "confidence": 0.9,
+        "attribution": {
+          "speakerId": "char_linxiao",
+          "participantIds": [
+            "char_linxiao"
+          ],
+          "uncertain": false,
+          "evidence": [
+            "test"
+          ]
+        }
+      },
+      {
+        "unitId": "unit_0001_0002",
+        "chapterId": "testproj_chapter_0001",
+        "order": 2,
+        "originalText": "店员周明笑了笑：“好的，请稍等。”",
+        "type": "dialogue",
+        "confidence": 0.9,
+        "attribution": {
+          "speakerId": "char_zhouming",
+          "participantIds": [
+            "char_zhouming"
+          ],
+          "uncertain": false,
+          "evidence": [
+            "test"
+          ]
+        }
+      },
+      {
+        "unitId": "unit_0001_0003",
+        "chapterId": "testproj_chapter_0001",
+        "order": 3,
+        "originalText": "她找了个靠窗的位置坐下。",
+        "type": "narration",
+        "confidence": 0.9,
+        "attribution": {
+          "participantIds": [
+            "char_linxiao"
+          ],
+          "uncertain": false,
+          "evidence": [
+            "test"
+          ]
+        }
+      }
+    ],
+    "characters": [
+      {
+        "characterId": "char_linxiao",
+        "canonicalName": "林晓",
+        "aliases": [],
+        "gender": "female"
+      },
+      {
+        "characterId": "char_zhouming",
+        "canonicalName": "周明",
+        "aliases": [],
+        "gender": "male"
+      }
+    ],
+    "aliasMap": {},
+    "uncertainUnitIds": [],
+    "speakerIdToCharId": {
+      "char_linxiao": "char_linxiao",
+      "char_zhouming": "char_zhouming"
+    }
+  },
+  "segmentation.json": {
+    "chapterId": "testproj_chapter_0001",
+    "scenes": [
+      {
+        "sceneId": "testproj_chapter_0001_scene_0001",
+        "chapterId": "testproj_chapter_0001",
+        "indexInChapter": 0,
+        "unitIds": [
+          "unit_0001_0000",
+          "unit_0001_0001"
+        ],
+        "startUnitId": "unit_0001_0000",
+        "endUnitId": "unit_0001_0001",
+        "boundaryReason": "location_change",
+        "summary": {
+          "shortSummary": "进店点单",
+          "locationHint": "咖啡馆",
+          "moodHint": "平静"
+        },
+        "confidence": 0.9
+      },
+      {
+        "sceneId": "testproj_chapter_0001_scene_0002",
+        "chapterId": "testproj_chapter_0001",
+        "indexInChapter": 1,
+        "unitIds": [
+          "unit_0001_0002",
+          "unit_0001_0003"
+        ],
+        "startUnitId": "unit_0001_0002",
+        "endUnitId": "unit_0001_0003",
+        "boundaryReason": "event_shift",
+        "summary": {
+          "shortSummary": "落座",
+          "locationHint": "咖啡馆",
+          "moodHint": "平静"
+        },
+        "confidence": 0.9
+      }
+    ],
+    "sceneUnitMap": {
+      "testproj_chapter_0001_scene_0001": [
+        "unit_0001_0000",
+        "unit_0001_0001"
+      ],
+      "testproj_chapter_0001_scene_0002": [
+        "unit_0001_0002",
+        "unit_0001_0003"
+      ]
+    }
+  },
+  "scenes/testproj_chapter_0001_scene_0001/vn_script.json": {
+    "sceneId": "testproj_chapter_0001_scene_0001",
+    "chapterId": "testproj_chapter_0001",
+    "steps": [
+      {
+        "type": "bg",
+        "stepId": "step_0001",
+        "order": 0,
+        "backgroundId": "bg_cafe",
+        "backgroundLabel": "咖啡馆",
+        "sourceUnitIds": [
+          "unit_0001_0000"
+        ],
+        "text": ""
+      },
+      {
+        "type": "show",
+        "stepId": "step_0002",
+        "order": 1,
+        "characterId": "char_linxiao",
+        "expression": "neutral",
+        "position": "center",
+        "sourceUnitIds": [
+          "unit_0001_0000"
+        ],
+        "text": ""
+      },
+      {
+        "type": "say",
+        "stepId": "step_0003",
+        "order": 2,
+        "characterId": "char_linxiao",
+        "displayName": "林晓",
+        "text": "“一杯拿铁，谢谢。”她对着店员说。",
+        "sourceUnitIds": [
+          "unit_0001_0001"
+        ]
+      },
+      {
+        "type": "narration",
+        "stepId": "step_0004",
+        "order": 3,
+        "text": "她找了个靠窗的位置坐下。",
+        "sourceUnitIds": [
+          "unit_0001_0003"
+        ]
+      }
+    ],
+    "mappingMode": "standard"
+  },
+  "scenes/testproj_chapter_0001_scene_0001/fidelity_report.json": {
+    "sceneId": "testproj_chapter_0001_scene_0001",
+    "chapterId": "testproj_chapter_0001",
+    "passed": false,
+    "severity": "critical",
+    "issues": [],
+    "reviewedAt": "<ts>"
+  },
+  "scenes/testproj_chapter_0001_scene_0001/visual_prompt.json": {
+    "sceneId": "testproj_chapter_0001_scene_0001",
+    "chapterId": "testproj_chapter_0001",
+    "characterPrompts": [
+      {
+        "characterId": "char_linxiao",
+        "canonicalName": "林晓",
+        "evidence": [],
+        "finalPrompt": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+        "promptPack": {
+          "appearancePrompt": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+          "appearance": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+          "finalPrompt": "A young woman with long dark hair.",
+          "baseAppearance": "",
+          "currentOutfit": ""
+        },
+        "gender": "female"
+      }
+    ],
+    "backgroundPrompt": {
+      "sceneId": "testproj_chapter_0001_scene_0001",
+      "evidence": [],
+      "finalPrompt": "A cozy cafe interior, rain outside the window.",
+      "description": "A cozy cafe interior, rain outside the window."
+    },
+    "styleTemplate": "High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background."
+  },
+  "scenes/testproj_chapter_0001_scene_0002/vn_script.json": {
+    "sceneId": "testproj_chapter_0001_scene_0002",
+    "chapterId": "testproj_chapter_0001",
+    "steps": [
+      {
+        "type": "bg",
+        "stepId": "step_0001",
+        "order": 0,
+        "backgroundId": "bg_cafe",
+        "backgroundLabel": "咖啡馆",
+        "sourceUnitIds": [
+          "unit_0001_0000"
+        ],
+        "text": ""
+      },
+      {
+        "type": "show",
+        "stepId": "step_0002",
+        "order": 1,
+        "characterId": "char_linxiao",
+        "expression": "neutral",
+        "position": "center",
+        "sourceUnitIds": [
+          "unit_0001_0000"
+        ],
+        "text": ""
+      },
+      {
+        "type": "say",
+        "stepId": "step_0003",
+        "order": 2,
+        "characterId": "char_linxiao",
+        "displayName": "林晓",
+        "text": "“一杯拿铁，谢谢。”她对着店员说。",
+        "sourceUnitIds": [
+          "unit_0001_0001"
+        ]
+      },
+      {
+        "type": "narration",
+        "stepId": "step_0004",
+        "order": 3,
+        "text": "她找了个靠窗的位置坐下。",
+        "sourceUnitIds": [
+          "unit_0001_0003"
+        ]
+      }
+    ],
+    "mappingMode": "standard"
+  },
+  "scenes/testproj_chapter_0001_scene_0002/fidelity_report.json": {
+    "sceneId": "testproj_chapter_0001_scene_0002",
+    "chapterId": "testproj_chapter_0001",
+    "passed": false,
+    "severity": "critical",
+    "issues": [],
+    "reviewedAt": "<ts>"
+  },
+  "scenes/testproj_chapter_0001_scene_0002/visual_prompt.json": {
+    "sceneId": "testproj_chapter_0001_scene_0002",
+    "chapterId": "testproj_chapter_0001",
+    "characterPrompts": [
+      {
+        "characterId": "char_linxiao",
+        "canonicalName": "林晓",
+        "evidence": [],
+        "finalPrompt": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+        "promptPack": {
+          "appearancePrompt": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+          "appearance": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+          "finalPrompt": "A young woman with long dark hair.",
+          "baseAppearance": "",
+          "currentOutfit": ""
+        },
+        "gender": "female"
+      }
+    ],
+    "backgroundPrompt": {
+      "sceneId": "testproj_chapter_0001_scene_0002",
+      "evidence": [],
+      "finalPrompt": "A cozy cafe interior, rain outside the window.",
+      "description": "A cozy cafe interior, rain outside the window."
+    },
+    "styleTemplate": "High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background."
+  },
+  "character_profiles.json": {
+    "char_linxiao": {
+      "characterId": "char_linxiao",
+      "canonicalName": "林晓",
+      "aliasSet": [],
+      "gender": "female",
+      "baseline": {
+        "version": 1,
+        "basePrompt": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+        "firstSeenChapter": "testproj_chapter_0001",
+        "lockedAt": "<ts>"
+      },
+      "basePrompt": "A young woman High-budget cinematic photography, ultra-detailed, masterpiece, beautiful dramatic cinematic lighting, elegant modern aesthetic, depth of field, pure solid white background. solo, 1person, waist-up portrait, standing straight, looking directly at viewer, simple solid white background",
+      "history": [],
+      "evidence": [],
+      "updatedAt": "<ts>"
+    }
+  }
+}

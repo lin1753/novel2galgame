@@ -7,11 +7,17 @@
     "dev": "turbo dev",
     "lint": "turbo lint",
     "test": "turbo test",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "verify": "turbo build && turbo test",
+    "smoke:real": "node apps/api/node_modules/tsx/dist/cli.mjs apps/api/src/scripts/smoke-real-chapter.ts",
+    "smoke:dry": "node apps/api/node_modules/tsx/dist/cli.mjs apps/api/src/scripts/smoke-real-chapter.ts -- --dry-run",
+    "cache:adopt": "node apps/api/node_modules/tsx/dist/cli.mjs packages/pipeline/src/scripts/cache-adopt.ts",
+    "cache:prune": "node apps/api/node_modules/tsx/dist/cli.mjs packages/pipeline/src/scripts/cache-prune.ts"
   },
   "pnpm": {
     "overrides": {
-      "sharp": "0.33.5"
+      "sharp": "0.33.5",
+      "better-sqlite3": "11.10.0"
     }
   },
   "devDependencies": {

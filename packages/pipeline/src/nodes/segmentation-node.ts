@@ -1,6 +1,3 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { v4 as uuid } from "uuid";
 import type { LLMProvider } from "@novel2gal/providers";
 import { runSceneSegmentationAgent } from "@novel2gal/agents";
@@ -107,12 +104,6 @@ export async function segmentationNode(
   const t0 = Date.now();
 
   try {
-    // Skip if already done
-    if (state.segmentationResult) {
-      state.onProgress?.("scene_segmentation", "Skipped (already done)");
-      return { currentStage: "rag_ingest_scenes", stageTimings: { segmentation: 0 } };
-    }
-
     if (state.signal?.aborted) throw new Error("ABORTED: Pipeline cancelled by user");
     state.onProgress?.("scene_segmentation", `Segmenting chapter ${state.chapterTitle}`);
 
@@ -124,36 +115,6 @@ export async function segmentationNode(
       tokens.prompt += r.usage?.promptTokens ?? 0;
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
-
-    // Cache check
-    const cacheKey = crypto.createHash("sha256")
-      .update(`${state.chapterId}|scene_segmentation|${seg.model}|${state.chapterText.slice(0, 200)}`)
-      .digest("hex");
-
-    if (state.db) {
-      const cached = state.db.prepare(
-        "SELECT output_path FROM tasks WHERE input_hash = ? AND status = 'succeeded' AND type = ? AND chapter_id = ? ORDER BY finished_at DESC LIMIT 1"
-      ).get(cacheKey, "scene_segmentation", state.chapterId) as { output_path: string } | undefined;
-
-      if (cached?.output_path && fs.existsSync(cached.output_path)) {
-        try {
-          const segResult = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-          if (Array.isArray(segResult.scenes) && segResult.scenes.length > 0) {
-            console.log(`[Cache] HIT scene_segmentation for ${state.chapterId} (${segResult.scenes.length} scenes)`);
-            const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
-            state.db.prepare(
-              `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-               VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-            ).run(taskId, state.projectId, state.chapterId, "scene_segmentation", seg.provider.name, seg.model, 2, now(), now(), cacheKey, cached.output_path);
-            state.onChapterFlags?.(state.chapterId, { segmentationDone: true });
-            const durationMs = Date.now() - t0;
-            return { segmentationResult: segResult, currentStage: "rag_ingest_scenes", stageTimings: { segmentation: durationMs } };
-          } else {
-            console.warn(`[Cache] Invalidate empty scene_segmentation cache for ${state.chapterId}`);
-          }
-        } catch {}
-      }
-    }
 
     // Insert running task
     const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
@@ -280,15 +241,12 @@ export async function segmentationNode(
 
     const durationMs = Date.now() - t0;
 
-    // Cache write
+    // Mark the running task row succeeded (audit trail; the tasks table is no
+    // longer a cache — stage-3 keyed artifacts on disk are the hit source).
     if (state.db && state.dataDir) {
-      const cacheDir = path.join(state.dataDir, "cache", state.projectId);
-      fs.mkdirSync(cacheDir, { recursive: true });
-      const outputPath = path.join(cacheDir, `scene_segmentation_${state.chapterId}_2.json`);
-      fs.writeFileSync(outputPath, JSON.stringify(segResult), "utf-8");
       const actualRetries = Math.max(0, retryCount - 1);
-      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
-        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, cacheKey, outputPath, taskId);
+      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=? WHERE task_id=?`)
+        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, taskId);
     }
 
     return {

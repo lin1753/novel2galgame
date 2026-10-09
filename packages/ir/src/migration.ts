@@ -23,7 +23,7 @@ export function upgrade(script: any, fromVersion: string, toVersion: string): VN
 
 /** Get the latest IR version */
 export function getLatestVersion(): string {
-  return "1.0";
+  return "1.1";
 }
 
 function compareVersions(a: string, b: string): number {

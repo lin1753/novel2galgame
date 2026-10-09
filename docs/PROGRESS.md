@@ -1340,7 +1340,7 @@ apps/workbench       ✅ vite build
 **日期:** 2026-08-17 ~ 2026-08-18 (全量运行 27.5 小时)  
 **评测样本:** 7 本小说 / 298 章节 / 100% 相同小说源文件  
 **数据采集:** 直连 SQLite `tasks`, `pipeline_runs` 与磁盘各项目 `scenes/`, `chapters/`, `export/` 原始落盘文件。  
-**产出全量实证文档**: 📄 [`docs/多轮真实小说测试数据全量实证分析报告.md`](file:///D:/Project/novel2glagame/docs/多轮真实小说测试数据全量实证分析报告.md)
+**产出全量实证文档**: 📄 [`docs/audits/多轮真实小说测试数据全量实证分析报告.md`](file:///D:/Project/novel2glagame/docs/audits/多轮真实小说测试数据全量实证分析报告.md)
 
 ### 11.1 第一轮 (R1) vs 第二轮 (R2) 核心实证对比
 
@@ -1363,7 +1363,7 @@ apps/workbench       ✅ vite build
 **日期:** 2026-08-22  
 
 ### 12.1 视觉与舞台表现力痛点诊断
-产出文档：[`docs/视觉表现与舞台演出问题诊断报告_2026-08-22.md`](file:///D:/Project/novel2glagame/docs/视觉表现与舞台演出问题诊断报告_2026-08-22.md)
+产出文档：[`docs/research/视觉表现与舞台演出问题诊断报告_2026-08-22.md`](file:///D:/Project/novel2glagame/docs/research/视觉表现与舞台演出问题诊断报告_2026-08-22.md)
 - **立绘纯白方块底色**：提示词硬编码 `plain white solid background`，资产生成管线缺少 Alpha 抠图，导致 Web 与 Ren'Py 中立绘呈现不透明白框遮挡。
 - **景别单一死板**：硬编码 `full body standing pose`（全身像），缺少 Galgame 标准的半身像（Waist-up）与胸像（Bust-up）。
 - **舞台调度僵死**：90% 角色步骤被置于 `center`，双人对话无左右分立与视线交互。
@@ -1371,9 +1371,9 @@ apps/workbench       ✅ vite build
 
 ### 12.2 标杆级商业 Galgame 深度调研与案例解构
 产出文档：
-- [`docs/Galgame行业制作规范与舞台演出设计指南.md`](file:///D:/Project/novel2glagame/docs/Galgame行业制作规范与舞台演出设计指南.md)
-- [`docs/标杆级Galgame制作方案与演出设计深度调研.md`](file:///D:/Project/novel2glagame/docs/标杆级Galgame制作方案与演出设计深度调研.md)
-- [`docs/标杆级Galgame单体作品深度调研与拆解分析.md`](file:///D:/Project/novel2glagame/docs/标杆级Galgame单体作品深度调研与拆解分析.md)（深度拆解 10 部神作：Type-Moon《魔法使之夜》《月姬重置版》、Key社《CLANNAD》、Leaf《白色相簿 2》、5pb.《命运石之门》、Frontwing《灰色三部曲》《ATRI》、柚子社《千恋＊万花》、Steam 爆款《心跳文学部！》《杀戮公主》）
+- [`docs/research/Galgame行业制作规范与舞台演出设计指南.md`](file:///D:/Project/novel2glagame/docs/research/Galgame行业制作规范与舞台演出设计指南.md)
+- [`docs/research/标杆级Galgame制作方案与演出设计深度调研.md`](file:///D:/Project/novel2glagame/docs/research/标杆级Galgame制作方案与演出设计深度调研.md)
+- [`docs/research/标杆级Galgame单体作品深度调研与拆解分析.md`](file:///D:/Project/novel2glagame/docs/research/标杆级Galgame单体作品深度调研与拆解分析.md)（深度拆解 10 部神作：Type-Moon《魔法使之夜》《月姬重置版》、Key社《CLANNAD》、Leaf《白色相簿 2》、5pb.《命运石之门》、Frontwing《灰色三部曲》《ATRI》、柚子社《千恋＊万花》、Steam 爆款《心跳文学部！》《杀戮公主》）
 
 ### 12.3 确立的四大演算法与工业标准
 1. **五级景别体系 (Shot Size Hierarchy)**：
@@ -1394,6 +1394,73 @@ apps/workbench       ✅ vite build
 - 智能体：`packages/agents/visual-prompt` 提示词解耦与半身像规范；`vn-mapping` 注入智能导演调度算法
 - 资产层：`packages/asset` 内置纯白底平滑 Alpha 抠图引擎
 - 呈现层：`apps/workbench` Web 播放器多景别 CSS 缩放与动效；`packages/export` Ren'Py 注入标准 ATL 演出库
+
+---
+
+## Phase 13: 角色圣经（Character Bible）双脑 RAG 体系 ✅
+
+**整体状态:** M1–M7 全部完成（分支 `feature/character-bible`，18 commits）
+**日期:** 2026-08-25 ~ 2026-10-02
+**方案文档:** [`docs/plans/character-bible-plan.md`](file:///D:/Project/novel2glagame/docs/plans/character-bible-plan.md)（含 DDLC 解包实证）
+**问题追踪:** [`docs/plans/issue-tracker-rag-frontend.md`](file:///D:/Project/novel2glagame/docs/plans/issue-tracker-rag-frontend.md)（A–G 七类，§G 执行顺序）
+
+### 13.1 Chroma 向量库修复为主存储（A1–A6）✅ `c8d0898` / `4f8e171` / `7dee8f3`
+
+- **A2 连接**：`CHROMA_URL` 解析 host/port/ssl，本地默认 8021 对应 docker 映射；compose 卷修正到仓库根 `../data/chroma`
+- **A3 确定性 ID**：characters 用 `${chapterId}_${cid}_${chunkType}`（替换随机 `Date.now()` 后缀）；scenes 镜像 JSON id；重跑 upsert 不再堆积重复
+- **A4 keywordSearch**：移除未验证的中文分词 Chroma FTS，关键词路径保留 JSON 侧 BM25
+- **A5 读路径**：Chroma-first 向量检索（JSON fallback）、向量+BM25 融合检索；`/health/rag` 端点报告 Chroma 可达性与双侧计数
+- **双写**：`ingestCharacters` / `ingestScenePatterns` 双写 Chroma + JSON；回填脚本 `packages/rag/src/scripts/backfill-chroma.ts`
+- **M7 实测追修**：scenes 双写补齐、canonical ID 统一（12 条重复清除）、`createDefaultConfig` 的 genre 默认改 detect
+
+### 13.2 Bible M1–M5（性别/成语/题材/RAG 双向/演出对齐）✅
+
+| 里程碑 | 内容 | Commit |
+|--------|------|--------|
+| M1 性别链路 | attribution 输出 gender → RAG meta → visual-prompt 组装首句性别锚点 → profiles/builder/producer gender-aware fallback（删除硬编码 `1girl`） | `e3a9f0d` |
+| M2 成语直译禁令 | `CHINESE_IDIOM_PROMPT_MAP` 10→30 词最长匹配 + 输入白名单 + 输出后正则复检（9 条残留模式规则替换）+ 未覆盖词告警 | `e3a9f0d` |
+| M3 题材风格 | `detectGenreHint` 纯函数（regex 关键词）→ `styleForGenre` 映射；优先级 explicit > genre > urban-romance；`createDefaultConfig` 默认空（走检测） | `7155fa6` + `39cabd0` |
+| M4 RAG 双向 | Bible 母版（type:'bible' chunk, confidence 1.0）回写 Chroma；`CanonicalEntityResolver` 接入 attribution 后处理（共现硬阻断 + mojibake 拦截 + `isGroup` 群像跳立绘）；性别冲突只告警不改母版（write-once） | `7544315` |
+| M5 演出对齐 | 表情规范化 16 标签/83 别名映射（show/image/manifest 三处一致）；`exit_fade_out/slide_out` 退场变换 + hide 改 `at` 语法；修复 agent 遗留非法 `with exit_fade_out` | `7155fa6` |
+
+### 13.3 E0/E6 Prompt 一致性门禁 ✅ `841adaf` / `59929fb`
+
+- **E0 漂移实际范围比记录更广**：`vn-mapping.md` 丢失 Phase 12 直出 JSON 硬化与 action/scene_description 步骤类型；`attribution.md` 丢失 ID 复用红线与 speakerIdToCharId 契约；narrative-parsing / scene-segmentation / fidelity-review 三个 agent 从未接线 `loadPrompt`（handover 文档声称已接线不实）；consistency-review 第 8 个 agent 同样未接线
+- **E6 门禁**：`prompt-loader` CRLF 归一化后 hash 对比，每 agent 一次告警（外置文件仍生效，热加载保留）；`auditExternalPrompts` 启动审计（API 首行 `[Prompt Gate]`）；规范流程 = 先改代码 DEFAULT 再同步 md
+- **两个实现坑**：CJS 循环依赖导致注册表顶层 import 为 undefined（改惰性 Proxy）；从源码文本提取模板会写出 `\\"`（运行时是 `\"`），md 必须从编译后运行时常量生成
+- **清理**：删除 git 跟踪的 `apps/api/data/prompts/` 死副本（零消费者，正是漂移温床）；`.gitignore` 的 `scripts/` 锚定为根目录
+
+### 13.4 M6 数据迁移 ✅ `19fecb6` / `e5e0912`
+
+- **resolver 前置修复**（dry-run 审计发现两处真实误合并）：`normalizeEntityString` 不再剥数字尾缀（`char_minor_001/002/003` 曾坍缩为 "minor"，2c31 的群像"众豪杰"被误并进"白裙女子"）；≥0.88 模糊相似度从自动合并改 `pending_confirmation`（83e4 的"女同事乙"曾以 0.89 被自动并进"女同事甲"）；回归测试 10/10（`packages/core/src/__test__/resolver-regression.ts`）
+- **迁移脚本无损化**：pending 角色保留为独立 master（曾会整个丢弃）；保留 legacy ID 使历史 vn_script 引用不断裂；共现场景读对文件名（`segmentation.json`，旧脚本读 `scene_segmentation.json` 导致硬阻断全空）；evidence/gender/顶层 basePrompt 镜像/isGroup 全部保留
+- **3 项目 apply 完成**（backup 在各项目目录）：2c31 13→7、62ec 30→18（Ding Chi 等 5 个英文幽灵变体并回丁池）、83e4 17→12（女同事乙/丙 保留待复核）；evidence 无损（22/15/25）；结构断言 16/16
+
+### 13.5 M7 验收 ✅（62ec ch0011 单章全管线真实重跑）
+
+- tsc 13 包 clean；chapter_ready（6 场景全 vn_script + Ren'Py 导出）
+- manifest 断言 11/11：207/207 角色 prompt 含性别锚点（含 fallback `1girl`）；0 成语直译残留；表情 16 标签或长尾透传
+- **M4 守卫实弹验证**：LLM 本章把"丁池"标为 female、"女人"标为 male，守卫 3 次正确拦截（baseline 未动 + 告警人工复核）
+- Chroma 双写 23 chunks（canonical ID）；生图 202/207 立绘 + 102/104 背景
+- Haiku 目视抽检 13 张：10/13 PASS，立绘全过；3 张背景 FAIL（店内人影、夜景出成白天）；发现同角色表情差分外观漂移（songnianxi 两张不同发型/画风）
+- 新发现已入 tracker：**D3**（LangGraph 单章路径整段缺 M1–M5 接线，建议单章 run 改走 monolithic）、**D4**（attribution 性别误标依赖守卫兜底）、**B5**（表情差分外观漂移）、**B6**（fallback 立绘风格混搭）
+
+---
+
+## 文档归档说明（2026-10-02）
+
+`docs/` 已按类别归档（索引见 [`docs/README.md`](file:///D:/Project/novel2glagame/docs/README.md)）：
+
+| 目录 | 内容 |
+|------|------|
+| `docs/design/` | 10 份 v1 设计文档（原 `All Novel Can Be Galgame：*.txt`，去统一前缀重命名） |
+| `docs/plans/` | 实施计划与问题追踪（character-bible / issue-tracker / phase12 / pipeline-stability） |
+| `docs/handovers/` | 跨 AI 协作交接（Claude ↔ Gemini/Antigravity，4 份） |
+| `docs/audits/` | 审计与实证报告（7 份） |
+| `docs/research/` | Galgame 行业调研与问题诊断（4 份） |
+| `docs/training/` | SFT 训练记录与模型卡（3 份） |
+
+所有跨文档链接已随迁移修复（README/PROGRESS/交接互链/源码注释），git 历史经 `git mv` 保留。
 
 ---
 

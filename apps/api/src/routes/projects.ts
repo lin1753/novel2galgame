@@ -27,16 +27,20 @@ import {
   readConsistencyReport,
   writeChapterSource,
   readCharacterProfiles,
+  writeCharacterProfiles,
 } from "@novel2gal/storage";
 import { runStructureAgent, runConsistencyReviewAgent } from "@novel2gal/agents";
 import type { ChapterConsistencyData } from "@novel2gal/agents";
 import { runChapterPipeline, createDefaultConfig } from "../orchestrator/index.js";
 import type { AgentModelConfig } from "../orchestrator/chapter-pipeline.js";
-import { buildChapterPipelineGraph } from "@novel2gal/pipeline";
+import { buildChapterPipelineGraph, PendingProposalStore } from "@novel2gal/pipeline";
 import { config, resolveModelConfig } from "../config/index.js";
 import { FetchLLMProvider } from "@novel2gal/providers";
 import type { LLMProvider } from "@novel2gal/providers";
 import { broadcastProgress } from "./progress.js";
+import { applyPendingMerge } from "./pending-merge.js";
+import { readRunManifest, bookChapterStats } from "@novel2gal/pipeline";
+import { errorSummary } from "../task-queue/error-format.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -69,6 +73,18 @@ export function createProjectRoutes(
 
   // Helper
   function now() { return new Date().toISOString(); }
+
+  // Stage-3 Phase 4 (read side): chapter run stats from run-manifest.json.
+  // Missing/corrupt manifest (pre-Phase-4 chapters) → zeros, never throws.
+  function chapterStats(projectId: string, chapterId: string) {
+    const m = readRunManifest(config.dataDir, projectId, chapterId);
+    return {
+      stagesRun: m?.stagesRun ?? 0,
+      stagesCached: m?.stagesCached ?? 0,
+      stagesDegraded: m?.stagesDegraded ?? 0,
+      tokens: m?.tokens ?? { prompt: 0, completion: 0 },
+    };
+  }
 
   // POST /projects - Create project
   router.post("/", (req: Request, res: Response) => {
@@ -187,17 +203,41 @@ export function createProjectRoutes(
       }
     }
 
-    // Use displayName from form field (sent by frontend) to avoid encoding issues
-    const originalName = (req.body.displayName as string) || req.file.originalname;
+    // Use displayName from form field (sent by frontend) to avoid encoding issues.
+    // multer 1.x 经 busboy 以 latin1 解码 originalname：中文 UTF-8 字节被逐字节
+    // 映射为 U+0000–U+00FF 即 mojibake（验收 B3 实证：latin1→bytes→utf-8 可逆）。
+    // displayName 优先（前端已发）；否则尝试 latin1 逆修复；ASCII 不受影响。
+    const rawName = (req.body.displayName as string) || req.file.originalname;
+    let originalName = rawName;
+    if (!req.body.displayName) {
+      try {
+        const fixed = Buffer.from(rawName, "latin1").toString("utf-8");
+        // 只有逆修复后无 U+FFFD 才采用（GBK 直传等不可逆情形保留原值 + 告警）
+        if (!fixed.includes("�")) originalName = fixed;
+      } catch { /* 保留原值 */ }
+    }
 
     project.sourceFileName = originalName;
     project.sourceFilePath = destPath;
+    // 入库前乱码检测（验收 B4）：含 U+FFFD 即在响应里警告，不静默存乱码。
+    const mojibakeHits: string[] = [];
+    if (originalName.includes("�")) mojibakeHits.push(`sourceFileName 含 U+FFFD（上传文件名疑似乱码）`);
+    // 标题优先级：用户输入 > 文件首行（structure/run 回填 bookTitle）> 文件名。
+    // import 时若标题仍为默认占位，用解码后的文件名（去扩展名）回填。
+    if (!project.title || project.title === "Untitled") {
+      const fromFile = originalName.replace(/\.[^.]*$/, "");
+      if (fromFile && !fromFile.includes("�")) {
+        project.title = fromFile;
+      } else if (fromFile) {
+        mojibakeHits.push(`文件名回填标题跳过（含 U+FFFD，保留 Untitled）`);
+      }
+    }
     writeProjectState(config.dataDir, project);
     projectRepo.updateStatus(param(req, "id"), "created");
-    db.prepare("UPDATE projects SET source_file_name = ?, source_file_path = ?, updated_at = ? WHERE project_id = ?")
-      .run(originalName, destPath, new Date().toISOString(), param(req, "id"));
+    db.prepare("UPDATE projects SET title = ?, source_file_name = ?, source_file_path = ?, updated_at = ? WHERE project_id = ?")
+      .run(project.title, originalName, destPath, new Date().toISOString(), param(req, "id"));
 
-    res.json({ message: "File imported", path: destPath });
+    res.json({ message: "File imported", path: destPath, ...(mojibakeHits.length > 0 ? { encodingWarning: mojibakeHits } : {}) });
   });
 
   // POST /projects/:id/structure/run - Run Structure Agent
@@ -233,6 +273,15 @@ export function createProjectRoutes(
     project.totalChapters = result.data.chapters.length;
     project.status = "structured";
     project.updatedAt = new Date().toISOString();
+    // 标题优先级第二级：文件首行（bookTitle）> 文件名。若标题仍为默认占位或
+    // 文件名回填值，且 bookTitle 干净，则用 bookTitle 回填（含 U+FFFD 时跳过 + 警告）。
+    let titleWarning: string | undefined;
+    if (result.data.bookTitle && !result.data.bookTitle.includes("�") &&
+        (!project.title || project.title === "Untitled" || project.title === project.sourceFileName.replace(/\.[^.]*$/, ""))) {
+      project.title = result.data.bookTitle;
+    } else if (result.data.bookTitle?.includes("�")) {
+      titleWarning = "bookTitle 含 U+FFFD（正文首行疑似乱码），标题未回填";
+    }
     projectRepo.updateStatus(param(req, "id"), "structured");
     projectRepo.updateChapterCounts(param(req, "id"), { total: result.data.chapters.length });
     writeProjectState(config.dataDir, project);
@@ -271,6 +320,7 @@ export function createProjectRoutes(
       chapterCount: result.data.chapters.length,
       confidence: result.data.structureConfidence,
       warnings: result.data.warnings,
+      ...(titleWarning ? { titleWarning } : {}),
       chapters: result.data.chapters.map((c) => ({
         chapterId: c.chapterId,
         index: c.index,
@@ -292,8 +342,58 @@ export function createProjectRoutes(
   });
 
   // GET /projects/:id/chapters - List chapters
+  // Stage-3 Phase 4 (read side, C7): each item carries chapter run stats from
+  // run-manifest.json; missing manifest (pre-Phase-4) → zeros, never 404.
   router.get("/:id/chapters", (req: Request, res: Response) => {
-    res.json(chapterRepo.listByProject(param(req, "id")));
+    const projectId = param(req, "id");
+    res.json(
+      chapterRepo.listByProject(projectId).map((ch) => ({
+        ...ch,
+        ...chapterStats(projectId, ch.chapterId),
+      })),
+    );
+  });
+
+  // GET /projects/:id/chapters/:chapterId/manifest - Full chapter run-manifest.
+  // No single-chapter endpoint exists, so this is the per-chapter read (C7):
+  // returns the manifest as written; no manifest yet → zero shape, never 404
+  // (unknown chapter itself still 404s).
+  router.get("/:id/chapters/:chapterId/manifest", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const chapterId = param(req, "chapterId");
+    const chapter = chapterRepo.getById(chapterId);
+    if (!chapter || chapter.projectId !== projectId) {
+      return res.status(404).json({ error: "Chapter not found" });
+    }
+    const m = readRunManifest(config.dataDir, projectId, chapterId);
+    res.json(
+      m ?? {
+        stagesRun: 0,
+        stagesCached: 0,
+        stagesDegraded: 0,
+        tokens: { prompt: 0, completion: 0 },
+        degradedStages: [],
+        generatedAt: "",
+      },
+    );
+  });
+
+  // GET /projects/:id/summary - Book-level rollup (C7): straight manifest sums
+  // plus "完成且未降级章节比例" cleanRatio = completedClean / total, computed
+  // by the canonical bookChapterStats helper (not reimplemented here).
+  router.get("/:id/summary", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const project = projectRepo.getById(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+    const chapters = chapterRepo.listByProject(projectId);
+    res.json(
+      bookChapterStats(
+        chapters.map((ch) => ({
+          completed: ch.status === "chapter_ready",
+          manifest: readRunManifest(config.dataDir, projectId, ch.chapterId),
+        })),
+      ),
+    );
   });
 
   // POST /projects/:id/chapters/:chapterId/run - Run chapter pipeline (async)
@@ -362,7 +462,93 @@ export function createProjectRoutes(
     // Return immediately, run pipeline in background
     res.json({ chapterId: cid, status: "started", message: "管线已启动" });
 
-    // 收集跨章已知角色
+    const onProgress = (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => {
+      broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message, sceneId: extra?.sceneId, sceneIndex: extra?.sceneIndex, sceneCount: extra?.sceneCount });
+    };
+
+    // 2c ENGINE switch: graph (default) routes through PipelineTaskQueue →
+    // runChapterWithGraph (checkpoints, per-run thread, watchdog at 2c-5);
+    // legacy keeps the old direct LangGraph invoke below for rollback.
+    const ENGINE: "graph" | "legacy" = process.env.N2G_ENGINE === "legacy" ? "legacy" : "graph";
+    if (ENGINE === "graph") {
+      const { PipelineTaskQueue } = await import("../task-queue/task-queue.js");
+      const queue = new PipelineTaskQueue({
+        dataDir: config.dataDir,
+        project,
+        provider,
+        model,
+        maxConcurrency: 1,
+        sceneRepo,
+        chapterRepo,
+        db,
+        rag,
+      });
+      queue.onProgress = (event) => {
+        broadcastProgress({
+          projectId: pid,
+          chapterId: event.chapterId,
+          chapterIndex: event.chapterIndex,
+          sceneId: (event as any).sceneId,
+          sceneIndex: (event as any).sceneIndex,
+          sceneCount: (event as any).sceneCount,
+          stage: event.stage,
+          status: event.status as any,
+          message: event.message,
+          // W1: last reached stage rides the chapter_failed event (the
+          // frontend failure list reads it); undefined elsewhere.
+          lastStage: (event as any).lastStage,
+          evidencePath: (event as any).evidencePath,
+          // Stage-3 Phase 4: chapter stats ride the completed event's data
+          // (only that event carries them; all other events leave data empty).
+          ...(event.stage === "completed"
+            ? {
+                data: {
+                  stagesRun: (event as any).stagesRun,
+                  stagesCached: (event as any).stagesCached,
+                  stagesDegraded: (event as any).stagesDegraded,
+                  tokens: (event as any).tokens,
+                },
+              }
+            : {}),
+        });
+      };
+      // Single-chapter queue: enqueue and await; SSE carries the lifecycle.
+      queue
+        .enqueue([{ chapterId: cid, index: chapter.index, title: chapter.title }])
+        .then(() => {
+          if (queue.successCount > 0) {
+            broadcastProgress({ projectId: pid, chapterId: cid, stage: "completed", status: "completed" });
+          } else {
+            // W2 truncation fix (ch1 lesson): pipeline_runs.error_message is
+            // TEXT — store the FULL failure detail from the queue (summary in
+            // SSE, full text in the DB), never a generic/sliced message.
+            const full = queue.getChapterLastErrorFull(cid)
+              ?? queue.getChapterLastError(cid)
+              ?? "Chapter pipeline failed (see retry/failed events)";
+            const summary = errorSummary(full);
+            broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: summary });
+            chapterRepo.updateStatus(cid, "failed");
+            db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
+              .run("failed", now(), full, runId);
+          }
+        })
+        .catch((err: any) => {
+          const msg = err?.message ?? String(err);
+          const isCancelled = ac.signal.aborted || msg.includes("ABORTED");
+          broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: msg });
+          chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
+          // Full text into the DB row (TEXT column — the 500-char slice hid
+          // zod issue paths in the ch1 incident).
+          db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
+            .run(isCancelled ? "cancelled" : "failed", now(), msg, runId);
+        })
+        .finally(() => {
+          if (runningPipelines.get(cid) === ac) runningPipelines.delete(cid);
+        });
+      return;
+    }
+
+    // ── legacy path (old direct LangGraph invoke; removed at stage 4) ──
     let knownCharacters: any[] = [];
     if (rag) {
       try {
@@ -394,8 +580,8 @@ export function createProjectRoutes(
       knownCharacters,
       autoRunVisualPrompt: project.config.autoRunVisualPrompt !== false,
       autoRunConsistencyReview: project.config.autoRunConsistencyReview !== false,
-      onProgress: (stage: string, message: string) => {
-        broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message });
+      onProgress: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => {
+        broadcastProgress({ projectId: pid, chapterId: cid, stage, status: "progress", message, sceneId: extra?.sceneId, sceneIndex: extra?.sceneIndex, sceneCount: extra?.sceneCount });
       },
       onChapterFlags: (chId: string, flags: any) => {
         try { chapterRepo.updateFlags(chId, flags); } catch {}
@@ -415,11 +601,14 @@ export function createProjectRoutes(
       const errMsg = finalState?.error ?? null;
       if (errMsg) {
         const isCancelled = String(errMsg).includes("ABORTED");
-        broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: String(errMsg).slice(0, 300) });
+        // W2 truncation fix: SSE carries the 150-char SUMMARY (ch1 lesson —
+        // the DB keeps the full text); DB rows are TEXT — full message, no slice.
+        const errSummary = errorSummary(errMsg);
+        broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: isCancelled ? "cancelled" : "failed", message: errSummary });
         chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
         db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
-          .run(isCancelled ? "cancelled" : "failed", now(), String(errMsg).slice(0, 500), runId);
-        console.error(`[LangGraph] ${cid} ended with error: ${String(errMsg).slice(0, 200)}`);
+          .run(isCancelled ? "cancelled" : "failed", now(), String(errMsg), runId);
+        console.error(`[LangGraph] ${cid} ended with error: ${errSummary}`);
         return;
       }
 
@@ -436,7 +625,7 @@ export function createProjectRoutes(
       broadcastProgress({ projectId: pid, chapterId: cid, stage: "failed", status: "failed", message: msg });
       chapterRepo.updateStatus(cid, isCancelled ? "cancelled" : "failed");
       db.prepare("UPDATE pipeline_runs SET status=?, finished_at=?, error_message=? WHERE run_id=?")
-        .run(isCancelled ? "cancelled" : "failed", now(), msg.slice(0, 500), runId);
+        .run(isCancelled ? "cancelled" : "failed", now(), msg, runId);
       console.error(`[LangGraph] ${cid} ${isCancelled ? "cancelled" : 'failed'}:`, msg);
     }).finally(() => {
       // Only remove our own controller — a concurrent re-run may have replaced it
@@ -738,6 +927,100 @@ export function createProjectRoutes(
       engine: "bge-small-zh-v1.5 (512-dim Dense + BM25 Hybrid)",
       characters,
     });
+  });
+
+  // ── 2c pending merge proposals API (frontend UI is a later stage) ──
+
+  // GET /projects/:id/pending — list pending proposals (filter: ?chapterId=)
+  router.get("/:id/pending", (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const store = new PendingProposalStore(config.dataDir, projectId);
+    const chapterId = req.query.chapterId as string | undefined;
+    const proposals = chapterId ? store.listFor(chapterId) : store.listAll();
+    res.json({ projectId, count: proposals.length, proposals });
+  });
+
+  // POST /projects/:id/pending/:candidateId/resolve — { action: "merge"|"reject", targetId? }
+  // merge: idempotent lossless merge (profiles + attributed units + RAG re-ingest);
+  // reject: record the decision — the pair is never proposed again (S7).
+  router.post("/:id/pending/:candidateId/resolve", async (req: Request, res: Response) => {
+    const projectId = param(req, "id");
+    const candidateId = param(req, "candidateId");
+    const action = req.body?.action as "merge" | "reject" | undefined;
+    if (action !== "merge" && action !== "reject") {
+      return res.status(400).json({ error: "action must be \"merge\" or \"reject\"" });
+    }
+
+    const store = new PendingProposalStore(config.dataDir, projectId);
+    const record = store.listAll().find((p) => p.candidateId === candidateId);
+    if (!record) {
+      return res.status(404).json({ error: `No pending proposal for candidate ${candidateId}` });
+    }
+    const targetId = (req.body?.targetId as string | undefined) ?? record.targetCharacterId;
+
+    if (action === "reject") {
+      const ok = store.resolve(candidateId, targetId, "reject");
+      return res.json({ success: ok, candidateId, targetId, action });
+    }
+
+    // ── merge (idempotent, lossless): apply to disk artifacts + Bible ──
+    try {
+      const profiles = readCharacterProfiles(config.dataDir, projectId) || {};
+      const target = (profiles as any)[targetId];
+      const candidate = (profiles as any)[candidateId];
+
+      // Idempotency: merging an already-merged (absent) candidate is a no-op
+      // success — the decisions file remembers the pair.
+      if (!candidate) {
+        store.resolve(candidateId, targetId, "merge");
+        return res.json({ success: true, candidateId, targetId, action, alreadyMerged: true });
+      }
+      if (!target) {
+        return res.status(409).json({ error: `Target ${targetId} has no profile; cannot merge into it` });
+      }
+
+      // 1. Merge profile (aliasSet union, evidence/history append; write-once
+      //    baseline of the target is NEVER overwritten — candidate evidence
+      //    is preserved in history).
+      const mergedAliases = Array.from(new Set([
+        ...(target.aliasSet ?? []),
+        ...(candidate.aliasSet ?? []),
+        candidate.canonicalName,
+        candidateId,
+      ]));
+      target.aliasSet = mergedAliases;
+      target.evidence = [...(target.evidence ?? []), ...(candidate.evidence ?? [])];
+      target.history = [
+        ...(target.history ?? []),
+        {
+          chapterId: record.sourceChapterId,
+          note: `Merged duplicate candidate ${candidateId} (${candidate.canonicalName}) — similarity ${record.similarityScore.toFixed(2)}, matchedBy ${record.matchedBy}`,
+        },
+      ];
+      target.updatedAt = new Date().toISOString();
+      delete (profiles as any)[candidateId];
+      writeCharacterProfiles(config.dataDir, projectId, profiles);
+
+      // 2+3. S11b cross-chapter cleanup (pending-merge.ts, shared with tests):
+      // collect every chapter mentioning the entity (aliasSet ∪ candidate
+      // id/name), rewrite candidate→target refs, delete candidate RAG rows
+      // globally, and re-ingest each affected chapter with its REAL title.
+      const cleanup = await applyPendingMerge({
+        dataDir: config.dataDir,
+        projectId,
+        candidateId,
+        targetId,
+        candidateName: candidate.canonicalName,
+        aliasSet: mergedAliases,
+        chapterTitleOf: (cid) => chapterRepo.getById(cid)?.title ?? cid,
+        rag,
+      });
+
+      store.resolve(candidateId, targetId, "merge");
+      res.json({ success: true, candidateId, targetId, action, mergedAliases, ...cleanup });
+    } catch (e) {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
   });
 
   // POST /projects/:projectId/reset-failed - Reset failed/crashed chapters for clean rerun

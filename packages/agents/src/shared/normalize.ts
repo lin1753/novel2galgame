@@ -2,8 +2,58 @@ import type { AttributedNarrativeUnit, AttributionInfo } from "@novel2gal/core";
 import type { VNStep } from "@novel2gal/core";
 
 /**
+ * Recursively convert object-field `null`s to `undefined` (LLM-shaped null
+ * tolerance). Rationale: prompts routinely say `"speakerId": "char_001 或 null"`
+ * and LLMs obey literally, but zod `z.string().optional()` rejects null —
+ * without this the whole stage parse blows up on a single null.
+ *
+ * Semantics (pinned by tests):
+ * - Only PLAIN-OBJECT field values equal to null are converted (the key is kept
+ *   with value undefined so `optional()` accepts it).
+ * - Arrays are traversed element-wise but kept intact: a bare `null` ELEMENT
+ *   stays null (counted NOT) — the caller decides per-element policy.
+ * - Top-level null / primitives pass through unchanged with nullCount 0.
+ * - Cycles are guarded by reference (a repeated reference is kept as-is and
+ *   not double-counted).
+ */
+export function stripLlmNulls<T>(value: unknown): { value: T; nullCount: number } {
+  let nullCount = 0;
+  const seen = new Set<object>();
+  const walk = (v: unknown): unknown => {
+    if (v === null) return v; // top-level or array-element null: caller decides
+    if (Array.isArray(v)) {
+      if (seen.has(v)) return v;
+      seen.add(v);
+      return v.map(walk);
+    }
+    if (typeof v === "object") {
+      if (seen.has(v)) return v;
+      seen.add(v);
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(v as Record<string, unknown>)) {
+        const field = (v as Record<string, unknown>)[k];
+        if (field === null) {
+          nullCount++;
+          out[k] = undefined;
+        } else {
+          out[k] = walk(field);
+        }
+      }
+      return out;
+    }
+    return v;
+  };
+  return { value: walk(value) as T, nullCount };
+}
+
+/**
  * Normalize LLM output units to AttributedNarrativeUnit format.
  * Different LLMs return different field names; this maps common variants.
+ *
+ * NOTE: a wholesale `attribution: null` maps to undefined here (falsy check);
+ * per-unit repair (null fields → defaults, invalid → fallback) happens
+ * downstream in the attribution agent via attributionInfoSchema — this
+ * function only reshapes, never validates.
  */
 export function normalizeAttributionUnits(raw: unknown[]): AttributedNarrativeUnit[] {
   if (!Array.isArray(raw)) return [];

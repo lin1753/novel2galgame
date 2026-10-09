@@ -1,0 +1,26 @@
+{
+  "narrative_parsing": {
+    "stageVersion": 1,
+    "schemaHash": "120edbd1b130b71fd2e4f84f5baa04e223596c826df22934cb4a0bc8827259a6"
+  },
+  "attribution": {
+    "stageVersion": 2,
+    "schemaHash": "547588e1d442250ae53b76fe76692b6089eaabfc6418b1d01cd00685ec162616"
+  },
+  "scene_segmentation": {
+    "stageVersion": 1,
+    "schemaHash": "0a4a4941cfbde97ba8e737b26c82cb481689ea3b0a134830d8a7dac6e26e5132"
+  },
+  "vn_mapping": {
+    "stageVersion": 1,
+    "schemaHash": "4ddb477417d1852c551a7f0ee8fca285d16932399b786550f7bb398c522f3be9"
+  },
+  "fidelity_review": {
+    "stageVersion": 1,
+    "schemaHash": "180d71b81b9c0d9ad224d6baf24166115a769c78eabf28de4c7a5f6aee4b039d"
+  },
+  "visual_prompt": {
+    "stageVersion": 1,
+    "schemaHash": "7b123fbc1aa484fdbd0c2f3606a5bb637628b9d06a914cc841ce2944725d0acc"
+  }
+}

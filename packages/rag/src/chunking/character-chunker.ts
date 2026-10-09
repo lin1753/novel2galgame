@@ -13,6 +13,32 @@
 import type { AttributionResult } from "@novel2gal/core";
 import type { CharacterRecord } from "../collections/characters.js";
 
+export const GENDER_LABEL_ZH: Record<string, string> = {
+  female: "女",
+  male: "男",
+  unknown: "未知",
+};
+
+/** Resolve character gender: explicit field wins; fall back to pronoun counts over related texts. */
+export function resolveChunkGender(
+  char: AttributionResult["characters"][number],
+  texts: string[],
+): "female" | "male" | "unknown" {
+  const direct = (char as { gender?: unknown }).gender;
+  if (direct === "female" || direct === "male" || direct === "unknown") return direct;
+  let female = 0;
+  let male = 0;
+  for (const raw of texts) {
+    if (!raw) continue;
+    const text = raw.replace(/其他|其它/g, "");
+    female += (text.match(/她/g) ?? []).length;
+    male += (text.match(/他/g) ?? []).length;
+  }
+  if (female === 0 && male === 0) return "unknown";
+  if (female === male) return "unknown";
+  return female > male ? "female" : "male";
+}
+
 export interface CharacterChunk {
   characterId: string;
   canonicalName: string;
@@ -99,23 +125,27 @@ function chunkOneCharacter(
     }
   }
 
+  const gender = resolveChunkGender(char, [...attributedTexts, ...mentionTexts]);
+
   const baseMeta: Record<string, unknown> = {
     canonicalName: name,
     chapterId,
     firstSeenIn: chapterTitle,
+    gender,
     appearance: appearanceHints,
     personality: personalityHints,
     relationships: relationHints,
     allAttributedText: attributedTexts.join("\n"),
   };
+  const genderSeg = ` | 性别: ${GENDER_LABEL_ZH[gender]}`;
 
   // 1. Identity chunk
   chunks.push({
     characterId: char.characterId,
     canonicalName: name,
     type: "identity",
-    text: `角色: ${name}${char.aliases?.length ? ` | 别名: ${char.aliases.join(", ")}` : ""}`,
-    parentText: `角色: ${name}${char.aliases?.length ? ` | 别名: ${char.aliases.join(", ")}` : ""} | 首次出现: ${chapterTitle}`,
+    text: `角色: ${name}${genderSeg}${char.aliases?.length ? ` | 别名: ${char.aliases.join(", ")}` : ""}`,
+    parentText: `角色: ${name}${genderSeg}${char.aliases?.length ? ` | 别名: ${char.aliases.join(", ")}` : ""} | 首次出现: ${chapterTitle}`,
     metadata: { ...baseMeta, aliases: char.aliases ?? [] },
   });
 

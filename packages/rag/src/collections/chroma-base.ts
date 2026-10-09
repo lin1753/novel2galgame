@@ -1,51 +1,132 @@
 /**
  * ChromaDB-based vector collection.
- * Replaces JSON brute-force cosine search with HNSW indexing.
+ * Primary vector store for RAG (JSON BaseCollection is the fallback/cache).
  *
- * Key improvements over base.ts:
- * - HNSW index — sub-millisecond vector search (was O(n) brute force)
- * - Native metadata filtering via ChromaDB where clause
- * - ChromaDB handles persistence automatically
+ * Verified against chromadb@3.5 client + server on 8021 (2026-09-16 probe):
+ * - ChromaClient({ host, port }) — the legacy `path` arg is deprecated
+ * - getCollection({ name, embeddingFunction }) — a dummy EF must be passed,
+ *   otherwise the client tries DefaultEmbeddingFunction and throws
+ * - configuration: { hnsw: { space: "cosine" } } — distances are then cosine
+ *   DISTANCE in [0,2] (0 = identical), so score = 1 - distance stays in
+ *   [-1,1] and matches the BaseCollection cosine-similarity convention
+ *   (1 = identical) for near-identical vectors
+ * - keywordSearch via server-side queryTexts: NOT wired here. The server FTS
+ *   tokenizer is not Chinese-aware in a way we validated; JSON-side BM25
+ *   (base.ts) remains the keyword path. See issue-tracker A4.
+ *
+ * Connection resolution (issue-tracker A2):
+ *   CHROMA_URL env (full URL) > CHAOS of docker defaults.
+ *   Local default is http://localhost:8021 — the port docker-compose.chroma.yml
+ *   maps ("8021:8000"). Docker-internal deployments set CHROMA_URL=http://chromadb:8000.
  */
 import { ChromaClient } from "chromadb";
-import path from "node:path";
 import type { WhereClause, SearchResult, VectorRecord } from "./base.js";
+
+/** Dummy embedding function: satisfies the client's EF requirement; we always pass explicit vectors. */
+const DUMMY_EF = {
+  generate: async (texts: string[]) => texts.map(() => new Array(512).fill(0)),
+};
+
+/** Parse CHROMA_URL (full URL) into host/port; falls back to localhost:8021. */
+function resolveChromaEndpoint(): { host: string; port: number; ssl: boolean } {
+  const raw = process.env.CHROMA_URL || "http://localhost:8021";
+  try {
+    const u = new URL(raw);
+    return {
+      host: u.hostname || "localhost",
+      port: u.port ? Number(u.port) : (u.protocol === "https:" ? 443 : 8000),
+      ssl: u.protocol === "https:",
+    };
+  } catch {
+    console.warn(`[RAG] Invalid CHROMA_URL "${raw}", falling back to localhost:8021`);
+    return { host: "localhost", port: 8021, ssl: false };
+  }
+}
 
 export class ChromaCollection {
   protected client: ChromaClient;
   protected collectionName: string;
+  /** Kept for API compat with older call sites; persistence lives server-side now. */
   protected persistDir: string;
   private _initialized = false;
+  private _collection: Awaited<ReturnType<ChromaClient["getCollection"]>> | null = null;
 
   constructor(dataDir: string, name: string) {
     this.collectionName = name;
-    this.persistDir = path.join(dataDir, "chroma");
-    const chromaUrl = process.env.CHROMA_URL || "http://localhost:8000";
-    this.client = new ChromaClient({ path: chromaUrl });
+    this.persistDir = dataDir;
+    const { host, port, ssl } = resolveChromaEndpoint();
+    this.client = new ChromaClient({ host, port, ssl });
   }
 
-  async ensureCollection() {
+  /** Idempotent get-or-create with cosine space. Caches the collection handle. */
+  async ensureCollection(): Promise<void> {
     if (this._initialized) return;
-    const dummyEmbeddingFunction = {
-      generate: async (texts: string[]) => texts.map(() => new Array(512).fill(0)),
-    };
     try {
-      await this.client.getCollection({ name: this.collectionName, embeddingFunction: dummyEmbeddingFunction });
+      this._collection = await this.client.getCollection({
+        name: this.collectionName,
+        embeddingFunction: DUMMY_EF,
+      });
     } catch {
-      await this.client.createCollection({ name: this.collectionName, embeddingFunction: dummyEmbeddingFunction });
+      // Collection missing (or pre-existing with a different config) — create
+      // with cosine space so distances match the JSON-side cosine convention.
+      try {
+        this._collection = await this.client.createCollection({
+          name: this.collectionName,
+          embeddingFunction: DUMMY_EF,
+          configuration: { hnsw: { space: "cosine" } },
+        });
+      } catch (createErr) {
+        // e.g. exists but with l2 space from a previous run — take it as-is
+        // rather than crashing; distances then follow l2 semantics.
+        console.warn(
+          `[RAG] Chroma createCollection failed for "${this.collectionName}", retrying getCollection:`,
+          createErr instanceof Error ? createErr.message : createErr,
+        );
+        this._collection = await this.client.getCollection({
+          name: this.collectionName,
+          embeddingFunction: DUMMY_EF,
+        });
+      }
     }
     this._initialized = true;
   }
 
-  async upsert(records: VectorRecord[]): Promise<void> {
+  private async collection() {
     await this.ensureCollection();
+    return this._collection!;
+  }
+
+  /**
+   * Flatten metadata for Chroma: its Metadata type only accepts
+   * scalar | SparseVector | scalar[]. Arrays of strings (appearance[]) are
+   * legal, but nested objects are not — those are JSON-stringified.
+   * EMPTY arrays are dropped: the server rejects them
+   * ("Expected metadata list value ... to be non-empty").
+   */
+  private toChromaMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(meta)) {
+      if (v === null || v === undefined) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+        const s = JSON.stringify(v);
+        if (s === "{}" || s === "[]") continue;
+        out[k] = s; // characterDistribution etc.
+      } else {
+        out[k] = v;
+      }
+    }
+    return out;
+  }
+
+  async upsert(records: VectorRecord[]): Promise<void> {
     if (records.length === 0) return;
-    const collection = await this.client.getCollection({ name: this.collectionName });
+    const collection = await this.collection();
     await collection.upsert({
       ids: records.map((r) => r.id),
       embeddings: records.map((r) => r.vector),
       documents: records.map((r) => (r.metadata?.embedText as string) ?? ""),
-      metadatas: records.map((r) => r.metadata as Record<string, string | number | boolean>),
+      metadatas: records.map((r) => this.toChromaMetadata(r.metadata)) as any,
     });
   }
 
@@ -53,44 +134,19 @@ export class ChromaCollection {
     queryVector: number[],
     options?: { topK?: number; minScore?: number; where?: WhereClause },
   ): Promise<SearchResult[]> {
-    await this.ensureCollection();
-    const collection = await this.client.getCollection({ name: this.collectionName });
+    const collection = await this.collection();
 
     const results = await collection.query({
       queryEmbeddings: [queryVector],
       nResults: options?.topK ?? 5,
       where: options?.where as any,
-      include: ["embeddings", "documents", "metadatas", "distances"],
-    });
-
-    const ids = results.ids[0] ?? [];
-    const distances = results.distances?.[0] ?? [];
-    const metadatas = results.metadatas?.[0] ?? [];
-
-    return ids
-      .map((id, i) => ({
-        record: {
-          id,
-          vector: results.embeddings?.[0]?.[i] ?? [],
-          metadata: (metadatas[i] ?? {}) as Record<string, unknown>,
-          updatedAt: new Date().toISOString(),
-        },
-        score: 1 - (distances[i] ?? 0), // Chroma uses L2 distance → convert to similarity
-      }))
-      .sort((a, b) => b.score - a.score);
-  }
-
-  async keywordSearch(queryText: string, limit: number = 10): Promise<SearchResult[]> {
-    await this.ensureCollection();
-    const collection = await this.client.getCollection({ name: this.collectionName });
-    const results = await collection.query({
-      queryTexts: [queryText],
-      nResults: limit,
       include: ["metadatas", "documents", "distances"],
     });
+
     const ids = results.ids[0] ?? [];
     const distances = results.distances?.[0] ?? [];
     const metadatas = results.metadatas?.[0] ?? [];
+
     return ids
       .map((id, i) => ({
         record: {
@@ -99,48 +155,40 @@ export class ChromaCollection {
           metadata: (metadatas[i] ?? {}) as Record<string, unknown>,
           updatedAt: new Date().toISOString(),
         },
-        score: 1 - (distances[i] ?? 0),
+        // cosine distance ∈ [0,2]; 1 - distance keeps score semantics aligned
+        // with BaseCollection's cosine similarity for near-duplicates
+        score: 1 - (distances[i] ?? 2),
       }))
       .sort((a, b) => b.score - a.score);
   }
 
-  async hybridSearch(
-    queryVector: number[],
-    queryText: string,
-    limit: number = 5,
-    vectorWeight: number = 0.6,
-  ): Promise<SearchResult[]> {
-    const [vecResults, kwResults] = await Promise.all([
-      this.search(queryVector, { topK: limit * 2, minScore: 0 }),
-      this.keywordSearch(queryText, limit * 2),
-    ]);
-    const kwMap = new Map<string, number>();
-    for (const r of kwResults) kwMap.set(r.record.id, r.score);
-    const fused = vecResults.map((vr) => {
-      const kwScore = kwMap.get(vr.record.id) ?? 0;
-      return { record: vr.record, score: vectorWeight * vr.score + (1 - vectorWeight) * kwScore };
-    });
-    fused.sort((a, b) => b.score - a.score);
-    return fused.slice(0, limit);
+  /**
+   * NOT IMPLEMENTED on the Chroma path (issue-tracker A4): server-side
+   * queryTexts FTS is not Chinese-tokenizer-validated. Keyword search stays
+   * on the JSON-side BM25 in BaseCollection. Signature kept for API compat,
+   * returns empty so hybrid callers fall through to the vector path only.
+   */
+  async keywordSearch(_queryText: string, _limit: number = 10): Promise<SearchResult[]> {
+    return [];
   }
 
   async delete(ids: string[]): Promise<void> {
-    await this.ensureCollection();
-    const collection = await this.client.getCollection({ name: this.collectionName });
+    if (ids.length === 0) return;
+    const collection = await this.collection();
     await collection.delete({ ids });
   }
 
   async deleteByProject(projectId: string): Promise<void> {
-    await this.ensureCollection();
-    const collection = await this.client.getCollection({ name: this.collectionName });
+    const collection = await this.collection();
     await collection.delete({ where: { projectId } });
   }
 
   async count(): Promise<number> {
     try {
-      await this.ensureCollection();
-      const collection = await this.client.getCollection({ name: this.collectionName });
-      return (await collection.get()).ids.length;
+      const collection = await this.collection();
+      // count() is the server-native O(1)-ish count; the old
+      // (await get()).ids.length pulled every record id across the wire.
+      return await collection.count();
     } catch {
       return 0;
     }

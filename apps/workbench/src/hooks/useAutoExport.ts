@@ -24,7 +24,7 @@ export function useAutoExport(projectId: string) {
   useEffect(() => {
     const unsub = autoExportStore.subscribe((s) => {
       const list = Array.from(s.chapters.values())
-      const active = list.filter((c) => c.status === 'running' || c.status === 'queued').length
+      const active = list.filter((c) => c.status === 'running' || c.status === 'queued' || c.status === 'retry_scheduled').length
       const terminal = list.filter((c) => ['completed', 'failed', 'cancelled'].includes(c.status)).length
       if (prevActiveRef.current > 0 && active === 0 && terminal > 0) {
         const pid = s.projectId || projectId
@@ -62,7 +62,7 @@ export function useAutoExport(projectId: string) {
     total: chapterList.length,
     completed: chapterList.filter((c) => c.status === 'completed').length,
     failed: chapterList.filter((c) => c.status === 'failed').length,
-    running: chapterList.filter((c) => c.status === 'running').length,
+    running: chapterList.filter((c) => c.status === 'running' || c.status === 'retry_scheduled').length,
     queued: chapterList.filter((c) => c.status === 'queued').length,
     cancelled: chapterList.filter((c) => c.status === 'cancelled').length,
   }

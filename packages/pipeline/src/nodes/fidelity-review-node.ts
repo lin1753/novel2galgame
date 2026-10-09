@@ -1,6 +1,3 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { v4 as uuid } from "uuid";
 import type { LLMProvider } from "@novel2gal/providers";
 import { runFidelityReviewAgent } from "@novel2gal/agents";
@@ -159,19 +156,10 @@ export async function fidelityReviewNode(
 
     const sceneUnits = attrUnits.filter((u: any) => scene.unitIds.includes(u.unitId));
 
-    // Skip if scene already reviewed
-    const sceneState = state.sceneRepo?.getById(scene.sceneId);
-    if (sceneState?.reviewStatus === "passed") {
-      state.onProgress?.("fidelity_review", `Skipped ${scene.sceneId} (already reviewed)`);
-      sceneResult.fidelityPassed = true;
-      newResults[targetIdx] = sceneResult;
-      const durationMs = Date.now() - t0;
-      return {
-        sceneResults: newResults,
-        currentStage: "fidelity_review",
-        stageTimings: { [`fidelity_review_${scene.sceneId}`]: durationMs },
-      };
-    }
+    // Stage-3 owns skip decisions now (keyed disk artifacts): the old
+    // sceneRepo/tables fast paths are deleted — always review through.
+    // (The stage-4 deletion baseline keeps this node compiling; the new
+    // chapter graph in graph/ wraps withStageCache at the call site.)
 
     state.onProgress?.("fidelity_review", `Reviewing scene ${scene.sceneId}`);
     const fr = resolveAgent(state.modelConfig, "fidelityReview", state.provider as LLMProvider, state.defaultModel);
@@ -180,42 +168,6 @@ export async function fidelityReviewNode(
       tokens.prompt += r.usage?.promptTokens ?? 0;
       tokens.completion += r.usage?.completionTokens ?? 0;
     });
-
-    // Cache key includes the reviewed script's content hash so a repaired script
-    // gets a fresh review instead of hitting the stale failed report
-    const vnScriptHash = crypto.createHash("sha256")
-      .update(JSON.stringify(sceneResult.vnScript ?? {}))
-      .digest("hex")
-      .slice(0, 16);
-    const cacheKey = crypto.createHash("sha256")
-      .update(`${scene.sceneId}|fidelity_review|${fr.model}|${vnScriptHash}`)
-      .digest("hex");
-
-    if (state.db) {
-      const cached = state.db.prepare(
-        "SELECT output_path FROM tasks WHERE input_hash = ? AND status = 'succeeded' AND type = ? AND chapter_id = ? ORDER BY finished_at DESC LIMIT 1"
-      ).get(cacheKey, "fidelity_review", state.chapterId) as { output_path: string } | undefined;
-
-      if (cached?.output_path && fs.existsSync(cached.output_path)) {
-        console.log(`[Cache] HIT fidelity_review for ${scene.sceneId}`);
-        const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
-        const stageOrder = 4 + targetIdx * 2;
-        state.db.prepare(
-          `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-           VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-        ).run(taskId, state.projectId, state.chapterId, "fidelity_review", fr.provider.name, fr.model, stageOrder, now(), now(), cacheKey, cached.output_path);
-        const fidelityData = JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-        sceneResult.fidelityPassed = fidelityData.passed;
-        sceneResult.fidelityReport = fidelityData;
-        newResults[targetIdx] = sceneResult;
-        const durationMs = Date.now() - t0;
-        return {
-          sceneResults: newResults,
-          currentStage: "fidelity_review",
-          stageTimings: { [`fidelity_review_${scene.sceneId}`]: durationMs },
-        };
-      }
-    }
 
     // Insert running task
     const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
@@ -251,15 +203,12 @@ export async function fidelityReviewNode(
 
     const durationMs = Date.now() - t0;
 
-    // Cache write
+    // Mark the running task row succeeded (audit trail; the tasks table is no
+    // longer a cache — stage-3 keyed artifacts on disk are the hit source).
     if (state.db && state.dataDir && sceneResult.fidelityReport) {
-      const cacheDir = path.join(state.dataDir, "cache", state.projectId);
-      fs.mkdirSync(cacheDir, { recursive: true });
-      const outputPath = path.join(cacheDir, `fidelity_review_${state.chapterId}_${stageOrder}.json`);
-      fs.writeFileSync(outputPath, JSON.stringify(sceneResult.fidelityReport), "utf-8");
       const actualRetries = Math.max(0, retryCount - 1);
-      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
-        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, cacheKey, outputPath, taskId);
+      state.db.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=? WHERE task_id=?`)
+        .run(now(), durationMs, actualRetries, tokens.prompt, tokens.completion, taskId);
     }
 
     return {

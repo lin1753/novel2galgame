@@ -12,6 +12,7 @@ function sanitizeManifestId(id: string): string {
 import path from "node:path";
 import type { GameBuilder, ExportInput, ExportResult, ExportStats } from "../common/export-types.js";
 import { validateIR } from "@novel2gal/ir";
+import { normalizeExpression } from "@novel2gal/agents";
 import { extractAssets, createEmptyManifest, writeManifest, DefaultResolver } from "@novel2gal/asset";
 import { generateScript } from "./script-generator.js";
 import { generateCharacters, generateCharacterImagesFromManifest } from "./character-generator.js";
@@ -52,6 +53,11 @@ export class RenPyBuilder implements GameBuilder {
       // 3. Generate characters.rpy with expression-based image statements
       const charContent = generateCharacters(input.characters);
       // Collect expressions from scripts
+      // Scan vn-mapping output as-is: expression strings here are the raw IR
+      // aliases (downstream compat — vn_mapping output is NOT rewritten to
+      // canonical labels). Show lines in script.rpy and the image statements
+      // below both use these raw aliases so they keep resolving to each
+      // other; normalization lives in the manifest loop further down only.
       const charExpressions = new Map<string, Set<string>>();
       for (const script of input.scripts) {
         for (const step of script.steps) {
@@ -84,7 +90,13 @@ export class RenPyBuilder implements GameBuilder {
       // Scan project scene visual_prompt.json files to collect rich appearance prompts
       const characterPromptMap = new Map<string, string>(); // characterId -> basePrompt
       const characterNamePromptMap = new Map<string, string>(); // canonicalName -> basePrompt
+      const characterGenderMap = new Map<string, string>(); // characterId/canonicalName -> gender
       const backgroundPromptMap = new Map<string, string>(); // backgroundId/sceneId/label -> prompt
+      // M4: group characters (isGroup) belong to the CG/background path, not
+      // sprite entries. Populated from input.characters below + the locked
+      // global profiles lookup (export routes rebuild input.characters from
+      // vn_script steps, so the profiles file is the reliable channel).
+      const groupCharIds = new Set<string>();
 
       const projectScenesDir = path.join(projectRoot, "scenes");
       if (fs.existsSync(projectScenesDir)) {
@@ -104,6 +116,14 @@ export class RenPyBuilder implements GameBuilder {
                       }
                       if (cp.canonicalName && !characterNamePromptMap.has(cp.canonicalName)) {
                         characterNamePromptMap.set(cp.canonicalName, prompt);
+                      }
+                    }
+                    if (cp.gender === "female" || cp.gender === "male") {
+                      if (cp.characterId && !characterGenderMap.has(cp.characterId)) {
+                        characterGenderMap.set(cp.characterId, cp.gender);
+                      }
+                      if (cp.canonicalName && !characterGenderMap.has(cp.canonicalName)) {
+                        characterGenderMap.set(cp.canonicalName, cp.gender);
                       }
                     }
                   }
@@ -149,17 +169,54 @@ export class RenPyBuilder implements GameBuilder {
         try {
           const globalProfiles = JSON.parse(fs.readFileSync(globalProfilesPath, "utf-8"));
           for (const [cid, prof] of Object.entries<any>(globalProfiles)) {
-            if (prof?.basePrompt) {
-              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, prof.basePrompt);
+            const basePrompt = prof?.baseline?.basePrompt || prof?.basePrompt;
+            if (basePrompt) {
+              if (!characterPromptMap.has(cid)) characterPromptMap.set(cid, basePrompt);
               if (prof.canonicalName && !characterNamePromptMap.has(prof.canonicalName)) {
-                characterNamePromptMap.set(prof.canonicalName, prof.basePrompt);
+                characterNamePromptMap.set(prof.canonicalName, basePrompt);
               }
+            }
+            if (prof?.gender === "female" || prof?.gender === "male") {
+              if (!characterGenderMap.has(cid)) characterGenderMap.set(cid, prof.gender);
+              if (prof.canonicalName && !characterGenderMap.has(prof.canonicalName)) {
+                characterGenderMap.set(prof.canonicalName, prof.gender);
+              }
+            }
+            // M4: locked profiles are the reliable isGroup channel (export routes
+            // rebuild input.characters from vn_script steps, dropping the flag).
+            if ((prof as any)?.isGroup === true) {
+              groupCharIds.add(cid);
+              if (prof.canonicalName) groupCharIds.add(`name:${prof.canonicalName}`);
             }
           }
         } catch {}
       }
 
       const characterNameMap = new Map(input.characters.map((c) => [c.characterId, c.canonicalName]));
+      // input.characters carry attribution gender — lowest-priority signal for the fallback
+      const inputGenderMap = new Map(
+        input.characters
+          .filter((c) => (c as { gender?: unknown }).gender === "female" || (c as { gender?: unknown }).gender === "male")
+          .map((c) => [c.characterId, (c as { gender?: string }).gender as string]),
+      );
+      const inputNameGenderMap = new Map(
+        input.characters
+          .filter((c) => (c as { gender?: unknown }).gender === "female" || (c as { gender?: unknown }).gender === "male")
+          .map((c) => [c.canonicalName, (c as { gender?: string }).gender as string]),
+      );
+
+      /** Gender-aware danbooru token for the no-basePrompt fallback (Bible > vp > attribution > unknown). */
+      function genderToken(charId: string, charName: string): string {
+        const g =
+          characterGenderMap.get(charId) ??
+          characterGenderMap.get(charName) ??
+          inputGenderMap.get(charId) ??
+          inputNameGenderMap.get(charName);
+        if (g === "male") return "1man";
+        if (g === "female") return "1girl";
+        console.warn(`[RenPyBuilder] Gender unknown for character ${charName} (${charId}); using neutral "1person" fallback — check Bible/attribution gender`);
+        return "1person";
+      }
 
       for (const [id, label] of backgrounds) {
         let bgPrompt = backgroundPromptMap.get(id) || (label ? backgroundPromptMap.get(label) : undefined);
@@ -182,30 +239,57 @@ export class RenPyBuilder implements GameBuilder {
       }
 
       for (const [charId, expressions] of characters) {
+        // M4: group tableau belongs to the CG/background path — skip solo
+        // sprite entries for isGroup characters (flagged in locked profiles;
+        // input.characters may also carry the flag from the pipeline).
+        const charNamePre = characterNameMap.get(charId) || charId;
+        const inputChar = input.characters.find((c) => c.characterId === charId) as any;
+        if (
+          groupCharIds.has(charId) ||
+          (charNamePre && groupCharIds.has(`name:${charNamePre}`)) ||
+          inputChar?.isGroup === true
+        ) {
+          console.log(`[RenPyBuilder] Skipping sprite entries for group character ${charNamePre} (${charId}) — group tableau belongs to CG/background path`);
+          continue;
+        }
         manifest.assets.character[charId] = {
           characterId: charId,
           expressions: {},
         };
         const charName = characterNameMap.get(charId) || charId;
         const basePrompt = characterPromptMap.get(charId) || (charName ? characterNamePromptMap.get(charName) : undefined);
+        const charGender =
+          characterGenderMap.get(charId) ??
+          characterGenderMap.get(charName) ??
+          inputGenderMap.get(charId) ??
+          inputNameGenderMap.get(charName);
 
         for (const expr of expressions) {
+          // M5: normalization happens at manifest/build time only — the
+          // vn-mapping IR output is left untouched (downstream compat).
+          // `expression` field + file slug use the normalized label; `label`
+          // keeps the original alias for display/traceability.
+          const { label: normExpr, mapped } = normalizeExpression(expr);
+          if (!mapped) {
+            console.warn(`[RenPyBuilder] Unknown expression "${expr}" for character ${charId} (${charName}); using raw name — consider adding it to EXPRESSION_MAP`);
+          }
           let prompt: string;
           if (basePrompt) {
-            prompt = (!expr || expr === "default" || expr === "neutral")
+            prompt = (!normExpr || normExpr === "default" || normExpr === "neutral")
               ? basePrompt
-              : `${basePrompt}, expression: ${expr}`;
+              : `${basePrompt}, expression: ${normExpr}`;
           } else {
-            prompt = `masterpiece, best quality, highres, absurdres, 1girl, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${expr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
+            prompt = `masterpiece, best quality, highres, absurdres, ${genderToken(charId, charName)}, solo, sprite, visual novel, official art, game cg, upper body, waist up, portrait, looking at viewer, ${charName}, expression: ${normExpr || "neutral"}, clean fine lineart, cel shading, simple background, solid white background`;
           }
 
-          manifest.assets.character[charId].expressions[expr] = {
+          manifest.assets.character[charId].expressions[normExpr] = {
             type: "character",
             label: expr,
-            file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(expr)}.png`,
+            file: `char/${sanitizeManifestId(charId)}/${sanitizeManifestId(normExpr)}.png`,
             status: "placeholder",
-            expression: expr,
+            expression: normExpr,
             prompt,
+            ...(charGender ? { gender: charGender as "female" | "male" } : {}),
           };
         }
       }

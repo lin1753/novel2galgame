@@ -81,17 +81,22 @@ export class SceneCollection extends BaseCollection {
 
     if (this.chroma) {
       try {
+        // Deterministic Chroma IDs (issue-tracker A3): mirror the JSON-side id
+        // (chapterId) so re-ingest upserts in place instead of accumulating
+        // scene_rec_<id>_<i>_<Date.now()> duplicates.
+        // ingest() is sync (callers rely on it), so the Chroma write is
+        // fire-and-forget with an explicit catch — same contract as before.
         const vectorRecords: VectorRecord[] = records.map((r, i) => ({
-          id: `scene_rec_${r.id}_${i}_${Date.now()}`,
+          id: r.id,
           vector: vectors[i] ?? [],
           metadata: r.metadata as any,
           updatedAt: new Date().toISOString(),
         }));
-        this.chroma.upsert(vectorRecords).catch(err => {
+        void this.chroma.upsert(vectorRecords).catch((err: unknown) => {
           console.warn("[RAG] ChromaDB upsert failed for scenes:", err);
         });
       } catch (err) {
-        console.warn("[RAG] ChromaDB upsert failed, operating on BaseCollection only:", err);
+        console.warn("[RAG] ChromaDB upsert failed for scenes:", err);
       }
     }
   }

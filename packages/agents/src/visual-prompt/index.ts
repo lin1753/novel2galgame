@@ -1,1 +1,1 @@
-export { runVisualPromptAgent, cleanseVisualPrompt, type VisualPromptInput } from "./visual-prompt-agent.js";
+export { runVisualPromptAgent, cleanseVisualPrompt, GENRE_STYLE_MAP, styleForGenre, detectGenreHint, resolveProjectStyle, type VisualPromptInput, type ProjectStyleSource, type ResolvedProjectStyle, type ProjectStyleSourceKind } from "./visual-prompt-agent.js";

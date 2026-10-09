@@ -1,4 +1,5 @@
 import type { CharacterRef } from "@novel2gal/core";
+import { normalizeExpression } from "@novel2gal/agents";
 
 /** Generate Ren'Py characters.rpy content */
 export function generateCharacters(characters: CharacterRef[]): string {
@@ -55,8 +56,13 @@ export function generateCharacterImagesFromManifest(
     // Base image always — `show id` without an expression must resolve too
     lines.push(`image ${id} = "images/char/${id}/default.png"`);
     if (exprs && exprs.size > 0) {
+      // M5: image tags use normalized labels so they match both the manifest
+      // file slugs and the (normalized) show-statement expressions. The
+      // manifest loop is the source of truth for alias→label mapping; unknown
+      // aliases pass through identically here, so tags stay consistent even
+      // for unmapped names.
       for (const expr of exprs) {
-        const exprId = sanitizeId(expr);
+        const exprId = sanitizeId(normalizeExpression(expr).label);
         lines.push(`image ${id} ${exprId} = "images/char/${id}/${exprId}.png"`);
       }
     }

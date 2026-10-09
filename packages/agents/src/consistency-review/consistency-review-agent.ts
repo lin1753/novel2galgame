@@ -7,6 +7,7 @@ import type {
 } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
+import { loadPrompt } from "../prompt-loader.js";
 
 export interface ChapterConsistencyData {
   chapterId: string;
@@ -22,7 +23,7 @@ export interface ConsistencyReviewInput {
   chapters: ChapterConsistencyData[];
 }
 
-const SYSTEM_PROMPT = `你是一个跨章节一致性审查专家。你的任务是检查一部视觉小说项目中各章节之间的一致性问题。
+export const SYSTEM_PROMPT = `你是一个跨章节一致性审查专家。你的任务是检查一部视觉小说项目中各章节之间的一致性问题。
 
 检查项目:
 1. character_name_conflict: 同一角色在不同章节中使用了不同的规范名 (canonicalName)
@@ -56,6 +57,7 @@ export async function runConsistencyReviewAgent(
   model: string
 ): Promise<AgentResult<ConsistencyReport>> {
   const { projectId, chapters } = input;
+  const systemPrompt = loadPrompt("consistency-review", SYSTEM_PROMPT);
 
   // Build summary of all chapters for the LLM
   const chapterSummaries = chapters.map((ch) => {
@@ -101,7 +103,7 @@ ${chapterSummaries.join("\n\n")}
     const result = await provider.chatJson<{ issues: ConsistencyReport["issues"] }>({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
       temperature: 0.1,

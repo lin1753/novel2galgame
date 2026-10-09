@@ -211,6 +211,7 @@ function ChapterProgressRow({ progress, onCancel }: { progress: ChapterProgress;
     switch (progress.status) {
       case 'completed': return <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
       case 'running': return <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+      case 'retry_scheduled': return <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin" />
       case 'failed': return <AlertCircle className="w-3.5 h-3.5 text-red-400" />
       case 'cancelled': return <XCircle className="w-3.5 h-3.5 text-gray-400" />
       case 'queued': return <Clock className="w-3.5 h-3.5 text-muted-foreground" />
@@ -222,7 +223,7 @@ function ChapterProgressRow({ progress, onCancel }: { progress: ChapterProgress;
       {statusIcon()}
       <span className="font-medium w-20 shrink-0">Ch{progress.chapterIndex + 1}</span>
       <span className="text-muted-foreground flex-1 truncate">{progress.stage}{progress.message ? `: ${progress.message}` : ''}</span>
-      {progress.status === 'running' && (
+      {(progress.status === 'running' || progress.status === 'retry_scheduled') && (
         <button onClick={() => onCancel(progress.chapterId)} className="text-red-400 hover:text-red-300 shrink-0">
           <XCircle className="w-3 h-3" />
         </button>

@@ -6,7 +6,7 @@ import type { createDatabase } from "@novel2gal/storage";
 import { SceneRepository, ProjectRepository, readSceneJson, readChapterJson, writeVisualPromptResult } from "@novel2gal/storage";
 import type { VNScript, FidelityReport, NarrativeParsingResult, AttributionResult, SegmentationResult, VisualPromptResult, Scene } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
-import { runVisualPromptAgent } from "@novel2gal/agents";
+import { runVisualPromptAgent, resolveProjectStyle } from "@novel2gal/agents";
 import { config, resolveModelConfig } from "../config/index.js";
 
 function param(req: Request, key: string): string {
@@ -166,8 +166,16 @@ export function createSceneRoutes(db: ReturnType<typeof createDatabase>, getProv
       const sceneUnits = attrResult.units.filter((u) => unitIds.includes(u.unitId));
       if (sceneUnits.length === 0) return res.status(400).json({ error: "No units found for this scene" });
 
-      const styleTemplate = req.body.styleTemplate ?? "school-romance-anime";
+      // M3: explicit request > project config template > genre-mapped style.
+      // Same precedence as the chapter pipeline via the shared
+      // resolveProjectStyle helper (explicit template > persisted genreHint
+      // > detectGenreHint on PROJECT title + this chapter's text sample).
+      // Chapter titles never participate. Read-only here: fresh detections
+      // are NOT persisted by single-scene reruns — the next full chapter
+      // run persists them (detect once per project).
       const project = projectRepo.getById(projectId);
+      const styleTemplate = req.body.styleTemplate
+        ?? resolveProjectStyle(project, sceneUnits.map((u) => u.originalText ?? "").join("\n").slice(0, 2000)).styleTemplate;
       const resolvedTextModel = resolveModelConfig("text").model;
       const model = req.body.model ?? project?.config?.defaultTextModel ?? resolvedTextModel;
 

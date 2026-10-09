@@ -131,6 +131,12 @@ transform enter_slide_left:
 transform enter_slide_right:
     xoffset 200 alpha 0.0
     ease 0.4 xoffset 0 alpha 1.0
+
+# === Exit Effects (退场动画, DDLC thide equivalent) ===
+transform exit_fade_out:
+    easein 0.25 zoom 0.95 yoffset -20 alpha 0.0
+transform exit_slide_out:
+    easein 0.25 xoffset 200 alpha 0.0
 `;
 
 /** Escape text interpolated into Ren'Py string literals (%/[]/{}/quotes) */

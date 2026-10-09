@@ -42,12 +42,12 @@ Ren'Py Export  Web Preview ← two runtimes, same IR
 Asset Manifest → Asset Producer (Agnes/Flux/GPT Image) → Export
 ```
 
-### 2. IR v1.0 Freeze
+### 2. IR v1.1 (unified 2026-10-03 — do NOT revert to 8)
 
 VN Script IR is the frozen contract between Pipeline and everything else.
-- 8 step types (bg/show/hide/narration/say/thought/pause/transition) — immutable in v1.0
+- 10 step types: bg/show/hide/narration/say/thought/pause/transition + **action + scene_description** (added in v1.1 — these existed in production data since Phase 12-13; the v1.0 8-type enum never parsed real pipeline output). Fidelity issues include **type_mismatch**. Reverting to 8 breaks corpus tests in packages/ir/src/__test__/corpus.test.ts.
 - Zod schema in `packages/ir/` is the authoritative definition
-- Agents only output IR v1.0 fields; new fields require version bump
+- Agents only output IR v1.1 fields; new fields require version bump (v1.1 is additive: ActionStep {characterId?, characterName?, text}, SceneDescriptionStep {participantIds?, text}; transition name/cameraEffect are nullish — LLMs emit null, 16 occurrences in 49 real scripts)
 - Exporters/Editors depend only on IR schema, never on Agent internals
 
 ### 3. Asset Pipeline
@@ -84,7 +84,7 @@ TypeScript monorepo (pnpm workspaces + Turborepo):
 - `packages/agents/` -- 7 AI agent implementations (pipeline core, frozen)
 - `packages/pipeline/` -- LangGraph StateGraph orchestration with checkpoint resume
 - `packages/rag/` -- RAG v2 knowledge retrieval (ChromaDB + BM25 + vector hybrid + reranker)
-- `packages/ir/` -- VN Script IR v1.0 Zod schema (single source of truth)
+- `packages/ir/` -- VN Script IR v1.1 Zod schema (single source of truth; real-data corpus tests committed)
 - `packages/runtime/` -- Web-based VN playback engine (preview runtime)
 - `packages/export/` -- Game export builders (Ren'Py, HTML, etc.)
 - `packages/asset/` -- Asset pipeline (extract manifest → generate images → cache → export)
@@ -110,9 +110,44 @@ AI capability tiers:
 - RAG always initializes locally (bge-small-zh embeddings, CPU-only, BM25 hybrid) — no API key needed.
 - `PORT` (default 3002) and `DATA_DIR` (defaults to `data/`). `dns.setDefaultResultOrder("ipv4first")` in `apps/api/src/index.ts` is load-bearing (proxy/VPN IPv6 TLS issues) — don't remove.
 
+## LangGraph Graph Rules (0.2.74 — verified by packages/pipeline/src/graph/__test__/known-defects.test.ts)
+
+The chapter graph (packages/pipeline/src/graph/) is built around MEASURED 0.2.74 behaviors. These rules are tripwired by characterization tests — an upgrade that changes them fails those tests, which is the signal to remove the workaround WITH the upgrade (never mid-migration). **Do not upgrade LangGraph until stage 4 is done.**
+
+1. **Every node has exactly ONE exit kind** (plain XOR conditional — never both). 0.2.74 executes both if present (D3).
+2. **Send workers never write the `error` state channel.** Failures go into `sceneResults[sceneId].failed`; the bible_commit fan-in gate promotes the first failure to `state.error` after ALL scenes finished, and clears stale errors from previous attempts. (Error-channel writes proved safe in isolation, but the protocol gives deterministic fan-in bookkeeping — keep it.)
+3. **Never pass `maxConcurrency` to invoke/stream.** With Send() workers it SILENTLY DROPS ALL worker state writes (D1 — this single option caused the 2b lost-sceneResults incident). Scene concurrency is the worker-internal `Semaphore` (`deps.sceneConcurrency`, default 3), and queued workers must abort via `acquireWithSignal`.
+4. **checkpointer is a COMPILE-time param** (`compile({ checkpointer })`), not an invoke option (0.2.x API; changed in 0.4+).
+5. **Failed threads are NOT resumable** — a thread whose final state carries `error` short-circuits seed→error_handler on re-invoke. Protocol: cancelled AND failed threads are abandoned; retry = new runId (new thread); branch-level "only the failed scene re-runs" comes from persisted `sceneRepo.mappingStatus` + on-disk artifacts. Crash/timeout-aborted threads (no error in state) CAN resume.
+6. **Interrupt nodes: `interrupt()` must be the FIRST statement** — the whole node body re-executes on resume; code before interrupt() fires twice (external side effects are NOT undone).
+7. **Thread lifecycle:** `projectId:chapterId:runId` per run. Success → immediate cleanup; failed/crashed → retention (default 7d); `waiting_review` → its OWN TTL (default 30d), never swept by the failure reaper. States: running / succeeded / failed / cancelled / waiting_review / orphaned.
+
+## Stage Cache Rules
+
+The per-stage artifact cache (`packages/pipeline/src/stages/stage-cache.ts`) keys on `{stage, stageVersion, inputHash, promptHash, model}` — a version bump invalidates that stage's old artifacts.
+
+- 修改阶段逻辑、输出 schema 或后处理，必须递增 STAGE_VERSIONS 对应阶段版本 (`packages/pipeline/src/stages/types.ts`).
+- Schema drift is tripwired by `packages/pipeline/src/stages/__test__/schema-version-snapshot.test.ts` (hashes in `schema-hashes.json`): a schema change without a version bump fails the test. After bumping, regenerate the snapshot with `UPDATE_SCHEMA_SNAPSHOT=1` and commit it with the change.
+
+## Evidence File Retention (I3, 2026-10-09)
+
+Parse-failure 证据文件（两处产生者，均在 `data/projects/{pid}/logs/`，纯文件系统、不入库）：
+
+- 顶层 `{chapterId}_{stage}_attempt{N}_{ts}.json` — pipeline 侧 `packages/pipeline/src/stages/raw-evidence.ts` `dumpRawEvidence`
+- 子目录 `{chapterId}/parse-failure_{chapterId}_{stage}_attempt{N}_{ISO}.json` — API 侧 `apps/api/src/task-queue/task-queue.ts` `_writeParseFailureEvidence`
+
+三层保留策略（执行器 `pruneEvidenceFiles`，`packages/storage/src/filesystem/evidence-retention.ts`，api 与 pipeline 都从 `@novel2gal/storage` 导入）：
+
+1. **成功即清**：章节终局成功（或 waiting_review）后，队列删除该章两种命名的全部证据 + 清空 `capturedResponses` buffer（`_cleanupChapterEvidence`）。
+2. **每章每阶段最近 3 份**：同 (chapterId, stage) 分组按 mtime 只保留最近 3 份（`keepPerStage` 可调，默认 3），每次证据写入后内联执行（无定时器）。
+3. **项目 logs 总量上限**：默认 50MB，env `N2G_PROJECT_LOGS_MAX_BYTES` 可配；超出时从最旧的证据文件开始删，非证据文件只计数告警、绝不删除。
+
+**隐私警告：证据文件内容含小说原文片段（LLM 原始响应）。分享日志、截图或提 issue 前，不要原样粘贴证据文件内容。**
+
+
 ## Key Design Constraints
 
-- VN scripts use 8 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`
+- VN scripts use 10 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`, `action`, `scene_description`
 - Dialogue retention >= 95%; non-original text <= 5%
 - Three-level state machines: Project / Chapter / Scene
 - Hybrid storage: SQLite indexes + filesystem content
@@ -122,20 +157,22 @@ AI capability tiers:
 
 ## Design Documents
 
-All specs are in the `docs/` directory as `.txt` files. Key documents for implementation:
+Specs live in `docs/` organized by category (see `docs/README.md` for the full index). v1 design specs are `.txt` files in `docs/design/`:
 
 | Document | When to read |
 |----------|-------------|
-| `产品定位与原则` | Before any feature work -- core "what we do / don't do" |
-| `项目目录结构 + 数据结构草案` | Before writing code -- all TypeScript interfaces, SQLite schemas, API routes |
-| `Agent 协作工作流与状态流转设计` | Before implementing agents -- pipeline flow, state machines, cache layers, failure/recovery |
-| `AI 能力分层与模型路由方案` | Before implementing agent calls -- L0-L3 layering, model routing, budget modes, fallbacks |
-| `P0 研发任务拆解` | Task-level implementation plan with acceptance criteria per module |
-| `核心 Agent 评测指标与验收标准` | Evaluation thresholds per agent (e.g., Structure F1 >= 0.95, Attribution >= 0.87) |
-| `本地工作台产品信息架构与页面流程` | UI implementation -- 12 page designs with layouts and interactions |
-| `MVP 功能清单与优先级排期` | P0/P1/P2 feature prioritization across 8 modules |
-| `MVP 范围与里程碑拆解` | 5-phase timeline (12-20 weeks), success criteria, risks |
-| `700+ 恋爱向 txt 小说的数据治理与评测方案` | Data pipeline, dataset curation, Gold Set annotation |
+| `docs/design/产品定位与原则.txt` | Before any feature work -- core "what we do / don't do" |
+| `docs/design/项目目录结构与数据结构草案.txt` | Before writing code -- all TypeScript interfaces, SQLite schemas, API routes |
+| `docs/design/Agent协作工作流与状态流转设计.txt` | Before implementing agents -- pipeline flow, state machines, cache layers, failure/recovery |
+| `docs/design/AI能力分层与模型路由方案.txt` | Before implementing agent calls -- L0-L3 layering, model routing, budget modes, fallbacks |
+| `docs/design/P0研发任务拆解.txt` | Task-level implementation plan with acceptance criteria per module |
+| `docs/design/核心Agent评测指标与验收标准.txt` | Evaluation thresholds per agent (e.g., Structure F1 >= 0.95, Attribution >= 0.87) |
+| `docs/design/本地工作台产品信息架构与页面流程.txt` | UI implementation -- 12 page designs with layouts and interactions |
+| `docs/design/MVP功能清单与优先级排期.txt` | P0/P1/P2 feature prioritization across 8 modules |
+| `docs/design/MVP范围与里程碑拆解.txt` | 5-phase timeline (12-20 weeks), success criteria, risks |
+| `docs/design/700+恋爱向txt小说的数据治理与评测方案.txt` | Data pipeline, dataset curation, Gold Set annotation |
+
+Other key locations: implementation plans + issue tracker in `docs/plans/` (character-bible, issue-tracker-rag-frontend), AI handovers in `docs/handovers/`, audit reports in `docs/audits/`, Galgame industry research in `docs/research/`, SFT training logs in `docs/training/`.
 
 ## MVP Acceptance Targets
 
@@ -182,3 +219,21 @@ Comprehensive code audit across all 12 packages and 2 apps (~22,000 LOC). ~60 bu
 - Pipeline `tasks` table rows leaked on error (no cleanup in catch blocks)
 - Frontend chapter/scene truncation (`slice(0, 20)`) hiding data
 - Various `res.ok` checks missing on API calls, error states not guarded
+
+## Runtime Data Safety (2026-10-07 app.db incident — read before touching data/ or git)
+
+A `git checkout -- data/config/app.db` rolled the live DB back to a 09-02 blob while
+-wal/-shm lingered; the next open replayed foreign WAL frames into the old base →
+cross-lineage SQLITE_CORRUPT. Rules:
+
+- `data/` is git-ignored runtime (DBs, projects, archives). Legit tracked exceptions:
+  `data/prompts/*.md` (E0-synced), `data/eval/*`, `data/evaluation/*` fixtures,
+  `data/config/model-profiles.example.json`. Never `git add` anything else under `data/`.
+- NEVER run against runtime paths: `git checkout -- <path>`, `git restore`, `git clean`,
+  `git reset --hard` (deny rules in `.claude/settings.json` enforce this; do not weaken them).
+- Workspace cleanup: show `git status` + the diff FIRST, get explicit approval before
+  discarding anything.
+- Before touching any `.db` file: stop the API (port 3002) and confirm no process holds
+  the file. `-wal`/`-shm` travel WITH their `.db` — never copy/move/delete one without the others.
+- A fresh `app.db` is auto-created on API start; startup runs `PRAGMA quick_check`
+  (failure → auto-backup + recovery hint, never silent) and `/health` reports integrity.

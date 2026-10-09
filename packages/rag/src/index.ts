@@ -113,12 +113,13 @@ export class KnowledgeStore {
 
   async searchCharacters(queryText: string, limit = 5, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    return this.collections.characters.searchByVector(vector, { topK: limit, projectId });
+    // Chroma-first (A5): HNSW vector search with JSON fallback built in
+    return this.collections.characters.searchByVectorAsync(vector, { topK: limit, projectId });
   }
 
   async searchCharactersHybrid(queryText: string, limit = 5, vectorWeight?: number, projectId?: string): Promise<any[]> {
     const vector = await this.getEmbedding(queryText);
-    
+
     // Dynamic weight adaptation based on user request:
     // If it's a short exact name (e.g. <= 4 chars like "何亦雯" or "何总"), BM25 should dominate (0.1 vector / 0.9 BM25).
     // If it's a scene metaphor or longer description, Vector should dominate (0.8 vector / 0.2 BM25).
@@ -130,8 +131,9 @@ export class KnowledgeStore {
         weight = 0.8; // Metaphor/semantic match
       }
     }
-    
-    return this.collections.characters.searchHybrid(vector, queryText, { topK: limit, vectorWeight: weight, projectId });
+
+    // A5: Chroma-first vector leg + JSON BM25 keyword leg
+    return this.collections.characters.searchHybridAsync(vector, queryText, { topK: limit, vectorWeight: weight, projectId });
   }
 
   async searchCharactersWithRerank(queryText: string, llm: any, model: string, finalK = 3, coarseK = 10, projectId?: string): Promise<any[]> {
@@ -152,12 +154,18 @@ export class KnowledgeStore {
     this.collections.prompts.delete({ projectId: { $eq: projectId } });
   }
 
+  /** Delete every chunk row for one character (JSON + Chroma). Returns JSON-side count. */
+  async deleteCharacterChunks(characterId: string, projectId?: string): Promise<number> {
+    return this.collections.characters.deleteByCharacterId(characterId, projectId);
+  }
+
   async ingestCharacters(chunks: any[], projectId?: string): Promise<void> {
     for (const chunk of chunks) {
       const meta = chunk.metadata ?? {};
       const appearance: string[] = chunk.appearance ?? meta.appearance ?? [];
       const personality: string[] = chunk.personality ?? meta.personality ?? [];
       const relationships: string[] = chunk.relationships ?? meta.relationships ?? [];
+      const gender: string | undefined = chunk.gender ?? meta.gender;
       const chunkType = chunk.type
         ?? (chunk.characterId?.endsWith("_appearance") ? "appearance"
           : chunk.characterId?.endsWith("_relationship") ? "relationship"
@@ -171,7 +179,19 @@ export class KnowledgeStore {
       }
       const contentHashStr = (contentHash >>> 0).toString(36);
       const chapterId = chunk.chapterId ?? meta.chapterId ?? pid ?? "";
+      // M4: bible chunks (type:'bible') reuse this recordId scheme — chapterId
+      // must be the locked firstSeenChapter + stable embedText so re-runs upsert.
+      // CharacterCollection's chunkType union is closed
+      // (identity/appearance/personality/relationship), so the bible marker
+      // travels as metadata.type='bible' + isBible flag, never as a union member.
+      const isBibleChunk = chunkType === "bible" || chunk.isBible === true || meta.isBible === true;
+      const bibleConfidence = chunk.confidence ?? meta.confidence ?? (isBibleChunk ? 1.0 : undefined);
+      // JSON id keeps the content-hash suffix (dedupes same content across
+      // re-runs with slightly different text); Chroma id is the hash-less
+      // canonical scheme shared with ingestChunks + backfill-chroma so all
+      // three write paths converge on the same record.
       const recordId = `${chapterId}_${chunk.characterId}_${chunkType}_${contentHashStr}`;
+      const chromaId = `${chapterId}_${chunk.characterId}_${chunkType}`;
       await this.collections.characters.upsert([{
         id: recordId,
         vector,
@@ -188,7 +208,33 @@ export class KnowledgeStore {
           appearance,
           personality,
           relationships,
+          ...(gender ? { gender } : {}),
+          ...(isBibleChunk ? { chunkType, isBible: true } : {}),
+          ...(bibleConfidence !== undefined ? { confidence: bibleConfidence } : {}),
         },
+      }]);
+      // A5 dual-write: same record into Chroma under the canonical hash-less
+      // id. chromaUpsert is fire-and-forget; a Chroma outage never blocks.
+      (this.collections.characters as any).chromaUpsert?.([{
+        id: chromaId,
+        vector,
+        metadata: {
+          type: chunkType,
+          projectId: pid,
+          characterId: chunk.characterId,
+          canonicalName: chunk.canonicalName,
+          chapterId,
+          firstSeenIn: chunk.firstSeenIn ?? meta.firstSeenIn,
+          embedText,
+          text: chunk.text ?? embedText,
+          appearance,
+          personality,
+          relationships,
+          ...(gender ? { gender } : {}),
+          ...(isBibleChunk ? { chunkType, isBible: true } : {}),
+          ...(bibleConfidence !== undefined ? { confidence: bibleConfidence } : {}),
+        },
+        updatedAt: new Date().toISOString(),
       }]);
     }
   }
@@ -197,19 +243,34 @@ export class KnowledgeStore {
     for (const chunk of chunks) {
       const embedText = chunk.embedText ?? `${chunk.chapterTitle} 场景数:${chunk.sceneCount}`;
       const vector = await this.getEmbedding(embedText);
-      await this.collections.scenes.upsert([{
+      const record = {
         id: chunk.chapterId,
         vector,
         updatedAt: new Date().toISOString(),
         metadata: {
+          type: "scene_pattern",
           chapterId: chunk.chapterId,
           chapterTitle: chunk.chapterTitle,
           sceneCount: chunk.sceneCount,
           locationHints: chunk.locationHints ?? [],
           characterDistribution: chunk.characterDistribution ?? {},
+          embedText,
           text: embedText,
         },
-      }]);
+      };
+      // JSON store
+      this.collections.scenes.upsert([record]);
+      // A5 dual-write: same id (chapterId) into Chroma, fire-and-forget.
+      const scenes = this.collections.scenes as any;
+      if (scenes.chroma) {
+        try {
+          void scenes.chroma.upsert([record]).catch((err: unknown) => {
+            console.warn("[RAG] ChromaDB scene dual-write failed (JSON stays source for this run):", err);
+          });
+        } catch (err) {
+          console.warn("[RAG] ChromaDB scene dual-write failed (JSON stays source for this run):", err);
+        }
+      }
     }
   }
 

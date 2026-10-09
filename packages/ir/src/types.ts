@@ -14,3 +14,5 @@ export type SayStep = z.infer<typeof import("./schema.js").SayStepSchema>;
 export type ThoughtStep = z.infer<typeof import("./schema.js").ThoughtStepSchema>;
 export type PauseStep = z.infer<typeof import("./schema.js").PauseStepSchema>;
 export type TransitionStep = z.infer<typeof import("./schema.js").TransitionStepSchema>;
+export type ActionStep = z.infer<typeof import("./schema.js").ActionStepSchema>;
+export type SceneDescriptionStep = z.infer<typeof import("./schema.js").SceneDescriptionStepSchema>;

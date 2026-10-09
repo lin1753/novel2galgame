@@ -1,5 +1,5 @@
 import type { ProjectConfig, ProjectState, SceneState, TaskType } from "@novel2gal/core";
-import { extractCharactersFromUnits } from "@novel2gal/core";
+import { extractCharactersFromUnits, CanonicalEntityResolver } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import {
   initProjectDirs,
@@ -14,109 +14,76 @@ import {
   writeCharacterProfiles,
   readCharacterProfiles,
   createDatabase,
-  readChapterJson,
-  readAttributionResult,
-  readSegmentationResult,
-  readSceneJson,
 } from "@novel2gal/storage";
 import {
   runStructureAgent,
-  runNarrativeParsingAgent,
-  runAttributionAgent,
-  runSceneSegmentationAgent,
-  runVNMappingAgent,
-  runFidelityReviewAgent,
-  runVisualPromptAgent,
+  runConsistencyReviewAgent,
+  resolveProjectStyle,
 } from "@novel2gal/agents";
-import type { AgentResult } from "@novel2gal/agents";
+import {
+  runNarrativeStage,
+  runAttributionStage,
+  runSegmentationStage,
+  runVNMappingStage,
+  runFidelityStage,
+  runVisualPromptStage,
+  createRunAccumulator,
+  recordStageResult,
+  addRunTokens,
+  writeRunManifestSafe,
+} from "@novel2gal/pipeline";
+import {
+  withStageCache,
+  inputHashOf,
+  promptHashFor,
+  buildSubHashes,
+} from "@novel2gal/pipeline/stages/stage-cache";
+import type { InputSubHashes } from "@novel2gal/pipeline/stages/stage-cache";
+import {
+  narrativeOutputSchema,
+  attributionOutputSchema,
+  segmentationOutputSchema,
+  vnMappingOutputSchema,
+  fidelityOutputSchema,
+  visualPromptOutputSchema,
+} from "@novel2gal/pipeline/stages/schemas";
+import { STAGE_VERSIONS } from "@novel2gal/pipeline/stages/types";
+import type { CacheStageType, StageCtx } from "@novel2gal/pipeline/stages/types";
+import { DIR_NAMES, FILE_NAMES } from "@novel2gal/core";
 import { v4 as uuid } from "uuid";
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 const now = () => new Date().toISOString();
 
+// M4: group-tableau detection (plan §3.6.4). Names that denote a crowd rather
+// than a single sprite-able character. The attribution post-process sets
+// (char as any).isGroup; RenPyBuilder skips flagged IDs for sprite entries.
+const GROUP_NAME_RE = /^(众|诸|大家|.*豪杰|人群|众人|弟子们|观众)/;
+const GROUP_NAME_CONTAINS_RE = /豪杰|众人|大家/;
+function isGroupCharacterName(name: string, gender: unknown): boolean {
+  if (!name) return false;
+  if (GROUP_NAME_RE.test(name)) return true;
+  if ((gender === undefined || gender === "unknown") && GROUP_NAME_CONTAINS_RE.test(name)) return true;
+  return false;
+}
+function markGroupFlag(char: any): void {
+  if (!char || (char as any).isGroup) return;
+  if (isGroupCharacterName(char.canonicalName ?? "", (char as any).gender)) {
+    (char as any).isGroup = true;
+    console.log(`[M4] Group character flagged: ${char.canonicalName} (${char.characterId}) — routes to CG/background path, no solo sprite`);
+  }
+}
+
 /** Metrics collected during a single agent call */
 interface CallMetrics { durationMs: number; promptTokens: number; completionTokens: number; retryCount: number }
 
-/** Wrap an agent call: throw on recoverable failure so withRetry catches it */
-function retryable<T>(fn: () => Promise<AgentResult<T>>): () => Promise<T> {
-  return async () => {
-    const result = await fn();
-    if (!result.success || !result.data) {
-      // Socket hang up, timeout, 5xx → recoverable (retry)
-      // Bad schema, missing fields → hard (no retry)
-      const isRetryable = result.failureLevel !== "hard" && (
-        result.failureLevel === "recoverable" ||
-        result.errorMessage?.includes("socket hang up") ||
-        result.errorMessage?.includes("timeout") ||
-        result.errorMessage?.includes("ETIMEDOUT") ||
-        result.errorMessage?.includes("ECONNRESET") ||
-        result.errorMessage?.includes("ECONNREFUSED") ||
-        result.errorMessage?.includes("LLM API error 5") ||
-        result.errorMessage?.includes("LLM returned invalid structure") ||
-        result.errorMessage?.includes("is not valid JSON") ||
-        result.errorMessage?.includes("Unterminated") ||
-        result.errorMessage?.includes("truncated") ||
-        result.errorMessage?.includes("Expected ','") ||
-        result.errorMessage?.includes("JSON")
-      );
-      const err = new Error(`${result.failureLevel ?? "unknown"}: ${result.errorMessage}`);
-      (err as any).retryable = isRetryable;
-      throw err;
-    }
-    return result.data;
-  };
-}
-
-/** Retry an async function with exponential backoff.
- *  Only retries on transient errors (network, timeout, 5xx, recoverable agent failures). */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  opts?: { maxRetries?: number; baseDelayMs?: number; label?: string; signal?: AbortSignal }
-): Promise<T> {
-  const maxRetries = opts?.maxRetries ?? 3;
-  const baseDelay = opts?.baseDelayMs ?? 5000;
-  const label = opts?.label ?? "operation";
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (opts?.signal?.aborted) {
-      throw new DOMException("Aborted", "AbortError");
-    }
-    try {
-      return await fn();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isAbort = (err instanceof Error && err.name === "AbortError") || msg.includes("ABORTED") || opts?.signal?.aborted;
-      if (isAbort) {
-        throw err;
-      }
-
-      const isRetryable = (err as any)?.retryable === true;
-      const isTransient = isRetryable ||
-        msg.includes("socket hang up") ||
-        msg.includes("socket disconnected") ||
-        msg.includes("TLS connection") ||
-        msg.includes("timeout") ||
-        msg.includes("ETIMEDOUT") ||
-        msg.includes("ECONNRESET") ||
-        msg.includes("ECONNREFUSED") ||
-        msg.includes("ENOTFOUND") ||
-        msg.includes("EPIPE") ||
-        msg.includes("JSON") ||
-        msg.includes("Unterminated");
-
-      console.log(`[Retry] ${label} attempt ${attempt + 1}/${maxRetries + 1}: isRetryable=${isRetryable}, isTransient=${isTransient}, msg=${msg.slice(0, 120)}`);
-
-      if (attempt === maxRetries || !isTransient) throw err;
-
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.log(`[Retry] ${label} retrying in ${delay}ms...`);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw new Error("unreachable");
-}
+/**
+ * 2c retry convergence: retryable()/withRetry() DELETED — the provider is
+ * the single retry home (transport: requestWithRetry with Retry-After +
+ * token bucket; semantic: chatJson's explicit SEMANTIC_ATTEMPTS loop).
+ * runAgentWithMetrics now awaits the stage function directly.
+ */
 
 /** Run tasks with concurrency limit */
 async function parallelLimit<T>(
@@ -153,8 +120,21 @@ function instrumentProvider(p: LLMProvider, onResponse: (r: any) => void, signal
   };
 }
 
-/** Run an agent with observability + cache support */
-async function runAgentWithMetrics(opts: {
+/**
+ * Run an agent with observability + stage-cache.
+ *
+ * Stage-3 Phase 2 (legacy side): `withStageCache` is the ONLY hit path — the
+ * old tasks-table key lookup and the `dataDir/cache/` file copy are
+ * deleted. The tasks table keeps audit rows (running → succeeded/failed) but
+ * is never consulted for hits. `onChapterFlags` / scene `updateStatus`
+ * backfills happen at the call sites unconditionally (hit or miss).
+ *
+ * 2c retry convergence: NO orchestration-level retry — transport (429/
+ * socket/5xx) and semantic retries live in the provider. The retryable()
+ * classification ladder is gone with it; worst-case per agent call is
+ * now provider-bounded (see packages/pipeline retry-audit).
+ */
+async function runAgentWithMetrics<T>(opts: {
   type: TaskType;
   projectId: string;
   chapterId: string;
@@ -163,74 +143,74 @@ async function runAgentWithMetrics(opts: {
   model: string;
   signal?: AbortSignal;
   db: ReturnType<typeof createDatabase>;
-  fn: () => Promise<AgentResult<any>>;
+  fn: () => Promise<T>;
   label: string;
   tokenAcc?: { prompt: number; completion: number };
-  dataDir?: string;
-  cacheHint?: string;
-}): Promise<any> {
+  cache: {
+    stage: CacheStageType;
+    stageVersion: number;
+    artifactPath: string;
+    outputSchema: { parse: (raw: unknown) => T };
+    inputHash: string;
+    inputSubHashes?: InputSubHashes;
+    sceneId?: string;
+    promptHash: string;
+    ctx?: StageCtx;
+    keepDegraded?: boolean;
+  };
+}): Promise<{ data: T; cached: boolean; degraded?: string }> {
   if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
   const taskId = `task_${uuid().replace(/-/g, "").slice(0, 12)}`;
   const startedAt = Date.now();
-  let retryCount = 0;
 
-  // ── Cache check ──
-  const cacheKey = opts.cacheHint
-    ? crypto.createHash("sha256").update(`${opts.chapterId}|${opts.type}|${opts.model}|${opts.cacheHint}`).digest("hex")
-    : null;
-
-  if (cacheKey && opts.db) {
-    const cached = opts.db.prepare(
-      "SELECT output_path FROM tasks WHERE input_hash = ? AND status = 'succeeded' AND type = ? AND chapter_id = ? ORDER BY finished_at DESC LIMIT 1"
-    ).get(cacheKey, opts.type, opts.chapterId) as { output_path: string } | undefined;
-
-    if (cached?.output_path && fs.existsSync(cached.output_path)) {
-      console.log(`[Cache] HIT ${opts.type} for ${opts.chapterId}`);
-      opts.db.prepare(
-        `INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at, finished_at, duration_ms, retry_count, input_hash, output_path)
-         VALUES (?, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, 0, 0, ?, ?)`
-      ).run(taskId, opts.projectId, opts.chapterId, opts.type, opts.provider.name, opts.model, opts.stageOrder, now(), now(), cacheKey, cached.output_path);
-      return JSON.parse(fs.readFileSync(cached.output_path, "utf-8"));
-    }
-  }
-
-  // ── Normal execution ──
+  // ── Audit row only (never a hit basis) ──
   opts.db?.prepare(`INSERT INTO tasks (task_id, project_id, chapter_id, type, status, provider, model, stage_order, started_at)
     VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)`)
     .run(taskId, opts.projectId, opts.chapterId, opts.type, opts.provider.name, opts.model, opts.stageOrder, now());
 
   try {
-    const data = await withRetry(
-      retryable(() => {
-        if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        retryCount++;
-        return opts.fn();
-      }),
-      { label: opts.label, signal: opts.signal }
+    if (opts.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const result = await withStageCache<T>(
+      {
+        stage: opts.cache.stage,
+        stageVersion: opts.cache.stageVersion,
+        artifactPath: opts.cache.artifactPath,
+        outputSchema: opts.cache.outputSchema,
+        inputHash: opts.cache.inputHash,
+        ...(opts.cache.inputSubHashes ? { inputSubHashes: opts.cache.inputSubHashes } : {}),
+        ...(opts.cache.sceneId !== undefined ? { sceneId: opts.cache.sceneId } : {}),
+        promptHash: opts.cache.promptHash,
+        model: opts.model,
+        ctx: opts.cache.ctx,
+        keepDegraded: opts.cache.keepDegraded,
+      },
+      opts.fn,
     );
 
     const durationMs = Date.now() - startedAt;
-    const actualRetries = Math.max(0, retryCount - 1);
-
-    let outputPath: string | null = null;
-    if (cacheKey && opts.dataDir) {
-      const cacheDir = path.join(opts.dataDir, "cache", opts.projectId);
-      fs.mkdirSync(cacheDir, { recursive: true });
-      outputPath = path.join(cacheDir, `${opts.type}_${opts.chapterId}_${opts.stageOrder}.json`);
-      fs.writeFileSync(outputPath, JSON.stringify(data), "utf-8");
+    if (result.cached) {
+      console.log(`[Cache] HIT ${opts.type} for ${opts.chapterId}${result.degraded ? ` (degraded ${result.degraded} reused)` : ""}`);
     }
 
-    opts.db?.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, input_hash=?, output_path=? WHERE task_id=?`)
-      .run(now(), durationMs, actualRetries, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, cacheKey, outputPath, taskId);
+    // Audit row only: the tasks-table key columns are NEVER written here —
+    // the stage-cache meta sidecar is the single key home (C1 grep gate).
+    opts.db?.prepare(`UPDATE tasks SET status='succeeded', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=? WHERE task_id=?`)
+      .run(now(), durationMs, 0, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, taskId);
 
-    return data;
+    return { data: result.data, cached: result.cached, ...(result.degraded ? { degraded: result.degraded } : {}) };
   } catch (err) {
     const durationMs = Date.now() - startedAt;
-    const actualRetries = Math.max(0, retryCount - 1);
     const msg = err instanceof Error ? err.message : String(err);
-    opts.db?.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=? WHERE task_id=?`)
-      .run(now(), durationMs, actualRetries, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg.slice(0, 500), taskId);
+    // tasks.error_message is TEXT: store the FULL message (ch1 lesson). The
+    // rethrow below keeps the full error for the caller's DB/SSE split.
+    // W2: parse-failure evidence path → tasks.output_path (the file itself is
+    // filesystem-only; the PATH in the task row is the record-keeping the
+    // acceptance asks for).
+    const evidencePath =
+      (err as { evidencePath?: string | null } | null)?.evidencePath ?? null;
+    opts.db?.prepare(`UPDATE tasks SET status='failed', finished_at=?, duration_ms=?, retry_count=?, prompt_tokens=?, completion_tokens=?, error_message=?, output_path=? WHERE task_id=?`)
+      .run(now(), durationMs, 0, opts.tokenAcc?.prompt ?? 0, opts.tokenAcc?.completion ?? 0, msg, evidencePath, taskId);
     throw err;
   }
 }
@@ -239,7 +219,11 @@ export function createDefaultConfig(): ProjectConfig {
   return {
     fidelityMode: "standard",
     segmentationMode: "standard",
-    visualStyleTemplate: "school-romance-anime",
+    // Empty = "let the pipeline detect genre" (M3). The chapter pipeline
+    // resolves empty/'default' via detectGenreHint → styleForGenre and
+    // persists the detected genreHint. 'school-romance-anime' stays
+    // available as an explicit override via project config.
+    visualStyleTemplate: "",
     budgetMode: "balanced",
     autoRunVisualPrompt: true,
     autoRunConsistencyReview: false,
@@ -274,7 +258,7 @@ export async function runChapterPipeline(
   chapterText: string,
   provider: LLMProvider,
   model: string,
-  onProgress?: (stage: string, message: string) => void,
+  onProgress?: (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) => void,
   agentModels?: AgentModelConfig,
   onSceneCreated?: (scene: SceneState, sceneIndex: number) => void,
   existingChapterId?: string,
@@ -282,13 +266,35 @@ export async function runChapterPipeline(
   signal?: AbortSignal,
   db?: ReturnType<typeof createDatabase>,
   onStageUpdate?: (stage: string) => void,
-  flagsDone?: { parsingDone?: boolean; attributionDone?: boolean; segmentationDone?: boolean },
   sceneRepo?: { getById: (id: string) => { mappingStatus?: string; reviewStatus?: string } | null },
   rag?: { knowledgeStore: { searchCharacters: (q: string, l: number) => Promise<any[]>; searchCharactersHybrid?: (q: string, l: number, w: number) => Promise<any[]>; searchCharactersWithRerank?: (q: string, llm: any, m: string, k: number, c: number) => Promise<any[]>; searchScenePatterns: (q: string, l: number) => Promise<any[]>; listKnownCharacters: () => string[]; ingestCharacters: (c: any[], projectId?: string) => Promise<void>; ingestScenePatterns: (c: any[]) => Promise<void> }; extractor: { extractCharacterKnowledge: (attr: any, chId: string, chTitle: string) => any[]; extractScenePatterns: (seg: any, attr: any, chId: string, chTitle: string) => any } },
 ) {
   const chapterId = existingChapterId ?? `${project.projectId}_chapter_${String(chapterIndex + 1).padStart(4, "0")}`;
   const d = db!; // db is always passed from the route
   const checkAbort = () => { if (signal?.aborted) throw new Error("ABORTED: Pipeline cancelled by user"); };
+
+  // Stage-3 Phase 4: one accumulator per chapter run (graph-parity caliber).
+  // Stats are recorded at each runAgentWithMetrics RETURN (same numbers
+  // withStageCache would bump into a shared ctx — the cache ctxs below carry
+  // tokenAcc for correct meta sidecars but deliberately NO stats bucket, so
+  // nothing is double-counted). Tokens ride the per-stage t-objects and fold
+  // at the same return sites; failed-but-spent paths (fidelity/visual-prompt
+  // catches) fold explicitly. degradedStages collects the explicit markers.
+  const runStats = createRunAccumulator();
+  const degradedStages: string[] = [];
+
+  // Stage-3 cache artifact paths: the existing on-disk layout (chapter dir /
+  // scene dir). The cache meta sidecar lives next to each artifact.
+  const chapterArtifactPath = (fileName: string): string =>
+    path.join(dataDir, "projects", project.projectId, DIR_NAMES.chapters, chapterId, fileName);
+  const sceneArtifactPath = (sceneId: string, fileName: string): string =>
+    path.join(dataDir, "projects", project.projectId, DIR_NAMES.scenes, sceneId, fileName);
+  // Scene-level input convention (graph parity): sceneId + a hash of the FULL
+  // scene content (scene object + the scene's units); extra LLM-input fields
+  // (mappingMode/repairContext/vnScript/characters/styleTemplate/knowledge)
+  // join the assembled input so any drift invalidates exactly affected scenes.
+  const sceneInputHash = (sceneId: string, scene: unknown, sceneUnits: unknown, extra?: Record<string, unknown>): string =>
+    inputHashOf({ sceneId, sceneContentHash: inputHashOf({ scene, units: sceneUnits }), ...(extra ?? {}) });
 
   // Save chapter source
   writeChapterSource(dataDir, project.projectId, chapterId, {
@@ -317,53 +323,52 @@ export async function runChapterPipeline(
     } catch (e) { /* silent */ }
   }
 
+  // Stage 1: Narrative Parsing — withStageCache is the ONLY hit path; a cache
+  // hit reuses the on-disk artifact (zero LLM calls), a miss recomputes and
+  // rewrites it. `*_done` flags below are cache-hit backfills (read-only
+  // derived display), never a skip basis.
   let narrativeData: any;
-  if (flagsDone?.parsingDone) {
-    narrativeData = readChapterJson(dataDir, project.projectId, chapterId, "narrative_units.json");
-    onProgress?.("narrative_parsing", "Skipped (already done)");
-  } else {
+  {
     checkAbort();
-    onProgress?.("narrative_parsing", `Parsing chapter ${chapterTitle}`);
     onStageUpdate?.("narrative_parsing");
 
     const narr = resolveAgent(agentModels, "narrative", provider, model);
     const t0 = { prompt: 0, completion: 0 };
-    const wNarr = instrumentProvider(narr.provider, (r: any) => { t0.prompt += r.usage?.promptTokens ?? 0; t0.completion += r.usage?.completionTokens ?? 0; }, signal);
-    try {
-      narrativeData = await runAgentWithMetrics({
-        type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
-        provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0, dataDir, cacheHint: chapterText.slice(0, 200),
-        label: `narrative:${chapterId}`,
-        fn: () => runNarrativeParsingAgent({ chapterId, chapterTitle, chapterText }, wNarr, narr.model),
-      });
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      console.warn(`[Pipeline] Narrative parsing fallback triggered for ${chapterId}:`, err);
-      onProgress?.("narrative_parsing", "触发规则分段保底转换");
-      const lines = chapterText.split(/\n+/).filter((l) => l.trim().length > 0);
-      narrativeData = {
-        chapterId,
-        units: lines.map((line, lIdx) => ({
-          unitId: `unit_${chapterId.replace("chapter_", "")}_${String(lIdx).padStart(4, "0")}`,
-          chapterId,
-          order: lIdx,
-          type: line.includes("“") || line.includes("”") || line.includes("\"") ? "dialogue" : "narration",
-          originalText: line.trim(),
-          confidence: 0.75,
-        })),
-        overallConfidence: 0.75,
-      };
-    }
+    // Stage function path (stage-1 refactor): same agent, same L0 contract
+    // (agents embed the fallback), plus schema validation + degraded marker.
+    const stageInput = { chapterId, chapterTitle, chapterText };
+    const narrRes = await runAgentWithMetrics({
+      type: "narrative_parsing", projectId: project.projectId, chapterId, stageOrder: 0,
+      provider: narr.provider, model: narr.model, signal, db: d, tokenAcc: t0,
+      label: `narrative:${chapterId}`,
+      cache: {
+        stage: "narrative_parsing",
+        stageVersion: STAGE_VERSIONS.narrative_parsing,
+        artifactPath: chapterArtifactPath(FILE_NAMES.narrativeUnits),
+        outputSchema: narrativeOutputSchema,
+        inputHash: inputHashOf(stageInput),
+        inputSubHashes: buildSubHashes([
+          ["chapterText", chapterText],
+          ["chapterTitle", chapterTitle],
+        ]),
+        promptHash: promptHashFor("narrative-parsing"),
+      },
+      fn: () => runNarrativeStage(
+        stageInput,
+        narr,
+        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t0, dataDir },
+      ),
+    });
+    recordStageResult(runStats, narrRes, t0, degradedStages);
+    narrativeData = narrRes.data;
     writeNarrativeResult(dataDir, project.projectId, chapterId, narrativeData);
     onChapterFlags?.(chapterId, { parsingDone: true });
   }
 
   // Stage 2: Attribution
+  // Stage 2: Attribution — withStageCache is the ONLY hit path (see Stage 1 note).
   let attributionData: any;
-  if (flagsDone?.attributionDone) {
-    attributionData = readAttributionResult(dataDir, project.projectId, chapterId);
-    onProgress?.("attribution", "Skipped (already done)");
-  } else {
+  {
     checkAbort();
     onProgress?.("attribution", `Attributing chapter ${chapterTitle}`);
     onStageUpdate?.("attribution");
@@ -391,42 +396,124 @@ export async function runChapterPipeline(
       } catch (e) { /* silent */ }
     }
 
-    try {
-      attributionData = await runAgentWithMetrics({
-        type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
-        provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1, dataDir, cacheHint: chapterText.slice(0, 200),
-        label: `attribution:${chapterId}`,
-        fn: () => runAttributionAgent({ chapterId, units: narrativeData.units, characterKnowledge }, wAttr, attr.model),
-      });
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      console.warn(`[Pipeline] Attribution fallback triggered for ${chapterId}:`, err);
-      onProgress?.("attribution", "触发说话人启发式保底转换");
-      attributionData = {
-        chapterId,
-        units: (narrativeData?.units ?? []).map((u: any) => ({
-          ...u,
-          attribution: {
-            speakerId: undefined,
-            actorId: undefined,
-            thinkerId: undefined,
-            participantIds: [],
-            uncertain: true,
-            evidence: ["fallback pass-through"],
-          },
-        })),
-        characters: knownCharacters ?? [],
-        aliasMap: {},
-        uncertainUnitIds: (narrativeData?.units ?? []).map((u: any) => u.unitId),
-        speakerIdToCharId: {},
-      };
-    }
-    writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
-
+    // Stage input = the stage function's FULL input (units + both RAG slots).
+    const attrStageInput = { chapterId, units: narrativeData.units, characterKnowledge, knownCharacters };
+    const attrRes = await runAgentWithMetrics({
+      type: "attribution", projectId: project.projectId, chapterId, stageOrder: 1,
+      provider: attr.provider, model: attr.model, signal, db: d, tokenAcc: t1,
+      label: `attribution:${chapterId}`,
+      cache: {
+        stage: "attribution",
+        stageVersion: STAGE_VERSIONS.attribution,
+        artifactPath: chapterArtifactPath(FILE_NAMES.attributedUnits),
+        outputSchema: attributionOutputSchema,
+        inputHash: inputHashOf(attrStageInput),
+        inputSubHashes: buildSubHashes([
+          ["units", narrativeData.units],
+          ["knownCharacters", knownCharacters],
+          ["characterKnowledge", characterKnowledge],
+        ]),
+        promptHash: promptHashFor("attribution"),
+      },
+      fn: () => runAttributionStage(
+        attrStageInput,
+        attr,
+        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t1, dataDir },
+      ),
+    });
+    recordStageResult(runStats, attrRes, t1, degradedStages);
+    attributionData = attrRes.data;
     // Post-process: extract character list from units if LLM returned empty characters
     if (attributionData && extractCharactersFromUnits(attributionData, knownCharacters)) {
       console.log(`[Attribution] Post-processed ${attributionData.characters.length} characters from units`);
     }
+
+    // M4: CanonicalEntityResolver hookup + mojibake ID guard + group flag.
+    // matched_existing → rewrite characterId to target + merge aliases (units,
+    // aliasMap and speakerIdToCharId remapped); pending_confirmation → warn +
+    // keep original (no auto-merge). Any error → keep original IDs.
+    // Mojibake-suspect IDs warn only, ID is kept.
+    try {
+      const MOJIBAKE_RE = /[^\x00-\x7F一-鿿_a-zA-Z0-9]/;
+      if (Array.isArray(attributionData?.characters)) {
+        let existingProfilesMap: Record<string, any> = {};
+        try {
+          const stored = readCharacterProfiles(dataDir, project.projectId) || {};
+          for (const [cid, prof] of Object.entries<any>(stored)) {
+            if (!prof) continue;
+            existingProfilesMap[cid] = {
+              characterId: (prof as any).characterId ?? cid,
+              canonicalName: (prof as any).canonicalName ?? cid,
+              aliasSet: Array.isArray((prof as any).aliasSet) ? (prof as any).aliasSet : [],
+            };
+          }
+        } catch {}
+        const hasKnownProfiles = Object.keys(existingProfilesMap).length > 0;
+        // Co-occurrence signal: segmentation runs later, so treat this chapter
+        // as one pseudo-scene — distinct speakers here must not merge.
+        const speakerIds = new Set<string>();
+        for (const u of attributionData.units ?? []) {
+          const a = (u as any).attribution ?? {};
+          if (a.speakerId) speakerIds.add(a.speakerId);
+          for (const pid of a.participantIds ?? []) speakerIds.add(pid);
+        }
+        const coScenes = [{
+          sceneId: chapterId,
+          characterIds: attributionData.characters.map((c: any) => c.characterId),
+          speakerIds: Array.from(speakerIds),
+        }];
+        const renames = new Map<string, string>();
+        for (const char of attributionData.characters as any[]) {
+          if (!char?.characterId) continue;
+          if (MOJIBAKE_RE.test(char.characterId)) {
+            console.warn(`[M4] Mojibake-suspect characterId kept as-is: ${char.characterId} (${char.canonicalName ?? "?"}) in ${chapterId} — check aliasMap for duplicates`);
+          }
+          markGroupFlag(char);
+          if (!hasKnownProfiles) continue;
+          const rawId = char.characterId as string;
+          const rawName = (char.canonicalName ?? rawId) as string;
+          const result = CanonicalEntityResolver.resolve(rawName, rawId, existingProfilesMap, { chapterId, scenes: coScenes });
+          if (result.action === "matched_existing" && result.characterId !== rawId) {
+            const target = existingProfilesMap[result.characterId];
+            renames.set(rawId, result.characterId);
+            char.characterId = result.characterId;
+            char.canonicalName = result.canonicalName;
+            const aliases: string[] = Array.isArray(char.aliases) ? char.aliases : (char.aliases = []);
+            if (rawName && rawName !== result.canonicalName && !aliases.includes(rawName)) aliases.push(rawName);
+            if (target && Array.isArray(target.aliasSet)) {
+              for (const a of target.aliasSet) if (a && !aliases.includes(a)) aliases.push(a);
+            }
+            console.log(`[M4] Resolver merged ${rawName} (${rawId}) → ${result.canonicalName} (${result.characterId}): ${result.reason}`);
+          } else if (result.action === "pending_confirmation") {
+            console.warn(`[M4] Resolver pending_confirmation for ${rawName} (${rawId}) → candidate ${result.canonicalName} (${result.characterId}): ${result.reason} — kept original, no auto-merge`);
+          }
+        }
+        if (renames.size > 0) {
+          for (const u of attributionData.units ?? []) {
+            const a = (u as any).attribution;
+            if (!a) continue;
+            if (a.speakerId && renames.has(a.speakerId)) a.speakerId = renames.get(a.speakerId);
+            if (a.actorId && renames.has(a.actorId)) a.actorId = renames.get(a.actorId);
+            if (a.thinkerId && renames.has(a.thinkerId)) a.thinkerId = renames.get(a.thinkerId);
+            if (Array.isArray(a.participantIds)) a.participantIds = a.participantIds.map((p: string) => renames.get(p) ?? p);
+          }
+          if (attributionData.aliasMap) {
+            for (const [k, v] of Object.entries(attributionData.aliasMap)) {
+              if (typeof v === "string" && renames.has(v)) attributionData.aliasMap[k] = renames.get(v)!;
+            }
+          }
+          if (attributionData.speakerIdToCharId) {
+            for (const [k, v] of Object.entries(attributionData.speakerIdToCharId)) {
+              if (typeof v === "string" && renames.has(v)) attributionData.speakerIdToCharId[k] = renames.get(v)!;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[M4] CanonicalEntityResolver hookup failed, kept original IDs:`, e);
+    }
+
+    writeAttributionResult(dataDir, project.projectId, chapterId, attributionData);
 
     onChapterFlags?.(chapterId, { attributionDone: true });
 
@@ -440,25 +527,11 @@ export async function runChapterPipeline(
         }
       } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
     }
-
-    // RAG: ingest new character knowledge
-    if (rag && attributionData && attributionData.characters?.length > 0) {
-      try {
-        const chunks = rag.extractor.extractCharacterKnowledge(attributionData, chapterId, chapterTitle);
-        if (chunks.length > 0) {
-          await rag.knowledgeStore.ingestCharacters(chunks, project.projectId);
-          console.log(`[RAG] Ingested ${chunks.length} character chunks for ${chapterTitle}`);
-        }
-      } catch (e) { console.log(`[RAG] Ingest failed:`, e); }
-    }
   }
 
-  // Stage 3: Scene Segmentation
+  // Stage 3: Scene Segmentation — withStageCache is the ONLY hit path.
   let segResult: any;
-  if (flagsDone?.segmentationDone) {
-    segResult = readSegmentationResult(dataDir, project.projectId, chapterId);
-    onProgress?.("scene_segmentation", "Skipped (already done)");
-  } else {
+  {
     checkAbort();
     onProgress?.("scene_segmentation", `Segmenting chapter ${chapterTitle}`);
     onStageUpdate?.("segmentation");
@@ -479,37 +552,33 @@ export async function runChapterPipeline(
 
     const seg = resolveAgent(agentModels, "segmentation", provider, model);
     const t2 = { prompt: 0, completion: 0 };
-    const wSeg = instrumentProvider(seg.provider, (r: any) => { t2.prompt += r.usage?.promptTokens ?? 0; t2.completion += r.usage?.completionTokens ?? 0; }, signal);
-    try {
-      segResult = await runAgentWithMetrics({
-        type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
-        provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2, dataDir, cacheHint: chapterText.slice(0, 200),
-        label: `segmentation:${chapterId}`,
-        fn: () => runSceneSegmentationAgent({ chapterId, units: attributionData.units }, wSeg, seg.model),
-      });
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      console.warn(`[Pipeline] Scene segmentation fallback triggered for ${chapterId}:`, err);
-      onProgress?.("scene_segmentation", "触发单场景分块保底转换");
-      const units = attributionData?.units ?? [];
-      const allUnitIds = units.map((u: any) => u.unitId);
-      const fallbackScene = {
-        sceneId: "scene_0001",
-        chapterId,
-        indexInChapter: 0,
-        unitIds: allUnitIds,
-        startUnitId: allUnitIds[0] ?? "",
-        endUnitId: allUnitIds[allUnitIds.length - 1] ?? "",
-        boundaryReason: "location_change",
-        summary: { shortSummary: chapterTitle, locationHint: "主场景", moodHint: "常规" },
-        confidence: 0.75,
-      };
-      segResult = {
-        chapterId,
-        scenes: [fallbackScene],
-        sceneUnitMap: { [fallbackScene.sceneId]: allUnitIds },
-      };
-    }
+    // Stage input = the stage function's FULL input (attributed units +
+    // the sceneHints RAG slot).
+    const segStageInput = { chapterId, units: attributionData.units, sceneHints };
+    const segRes = await runAgentWithMetrics({
+      type: "scene_segmentation", projectId: project.projectId, chapterId, stageOrder: 2,
+      provider: seg.provider, model: seg.model, signal, db: d, tokenAcc: t2,
+      label: `segmentation:${chapterId}`,
+      cache: {
+        stage: "scene_segmentation",
+        stageVersion: STAGE_VERSIONS.scene_segmentation,
+        artifactPath: chapterArtifactPath(FILE_NAMES.segmentation),
+        outputSchema: segmentationOutputSchema,
+        inputHash: inputHashOf(segStageInput),
+        inputSubHashes: buildSubHashes([
+          ["units", attributionData.units],
+          ["sceneHints", sceneHints],
+        ]),
+        promptHash: promptHashFor("scene-segmentation"),
+      },
+      fn: () => runSegmentationStage(
+        segStageInput,
+        seg,
+        { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress, tokenAcc: t2, dataDir },
+      ),
+    });
+    recordStageResult(runStats, segRes, t2, degradedStages);
+    segResult = segRes.data;
   }
 
   // Fix scene unitIds: LLM may generate inconsistent IDs, remap by order
@@ -575,6 +644,22 @@ export async function runChapterPipeline(
     }, i);
   }
 
+  // M3 genre-aware style resolution — project-level via resolveProjectStyle.
+  // Precedence: explicit config visualStyleTemplate > persisted genreHint >
+  // fresh detectGenreHint(project.title, chapter-text sample) → styleForGenre.
+  // Detection runs once per project: the first chapter persists genreHint and
+  // later chapters reuse it. Chapter titles NEVER participate.
+  const resolvedProjectStyle = resolveProjectStyle(project, chapterText.slice(0, 2000));
+  const resolvedStyleTemplate = resolvedProjectStyle.styleTemplate;
+  if (resolvedProjectStyle.genreHint && !project.config.genreHint) {
+    project.config.genreHint = resolvedProjectStyle.genreHint;
+    try {
+      writeProjectState(dataDir, project);
+    } catch (e) {
+      console.warn(`[VisualPrompt] Failed to persist detected genreHint:`, e);
+    }
+  }
+
   // Stage 4+5: VN Mapping + Fidelity Review per scene (parallel with concurrency limit)
   const sceneConcurrency = 3;
   const attrUnits = attributionData.units;
@@ -582,100 +667,114 @@ export async function runChapterPipeline(
   const sceneTasks = segResult.scenes.map((scene: any) => async () => {
     checkAbort();
     const sceneUnits = attrUnits.filter((u: any) => scene.unitIds.includes(u.unitId));
-    const sceneState = sceneRepo?.getById(scene.sceneId);
     const sceneIdx = segResult.scenes.indexOf(scene);
+    const sceneExtra = { sceneId: scene.sceneId as string, sceneIndex: sceneIdx, sceneCount: segResult.scenes.length };
+    // Per-scene progress wrapper: stage-internal events inherit sceneExtra (S9).
+    const sceneProgress = (stage: string, message: string, extra?: { sceneId?: string; sceneIndex?: number; sceneCount?: number }) =>
+      onProgress?.(stage, message, { ...sceneExtra, ...extra });
 
-    // VN Mapping — skip if already done
+    // VN Mapping — withStageCache decides. A hit reuses the on-disk script and
+    // rewrites the derived display status; a degraded cached script is a MISS
+    // by default (keepDegraded=false) and recomputes. A degraded mapping is
+    // NOT marked done (branch-retry relies on mappingStatus: a skipped degraded
+    // script would re-fail forever).
     let vnData: any;
-    if (sceneState?.mappingStatus === "done") {
-      try { vnData = readSceneJson(dataDir, project.projectId, scene.sceneId, "vn_script.json"); onProgress?.("vn_mapping", `Skipped ${scene.sceneId} (already mapped)`); } catch {}
-    }
-    if (!vnData) {
+    {
       checkAbort();
-      onProgress?.("vn_mapping", `Mapping scene ${scene.sceneId}`);
+      onProgress?.("vn_mapping", `Mapping scene ${scene.sceneId}`, sceneExtra);
       const vn = resolveAgent(agentModels, "vnMapping", provider, model);
       const tv = { prompt: 0, completion: 0 };
       const wVn = instrumentProvider(vn.provider, (r: any) => { tv.prompt += r.usage?.promptTokens ?? 0; tv.completion += r.usage?.completionTokens ?? 0; }, signal);
-      try {
-        vnData = await runAgentWithMetrics({
-          type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
-          provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv, dataDir,
-          cacheHint: `${scene.sceneId}|${chapterText.slice(0, 200)}`,
-          label: `vn_mapping:${scene.sceneId}`,
-          fn: () => runVNMappingAgent({ sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" }, wVn, vn.model),
-        });
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        console.warn(`[Pipeline] VN mapping fallback triggered for ${scene.sceneId}:`, err);
-        onProgress?.("vn_mapping", `场景 ${scene.sceneId} 触发台词保底转换`);
-        const fallbackSteps: any[] = [];
-        for (let uIdx = 0; uIdx < sceneUnits.length; uIdx++) {
-          const u = sceneUnits[uIdx];
-          if (u.type === "dialogue") {
-            fallbackSteps.push({
-              stepId: `step_${scene.sceneId}_${String(uIdx).padStart(4, "0")}`,
-              type: "say",
-              order: uIdx,
-              characterId: u.attribution?.speakerId ?? "unknown",
-              displayName: u.attribution?.speakerId ?? "角色",
-              text: u.originalText ?? "",
-              sourceUnitIds: [u.unitId],
-            });
-          } else {
-            fallbackSteps.push({
-              stepId: `step_${scene.sceneId}_${String(uIdx).padStart(4, "0")}`,
-              type: "narration",
-              order: uIdx,
-              text: u.originalText ?? "",
-              sourceUnitIds: [u.unitId],
-            });
-          }
-        }
-        vnData = {
+      // mappingMode joins the key (old tasks-cache folded it ad hoc; now part
+      // of the assembled input). repairContext joins on repair rounds.
+      const vnStageInput = { sceneId: scene.sceneId, chapterId, scene, units: sceneUnits, mappingMode: "standard" as const };
+      const vnRes = await runAgentWithMetrics({
+        type: "vn_mapping", projectId: project.projectId, chapterId, stageOrder: 3 + sceneIdx * 2,
+        provider: vn.provider, model: vn.model, signal, db: d, tokenAcc: tv,
+        label: `vn_mapping:${scene.sceneId}`,
+        cache: {
+          stage: "vn_mapping",
+          stageVersion: STAGE_VERSIONS.vn_mapping,
+          artifactPath: sceneArtifactPath(scene.sceneId, FILE_NAMES.vnScript),
+          outputSchema: vnMappingOutputSchema,
+          inputHash: sceneInputHash(scene.sceneId, scene, sceneUnits, { mappingMode: "standard" }),
+          inputSubHashes: buildSubHashes([
+            ["sceneContent", { scene, units: sceneUnits }],
+            ["mappingMode", "standard"],
+            ["repairContext", undefined],
+          ]),
           sceneId: scene.sceneId,
-          chapterId,
-          steps: fallbackSteps,
-          mappingMode: "standard",
-        };
-      }
+          promptHash: promptHashFor("vn-mapping"),
+        },
+        fn: () => runVNMappingStage(
+          vnStageInput,
+          vn,
+          { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tv, dataDir },
+        ),
+      });
+      recordStageResult(runStats, vnRes, tv, degradedStages);
+      vnData = vnRes.data;
       writeVNScript(dataDir, project.projectId, scene.sceneId, vnData);
-      try { (sceneRepo as any)?.updateStatus(scene.sceneId, { mappingStatus: "done" }); } catch {}
+      // Cache-hit backfill of the derived display column (not a skip basis);
+      // degraded mappings never mark done.
+      if (!vnData.degraded) {
+        try { (sceneRepo as any)?.updateStatus(scene.sceneId, { mappingStatus: "done" }); } catch {}
+      }
     }
 
-    // Fidelity — skip if already passed
+    // Fidelity — withStageCache decides. The reviewed script is part of the
+    // assembled input (a repaired script gets a fresh review, never the stale
+    // failed report). Fidelity failure is non-fatal (mark and continue).
     let fidelityPassed = true;
-    if (sceneState?.reviewStatus === "passed") {
-      onProgress?.("fidelity_review", `Skipped ${scene.sceneId} (already reviewed)`);
-    } else {
+    {
       checkAbort();
-      onProgress?.("fidelity_review", `Reviewing scene ${scene.sceneId}`);
+      onProgress?.("fidelity_review", `Reviewing scene ${scene.sceneId}`, sceneExtra);
       const fr = resolveAgent(agentModels, "fidelityReview", provider, model);
       const tf = { prompt: 0, completion: 0 };
       const wFr = instrumentProvider(fr.provider, (r: any) => { tf.prompt += r.usage?.promptTokens ?? 0; tf.completion += r.usage?.completionTokens ?? 0; }, signal);
       try {
-        // Cache key includes the reviewed script's content hash so a different
-        // script (or another scene — scenes used to collide on the same key)
-        // never reuses this review
-        const vnScriptHash = crypto.createHash("sha256").update(JSON.stringify(vnData)).digest("hex").slice(0, 16);
-        const fidelityData = await runAgentWithMetrics({
+        const fidelityStageInput = { sceneId: scene.sceneId, chapterId, vnScript: vnData, originalUnits: sceneUnits };
+        const fidelityRes = await runAgentWithMetrics({
           type: "fidelity_review", projectId: project.projectId, chapterId, stageOrder: 4 + sceneIdx * 2,
-          provider: fr.provider, model: fr.model, signal, db: d, tokenAcc: tf, dataDir,
-          cacheHint: `${scene.sceneId}|${vnScriptHash}`,
+          provider: fr.provider, model: fr.model, signal, db: d, tokenAcc: tf,
           label: `fidelity:${scene.sceneId}`,
-          fn: () => runFidelityReviewAgent({ sceneId: scene.sceneId, chapterId, vnScript: vnData, originalUnits: sceneUnits }, wFr, fr.model),
+          cache: {
+            stage: "fidelity_review",
+            stageVersion: STAGE_VERSIONS.fidelity_review,
+            artifactPath: sceneArtifactPath(scene.sceneId, FILE_NAMES.fidelityReport),
+            outputSchema: fidelityOutputSchema,
+            inputHash: sceneInputHash(scene.sceneId, scene, sceneUnits, { vnScript: vnData }),
+            inputSubHashes: buildSubHashes([
+              ["sceneContent", { scene, units: sceneUnits }],
+              ["vnScript", vnData],
+            ]),
+            sceneId: scene.sceneId,
+            promptHash: promptHashFor("fidelity-review"),
+          },
+          fn: () => runFidelityStage(
+            fidelityStageInput,
+            fr,
+            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tf, dataDir },
+          ),
         });
+        recordStageResult(runStats, fidelityRes, tf, degradedStages);
+        const fidelityData = fidelityRes.data;
         writeFidelityReport(dataDir, project.projectId, scene.sceneId, fidelityData);
         fidelityPassed = fidelityData.passed;
         try { (sceneRepo as any)?.updateStatus(scene.sceneId, { reviewStatus: fidelityPassed ? "passed" : "failed" }); } catch {}
       } catch (err) {
         console.log(`[Fidelity] ${scene.sceneId} failed after retries, continuing: ${err instanceof Error ? err.message.slice(0, 80) : err}`);
+        addRunTokens(runStats, tf);
         fidelityPassed = false;
       }
     }
 
     // Stage 6: Visual Prompt (optional, if autoRunVisualPrompt enabled)
     if (project.config.autoRunVisualPrompt) {
-      onProgress?.("visual_prompt", `Generating visual prompts for scene ${scene.sceneId}`);
+      onProgress?.("visual_prompt", `Generating visual prompts for scene ${scene.sceneId}`, sceneExtra);
+      // Phase 4: token counter hoisted out of the try — a hard stage failure
+      // still folds its partial LLM spend (no stage row counted for it).
+      const tvp = { prompt: 0, completion: 0 };
       try {
         // RAG: retrieve character appearance knowledge for visual prompt consistency
         let characterKnowledge: string | undefined;
@@ -685,8 +784,11 @@ export async function runChapterPipeline(
         try {
           const globalProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
           for (const [cid, prof] of Object.entries(globalProfiles)) {
-            if (prof.basePrompt) {
-              knowledgeParts.push(`角色"${prof.canonicalName || cid}": [全局母版] ${prof.basePrompt}`);
+            const basePrompt = (prof as any).baseline?.basePrompt || (prof as any).basePrompt;
+            if (basePrompt) {
+              const g = (prof as any).gender;
+              const genderTag = g === "female" ? " [性别: 女]" : g === "male" ? " [性别: 男]" : "";
+              knowledgeParts.push(`角色"${(prof as any).canonicalName || cid}"${genderTag}: [全局母版] ${basePrompt}`);
             }
           }
         } catch {}
@@ -698,13 +800,19 @@ export async function runChapterPipeline(
             for (const name of charNames) {
               const results = await rag.knowledgeStore.searchCharacters(name, 3);
               const appearances = new Set<string>();
+              let hitGender: string | undefined;
               for (const r of results ?? []) {
                 if (Array.isArray(r.appearance)) r.appearance.forEach((a: string) => appearances.add(a));
                 else if (typeof r.appearance === "string") appearances.add(r.appearance);
                 if (r.embedText) appearances.add(r.embedText);
+                if (!hitGender && (r.gender === "female" || r.gender === "male")) hitGender = r.gender;
+                else if (!hitGender && typeof r.metadata?.gender === "string" && (r.metadata.gender === "female" || r.metadata.gender === "male")) hitGender = r.metadata.gender;
               }
               if (appearances.size > 0) {
-                knowledgeParts.push(`角色"${name}": ${Array.from(appearances).join("; ")}`);
+                const attrGender = attrCharacters.find((c: any) => c.canonicalName === name)?.gender;
+                const g = hitGender ?? (attrGender === "female" || attrGender === "male" ? attrGender : undefined);
+                const genderTag = g === "female" ? " [性别: 女]" : g === "male" ? " [性别: 男]" : "";
+                knowledgeParts.push(`角色"${name}"${genderTag}: ${Array.from(appearances).join("; ")}`);
               }
             }
           } catch (e) {
@@ -718,38 +826,124 @@ export async function runChapterPipeline(
         }
 
         const vp = resolveAgent(agentModels, "visualPrompt", provider, model);
-        const vpResult = await runVisualPromptAgent(
-          {
+        // Knowledge slots + style template are LLM-input-equivalent: the
+        // assembled characterKnowledge string and the resolved template join
+        // the key (scene content via sceneInputHash); evolving bible profiles
+        // across scenes invalidate exactly the scenes they touch.
+        const vpStageInput = {
+          sceneId: scene.sceneId,
+          chapterId,
+          scene,
+          units: sceneUnits,
+          characters: attrCharacters,
+          styleTemplate: resolvedStyleTemplate,
+          characterKnowledge,
+        };
+        const vpRes = await runAgentWithMetrics({
+          type: "visual_prompt", projectId: project.projectId, chapterId, stageOrder: 5 + sceneIdx * 2,
+          provider: vp.provider, model: vp.model, signal, db: d, tokenAcc: tvp,
+          label: `visual_prompt:${scene.sceneId}`,
+          cache: {
+            stage: "visual_prompt",
+            stageVersion: STAGE_VERSIONS.visual_prompt,
+            artifactPath: sceneArtifactPath(scene.sceneId, FILE_NAMES.visualPrompt),
+            outputSchema: visualPromptOutputSchema,
+            inputHash: sceneInputHash(scene.sceneId, scene, sceneUnits, {
+              characters: attrCharacters,
+              styleTemplate: resolvedStyleTemplate,
+              characterKnowledge,
+            }),
+            inputSubHashes: buildSubHashes([
+              ["sceneContent", { scene, units: sceneUnits }],
+              ["characters", attrCharacters],
+              ["styleTemplate", resolvedStyleTemplate],
+              ["characterKnowledge", characterKnowledge],
+            ]),
             sceneId: scene.sceneId,
-            chapterId,
-            scene,
-            units: sceneUnits,
-            characters: attrCharacters,
-            styleTemplate: project.config.visualStyleTemplate,
-            characterKnowledge,
+            promptHash: promptHashFor("visual-prompt"),
           },
-          vp.provider,
-          vp.model
-        );
-        if (vpResult.success && vpResult.data) {
+          fn: () => runVisualPromptStage(
+            vpStageInput,
+            vp,
+            { projectId: project.projectId, chapterId, chapterIndex, signal, onProgress: sceneProgress, tokenAcc: tvp, dataDir },
+          ),
+        });
+        recordStageResult(runStats, vpRes, tvp, degradedStages);
+        const vpData = vpRes.data;
+        {
+          const vpResult = { success: true as const, data: vpData };
+          if (vpResult.success && vpResult.data) {
           writeVisualPromptResult(dataDir, project.projectId, scene.sceneId, vpResult.data);
 
-          // Update Project-level Global Character Profiles
+          // Update Project-level Global Character Profiles (Master-compatible shape).
+          // Baseline is write-once: only created when no baseline/basePrompt exists yet.
+          // Gender only upgrades unknown->known, never overwrites a known value.
+          // M4: gender contradiction warns (no baseline mutation); isGroup
+          // propagates into the locked profile; newly locked baselines upsert
+          // a type:'bible' chunk (confidence 1.0) for cross-chapter retrieval.
           try {
             const existingProfiles = readCharacterProfiles(dataDir, project.projectId) || {};
             let profilesUpdated = false;
+            const newlyLocked: Array<{ cid: string; profile: any }> = [];
             for (const cp of (vpResult.data.characterPrompts || []) as any[]) {
               if (cp.characterId && (cp.finalPrompt || cp.promptPack?.appearancePrompt)) {
                 const prompt = cp.finalPrompt || cp.promptPack?.appearancePrompt || "";
-                if (prompt && (!existingProfiles[cp.characterId] || !existingProfiles[cp.characterId].basePrompt)) {
+                if (!prompt) continue;
+                const existing = existingProfiles[cp.characterId];
+                const hasBaseline = !!(existing?.baseline?.basePrompt || existing?.basePrompt);
+                const attrChar = attrCharacters.find((c: any) => c.characterId === cp.characterId) as any;
+                const incomingGender = cp.gender === "female" || cp.gender === "male"
+                  ? cp.gender
+                  : attrChar?.gender === "female" || attrChar?.gender === "male"
+                    ? attrChar.gender
+                    : "unknown";
+                const cpIsGroup = (attrChar as any)?.isGroup === true
+                  || isGroupCharacterName(cp.canonicalName || "", incomingGender);
+                if (cpIsGroup) {
+                  console.log(`[M4] Group character flagged: ${cp.canonicalName} (${cp.characterId}) — routes to CG/background path, no solo sprite`);
+                }
+                if (!hasBaseline) {
                   existingProfiles[cp.characterId] = {
                     characterId: cp.characterId,
                     canonicalName: cp.canonicalName || cp.characterId,
+                    aliasSet: existing?.aliasSet ?? [],
+                    gender: incomingGender,
+                    baseline: {
+                      version: 1,
+                      basePrompt: prompt,
+                      firstSeenChapter: chapterId,
+                      lockedAt: new Date().toISOString(),
+                    },
+                    // Legacy readers use top-level basePrompt — keep it in sync on create
                     basePrompt: prompt,
+                    history: existing?.history ?? [],
                     evidence: cp.evidence || [],
                     updatedAt: new Date().toISOString(),
+                    ...(cpIsGroup ? { isGroup: true } : {}),
                   };
                   profilesUpdated = true;
+                  newlyLocked.push({ cid: cp.characterId, profile: existingProfiles[cp.characterId] });
+                } else {
+                  if (
+                    (existing.gender === undefined || existing.gender === "unknown") &&
+                    (incomingGender === "female" || incomingGender === "male")
+                  ) {
+                    existing.gender = incomingGender;
+                    existing.updatedAt = new Date().toISOString();
+                    profilesUpdated = true;
+                  } else if (
+                    (existing.gender === "female" || existing.gender === "male") &&
+                    (incomingGender === "female" || incomingGender === "male") &&
+                    existing.gender !== incomingGender
+                  ) {
+                    // M4 conflict handling: baseline is write-once — warn only, never mutate.
+                    console.warn(`[M4] Gender conflict for ${existing.canonicalName ?? cp.characterId} (${cp.characterId}): locked baseline=${existing.gender} (first seen ${existing.baseline?.firstSeenChapter ?? "?"}) vs incoming=${incomingGender} in ${chapterId} — kept baseline, needs review (possible ID reuse/coref error)`);
+                  }
+                  if (cpIsGroup && (existing as any).isGroup !== true) {
+                    (existing as any).isGroup = true;
+                    existing.updatedAt = new Date().toISOString();
+                    profilesUpdated = true;
+                  }
                 }
               }
             }
@@ -757,14 +951,50 @@ export async function runChapterPipeline(
               writeCharacterProfiles(dataDir, project.projectId, existingProfiles);
               console.log(`[RAG] Updated project character profiles with ${Object.keys(existingProfiles).length} characters`);
             }
+            // M4 profiles → RAG writeback: one stable type:'bible' chunk per
+            // newly locked character. chapterId = locked firstSeenChapter and
+            // embedText = basePrompt + gender + attire are both stable, so the
+            // ingestCharacters recordId scheme
+            // (`${chapterId}_${characterId}_bible_${hash}`) upserts on re-runs.
+            if (newlyLocked.length > 0 && rag) {
+              try {
+                const bibleChunks = newlyLocked.map(({ cid, profile }) => {
+                  const basePrompt: string = profile.baseline?.basePrompt ?? profile.basePrompt ?? "";
+                  const gender: string = profile.gender ?? "unknown";
+                  const attire: string = profile.baseline?.defaultAttire ?? "";
+                  const embedText = [basePrompt, `性别: ${gender}`, attire].filter((s) => s && s.trim().length > 0).join(" | ");
+                  return {
+                    characterId: cid,
+                    canonicalName: profile.canonicalName ?? cid,
+                    type: "bible",
+                    isBible: true,
+                    embedText,
+                    text: embedText,
+                    chapterId: profile.baseline?.firstSeenChapter ?? chapterId,
+                    firstSeenIn: profile.baseline?.firstSeenChapter ?? chapterId,
+                    gender,
+                    confidence: 1.0,
+                    appearance: basePrompt ? [basePrompt] : [],
+                    personality: [],
+                    relationships: [],
+                  };
+                });
+                await rag.knowledgeStore.ingestCharacters(bibleChunks, project.projectId);
+                console.log(`[M4] Wrote back ${bibleChunks.length} bible chunk(s) for ${chapterTitle}`);
+              } catch (e) {
+                console.warn(`[M4] Bible chunk writeback failed:`, e);
+              }
+            }
           } catch (e) {
             console.warn(`[RAG] Failed to update global character profiles:`, e);
           }
         }
-      } catch {
-        onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`);
+          }
+        } catch {
+          onProgress?.("visual_prompt", `Visual prompt failed for ${scene.sceneId}, skipping`, sceneExtra);
+          addRunTokens(runStats, tvp);
+        }
       }
-    }
 
     return { sceneId: scene.sceneId, passed: fidelityPassed };
   });
@@ -834,10 +1064,16 @@ export async function runChapterPipeline(
     }
   } catch {}
 
+  // Stage-3 Phase 4: chapter run-manifest (graph-parity caliber, recorded at
+  // the runAgentWithMetrics returns above). Written once at chapter end;
+  // abort paths throw before reaching here, so no partial manifest.
+  const manifest = writeRunManifestSafe(dataDir, project.projectId, chapterId, runStats, degradedStages);
+
   return {
     chapterId,
     sceneCount: segResult.scenes.length,
     fidelityResults: sceneResults,
     characters: attributionData.characters,
+    manifest,
   };
 }

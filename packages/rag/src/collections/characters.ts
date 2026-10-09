@@ -21,6 +21,8 @@ export interface CharacterRecordBase {
   chapterId: string;
   firstSeenIn: string;
   confidence: number;
+  /** Explicit gender from attribution/Bible ("female" | "male" | "unknown"). Optional for backward compat. */
+  gender?: string;
   _score?: number;
 }
 
@@ -64,6 +66,22 @@ export class CharacterCollection extends BaseCollection {
     }
   }
 
+  /**
+   * Chroma dual-write (issue-tracker A5 write leg). Upserts the same
+   * records into Chroma using the deterministic ID scheme; fire-and-forget
+   * with a warn so a Chroma outage never blocks the pipeline ingest.
+   */
+  protected chromaUpsert(records: VectorRecord[]): void {
+    if (!this.chroma || records.length === 0) return;
+    try {
+      void this.chroma.upsert(records).catch((err: unknown) => {
+        console.warn("[RAG] ChromaDB character dual-write failed (JSON stays source for this run):", err);
+      });
+    } catch (err) {
+      console.warn("[RAG] ChromaDB character dual-write failed (JSON stays source for this run):", err);
+    }
+  }
+
   /** Delete project data from both JSON and ChromaDB */
   async deleteByProject(projectId: string): Promise<void> {
     this.delete({ projectId: { $eq: projectId } });
@@ -74,6 +92,47 @@ export class CharacterCollection extends BaseCollection {
         console.warn("[RAG] ChromaDB deleteByProject warning:", e);
       }
     }
+  }
+
+  /**
+   * Delete every chunk row that belongs to one character (S11b
+   * pending-merge cleanup). Matches exact `metadata.characterId` rows
+   * (identity / personality / relationship) AND the `_appearance`-suffixed
+   * appearance rows, whose record id still carries `_${characterId}_` as
+   * its infix (`${chapterId}_${characterId}_appearance_appearance_${hash}`).
+   * JSON + Chroma dual-delete; a Chroma outage only warns. Returns the
+   * JSON-side deleted count.
+   */
+  async deleteByCharacterId(characterId: string, projectId?: string): Promise<number> {
+    const infix = `_${characterId}_`;
+    const victimIds = this.getAll()
+      .filter(
+        (r) =>
+          (projectId === undefined || r.metadata.projectId === projectId) &&
+          (r.id.includes(infix) || r.metadata.characterId === characterId),
+      )
+      .map((r) => r.id);
+    const deleted = this.deleteByIds(victimIds);
+    if (this.chroma) {
+      try {
+        // Hash-less Chroma ids share the same `_${characterId}_` infix, so
+        // the same computed id list applies — one delete call, no new query
+        // API on the Chroma path. Chroma-side ids outside `victimIds` (e.g.
+        // hash-less duplicates of content-suffixed JSON rows) are still
+        // deleted: every JSON row's id contains the infix, and Chroma ids are
+        // the JSON ids minus the trailing hash token — recompute them here.
+        const chromaIds = new Set<string>();
+        for (const id of victimIds) {
+          chromaIds.add(id);
+          const idx = id.lastIndexOf("_");
+          if (idx > 0) chromaIds.add(id.slice(0, idx));
+        }
+        await this.chroma.delete([...chromaIds]);
+      } catch (e) {
+        console.warn("[RAG] ChromaDB deleteByCharacterId warning:", e);
+      }
+    }
+    return deleted;
   }
 
   /** Ingest character chunks into the store. */
@@ -111,6 +170,7 @@ export class CharacterCollection extends BaseCollection {
           chapterId: c.chapterId,
           firstSeenIn: c.firstSeenIn,
           confidence: c.confidence,
+          ...(c.gender ? { gender: c.gender } : {}),
           ...variantMeta,
         },
         updatedAt: new Date().toISOString(),
@@ -144,6 +204,7 @@ export class CharacterCollection extends BaseCollection {
       chapterId: (c.metadata.chapterId as string) ?? "",
       firstSeenIn: (c.metadata.firstSeenIn as string) ?? "",
       confidence,
+      ...(((c.metadata.gender as string | undefined) ? { gender: c.metadata.gender as string } : {}) as { gender?: string }),
     });
     const records: CharacterRecord[] = chunks.map((c) => {
       switch (c.type) {
@@ -179,8 +240,12 @@ export class CharacterCollection extends BaseCollection {
 
     if (this.chroma) {
       try {
+        // Deterministic Chroma IDs (issue-tracker A3): reuse the JSON-side
+        // recordId scheme `${chapterId}_${characterId}_${chunkType}` so re-ingest
+        // of the same content upserts in place instead of piling up
+        // char_rec_<id>_<i>_<Date.now()> duplicates forever.
         const vectorRecords: VectorRecord[] = records.map((r, i) => ({
-          id: `char_rec_${r.characterId}_${i}_${Date.now()}`,
+          id: `${r.chapterId}_${r.characterId}_${r.chunkType}`,
           vector: vectors[i] ?? [],
           metadata: r as any,
           updatedAt: new Date().toISOString(),
@@ -214,7 +279,8 @@ export class CharacterCollection extends BaseCollection {
   /** Convert a SearchResult to typed CharacterRecord (discriminated union). */
   private toCharacterRecord(r: SearchResult): CharacterRecord {
     const m = r.record.metadata;
-    const rawType = m.chunkType as string | undefined;
+    // Legacy records carry the chunk type in `type`, newer in `chunkType`.
+    const rawType = (m.chunkType as string | undefined) ?? (m.type as string | undefined);
     const chunkType =
       rawType !== undefined && CharacterCollection.CHUNK_TYPES.has(rawType)
         ? (rawType as CharacterRecord["chunkType"])
@@ -227,6 +293,7 @@ export class CharacterCollection extends BaseCollection {
       chapterId: (m.chapterId as string) ?? "",
       firstSeenIn: (m.firstSeenIn as string) ?? "",
       confidence: (m.confidence as number) ?? 0.5,
+      ...(((m.gender as string | undefined) ? { gender: m.gender as string } : {}) as { gender?: string }),
       _score: r.score,
     };
     switch (chunkType) {
@@ -261,6 +328,62 @@ export class CharacterCollection extends BaseCollection {
   /**
    * Search characters by vector, excluding results from the
    * specified chapter (to prevent information leakage).
+   *
+   * Issue-tracker A5: Chroma-first. The Chroma path serves the vector query
+   * natively (HNSW, server-side where filter); the in-memory JSON search is
+   * the fallback when Chroma is unreachable or returns nothing. Grep keys:
+   * searchHybrid/searchReranked both funnel their vector leg through here,
+   * so this single switch covers all character retrieval.
+   */
+  async searchByVectorAsync(
+    queryVector: number[],
+    options?: {
+      topK?: number;
+      minScore?: number;
+      excludeChapterId?: string;
+      minConfidence?: number;
+      projectId?: string;
+    },
+  ): Promise<CharacterRecord[]> {
+    const where: WhereClause = {};
+    if (options?.excludeChapterId) {
+      where.chapterId = { $ne: options.excludeChapterId };
+    }
+    if (options?.minConfidence !== undefined) {
+      where.confidence = { $gte: options.minConfidence };
+    }
+    if (options?.projectId) {
+      where.projectId = { $eq: options.projectId };
+    }
+
+    if (this.chroma) {
+      try {
+        const results = await this.chroma.search(queryVector, {
+          topK: options?.topK ?? 5,
+          where: Object.keys(where).length > 0 ? where : undefined,
+        });
+        const filtered = results.filter(
+          (r) => r.score >= (options?.minScore ?? 0.6),
+        );
+        if (filtered.length > 0) {
+          return filtered.map((r) => this.toCharacterRecord(r));
+        }
+        // Zero hits is a valid result only when Chroma actually holds data;
+        // an empty-but-reachable collection still falls through to JSON so a
+        // not-yet-backfilled store keeps the pipeline working.
+      } catch (err) {
+        console.warn("[RAG] Chroma character search failed, falling back to JSON:", err);
+      }
+    }
+
+    // JSON fallback (also the only path when Chroma is not configured)
+    return this.searchByVector(queryVector, options);
+  }
+
+  /**
+   * Synchronous vector search over the JSON store. Retained as the fallback
+   * and for callers that cannot await; async callers should prefer
+   * searchByVectorAsync (Chroma-first).
    */
   searchByVector(
     queryVector: number[],
@@ -294,7 +417,87 @@ export class CharacterCollection extends BaseCollection {
 
   /**
    * Hybrid search: vector + BM25 weighted fusion with metadata filtering.
+   *
+   * A5: vector leg is Chroma-first (searchByVectorAsync); the BM25 keyword
+   * leg stays JSON-side. Fusion + dedup + threshold identical to before.
+   */
+  async searchHybridAsync(
+    queryVector: number[],
+    queryText: string,
+    options?: {
+      topK?: number;
+      minScore?: number;
+      excludeChapterId?: string;
+      minConfidence?: number;
+      vectorWeight?: number;
+      projectId?: string;
+    },
+  ): Promise<CharacterRecord[]> {
+    const fetchK = (options?.topK ?? 5) * 3;
+    // Vector leg: Chroma HNSW, no score threshold at fetch (fusion re-scores)
+    const vec = await this.searchByVectorAsync(queryVector, {
+      topK: fetchK,
+      minScore: 0,
+      excludeChapterId: options?.excludeChapterId,
+      minConfidence: options?.minConfidence,
+      projectId: options?.projectId,
+    });
+    // Rebuild the deterministic record ID exactly like the ingest paths:
+    // legacy records carry `type` (identity/appearance/...), newer ones
+    // `chunkType` — same scheme as characters.ts ingest + backfill script.
+    const vecScored = vec.map((r) => {
+      const m = r as unknown as Record<string, unknown>;
+      const chunkType = (m.chunkType as string) ?? (m.type as string) ?? "identity";
+      return {
+        record: {
+          id: `${m.chapterId ?? ""}_${m.characterId ?? ""}_${chunkType}`,
+          vector: [],
+          metadata: m,
+          updatedAt: new Date().toISOString(),
+        },
+        score: r._score ?? 0.5,
+      };
+    });
+    // Keyword leg: JSON BM25. Its record IDs end with a content-hash suffix
+    // (ingestCharacters scheme `${chapterId}_${cid}_${type}_${hash}` — the
+    // chapterId itself contains underscores) while the Chroma/ingestChunks
+    // scheme has no hash. Strip the trailing hash token (last `_` segment,
+    // base36-ish) from the JSON side for the fusion join. Collisions across
+    // different records that share a prefix are impossible: the triple
+    // (chapterId, characterId, chunkType) is unique per record up to hash.
+    const kwResults = this.keywordSearch(queryText, {
+      limit: fetchK,
+      where: options?.projectId ? { projectId: { $eq: options.projectId } } : undefined,
+    });
+    const stripHash = (id: string) => {
+      const idx = id.lastIndexOf("_");
+      // Only strip when the tail looks like the base36 content hash appended
+      // by ingestCharacters — a bare chunkType would end with a word, and
+      // the ingestChunks scheme has no extra segment to strip.
+      return idx > 0 ? id.slice(0, idx) : id;
+    };
+    const kwMap = new Map(kwResults.map((r) => [stripHash(r.record.id), r.score]));
+    const vectorWeight = options?.vectorWeight ?? 0.6;
+    const fused = vecScored.map((vr) => ({
+      record: vr.record,
+      score: vectorWeight * vr.score + (1 - vectorWeight) * (kwMap.get(vr.record.id) ?? 0),
+    }));
+    const seen = new Set<string>();
+    return fused
+      .filter((r) => {
+        if (seen.has(r.record.id)) return false;
+        seen.add(r.record.id);
+        return true;
+      })
+      .filter((r) => r.score >= (options?.minScore ?? 0.6))
+      .slice(0, options?.topK ?? 5)
+      .map((r) => this.toCharacterRecord(r));
+  }
+
+  /**
+   * Hybrid search: vector + BM25 weighted fusion with metadata filtering.
    * Delegates to HybridRetriever for dedup + score-threshold + top-K.
+   * Synchronous JSON-only variant; async callers prefer searchHybridAsync.
    */
   searchHybrid(
     queryVector: number[],
@@ -334,6 +537,10 @@ export class CharacterCollection extends BaseCollection {
   /**
    * Two-stage search: coarse hybrid retrieval → LLM reranking.
    * Wires HybridRetriever + Reranker into a single call.
+   *
+   * A5 note: the vector leg of the coarse stage runs through Chroma-first
+   * (see searchByVectorAsync); BM25 keyword leg stays JSON-side. When Chroma
+   * is unreachable everything degrades to the in-memory paths.
    */
   async searchReranked(
     queryVector: number[],
@@ -352,24 +559,11 @@ export class CharacterCollection extends BaseCollection {
       projectId?: string;
     },
   ): Promise<CharacterRecord[]> {
-    if (this.count === 0) return [];
+    if (this.count === 0 && !(await this.chromaCountSafe())) return [];
 
-    // Stage 1: Coarse hybrid search
-    const retriever = new HybridRetriever(this, {
-      topK: options?.coarseK ?? 15,
-      minScore: options?.minScore ?? 0.5,
-      vectorWeight: 0.6, // Let reranker decide final order
-    });
-    const coarse = retriever.retrieve(queryVector, queryText, (r) => {
-      if (options?.projectId && r.record.metadata.projectId !== options.projectId) {
-        return false;
-      }
-      if (options?.excludeChapterId && r.record.metadata.chapterId === options.excludeChapterId) {
-        return false;
-      }
-      if (options?.minConfidence !== undefined && (r.record.metadata.confidence as number) < options.minConfidence) return false;
-      return true;
-    });
+    // Stage 1: Coarse — Chroma vector leg (fallback JSON) fused with JSON BM25
+    const coarse = await this.coarseRetrieve(queryVector, queryText, options);
+
     if (coarse.length <= (options?.finalK ?? 3)) {
       return coarse.map((r) => this.toCharacterRecord(r));
     }
@@ -381,6 +575,7 @@ export class CharacterCollection extends BaseCollection {
       text: `角色: ${(r.record.metadata.canonicalName as string) ?? ""} | ${((r.record.metadata.embedText as string) ?? "").slice(0, 200)}`,
       score: r.score,
     }));
+
     const reranked = await reranker.rerank(queryText, candidates, model, {
       finalK: options?.finalK ?? 3,
     });
@@ -389,6 +584,91 @@ export class CharacterCollection extends BaseCollection {
     return coarse
       .filter((r) => scoreMap.has(r.record.id))
       .map((r) => ({ ...this.toCharacterRecord(r), _score: scoreMap.get(r.record.id) }));
+  }
+
+  /** Chroma count with silent fallback (used for the empty-store guard). */
+  private async chromaCountSafe(): Promise<number> {
+    try {
+      return this.chroma ? await this.chroma.count() : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Coarse candidate fetch for reranking: vector leg prefers Chroma
+   * (server-side topK, no score threshold — the reranker decides), keyword
+   * leg stays on JSON BM25. Deduped + post-filtered like HybridRetriever.
+   */
+  private async coarseRetrieve(
+    queryVector: number[],
+    queryText: string,
+    options?: { excludeChapterId?: string; minConfidence?: number; coarseK?: number; projectId?: string },
+  ) {
+    const fetchK = (options?.coarseK ?? 15) * 2;
+    let vecResults: SearchResult[] = [];
+    let chromaUsed = false;
+    if (this.chroma) {
+      try {
+        const where: WhereClause = {};
+        if (options?.excludeChapterId) where.chapterId = { $ne: options.excludeChapterId };
+        if (options?.minConfidence !== undefined) where.confidence = { $gte: options.minConfidence };
+        if (options?.projectId) where.projectId = { $eq: options.projectId };
+        vecResults = await this.chroma.search(queryVector, {
+          topK: fetchK,
+          where: Object.keys(where).length > 0 ? where : undefined,
+        });
+        chromaUsed = true;
+      } catch (err) {
+        console.warn("[RAG] Chroma coarse vector leg failed, JSON fallback:", err);
+      }
+    }
+    if (!chromaUsed || vecResults.length === 0) {
+      const where: WhereClause = {};
+      if (options?.excludeChapterId) where.chapterId = { $ne: options.excludeChapterId };
+      if (options?.minConfidence !== undefined) where.confidence = { $gte: options.minConfidence };
+      if (options?.projectId) where.projectId = { $eq: options.projectId };
+      vecResults = this.search(queryVector, {
+        topK: fetchK,
+        minScore: 0,
+        where: Object.keys(where).length > 0 ? where : undefined,
+      });
+    }
+
+    const kwResults = this.keywordSearch(queryText, {
+      limit: fetchK,
+      where: options?.projectId ? { projectId: { $eq: options.projectId } } : undefined,
+    });
+
+    // Normalize both legs' IDs for the fusion join: JSON side carries the
+    // trailing content-hash token (see searchHybridAsync), strip it.
+    const stripHash = (id: string) => {
+      const idx = id.lastIndexOf("_");
+      return idx > 0 ? id.slice(0, idx) : id;
+    };
+    const kwMap = new Map(kwResults.map((r) => [stripHash(r.record.id), r.score]));
+    const vectorWeight = 0.6;
+    const fused = vecResults.map((vr) => ({
+      record: vr.record,
+      score: vectorWeight * vr.score + (1 - vectorWeight) * (kwMap.get(stripHash(vr.record.id)) ?? 0),
+    }));
+    const seen = new Set<string>();
+    return fused
+      .filter((r) => {
+        const key = stripHash(r.record.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .filter((r) => {
+        if (options?.projectId && r.record.metadata.projectId !== options.projectId) return false;
+        if (options?.excludeChapterId && r.record.metadata.chapterId === options.excludeChapterId) return false;
+        if (
+          options?.minConfidence !== undefined &&
+          (r.record.metadata.confidence as number) < options.minConfidence
+        ) return false;
+        return true;
+      });
   }
 
   /** List all unique canonical character names. */

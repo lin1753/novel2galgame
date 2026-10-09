@@ -2,6 +2,7 @@ import type { FidelityReport, VNScript, NarrativeUnit } from "@novel2gal/core";
 import type { LLMProvider } from "@novel2gal/providers";
 import type { AgentResult } from "../shared/agent-types.js";
 import { sanitizeForPrompt } from "../shared/normalize.js";
+import { loadPrompt } from "../prompt-loader.js";
 
 export interface FidelityReviewInput {
   sceneId: string;
@@ -10,7 +11,7 @@ export interface FidelityReviewInput {
   originalUnits: NarrativeUnit[];
 }
 
-const SYSTEM_PROMPT = `你是一个视觉小说脚本忠实度审核专家。你的任务是审核 VN 脚本是否忠实于原始小说文本。
+export const SYSTEM_PROMPT = `你是一个视觉小说脚本忠实度审核专家。你的任务是审核 VN 脚本是否忠实于原始小说文本。
 
 检查项:
 - dialogue_rewrite: 对话被改写
@@ -47,7 +48,11 @@ const SYSTEM_PROMPT = `你是一个视觉小说脚本忠实度审核专家。你
       "suggestion": "修复建议"
     }
   ]
-}`;
+}
+
+【强制格式约束】
+你输出的 JSON 字符串值中严禁出现未转义的控制字符和英文双引号 (")！
+如果内容中包含对话，必须将其替换为中文双引号 (“ ”) 或转义为 \\"。绝不允许产生破坏 JSON 语法的格式，否则将导致系统崩溃！`;
 
 export async function runFidelityReviewAgent(
   input: FidelityReviewInput,
@@ -55,6 +60,7 @@ export async function runFidelityReviewAgent(
   model: string
 ): Promise<AgentResult<FidelityReport>> {
   const { sceneId, chapterId, vnScript, originalUnits } = input;
+  const systemPrompt = loadPrompt("fidelity-review", SYSTEM_PROMPT);
 
   const scriptText = vnScript.steps
     .map((s) => {
@@ -86,7 +92,7 @@ ${scriptText}
     const result = await provider.chatJson<Omit<FidelityReport, "sceneId" | "chapterId" | "reviewedAt">>({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
@@ -102,7 +108,6 @@ ${scriptText}
         passed: result.passed ?? false,
         severity: result.severity ?? "critical",
         issues: result.issues ?? [],
-        patchSuggestions: result.patchSuggestions,
         reviewedAt: new Date().toISOString(),
       },
     };
