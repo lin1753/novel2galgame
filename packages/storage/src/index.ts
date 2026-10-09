@@ -36,6 +36,8 @@ export {
   readVNScript,
   readFidelityReport,
 } from "./filesystem/index.js";
+export { pruneEvidenceFiles } from "./filesystem/evidence-retention.js";
+export type { PruneEvidenceOptions, PruneEvidenceResult } from "./filesystem/evidence-retention.js";
 export {
   computeHash,
   cacheLookup,

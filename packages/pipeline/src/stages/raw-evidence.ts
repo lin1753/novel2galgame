@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getProjectPaths } from "@novel2gal/storage";
+import { getProjectPaths, pruneEvidenceFiles } from "@novel2gal/storage";
 
 /**
  * W2: parse-failure evidence dump — preserve the raw LLM/agent output that
@@ -58,6 +58,11 @@ export function dumpRawEvidence(opts: DumpRawEvidenceOpts): string | null {
         ? text.slice(0, MAX_EVIDENCE_CHARS) + TRUNCATION_MARKER
         : text;
     fs.writeFileSync(filePath, body, "utf-8");
+    // I3: retention runs inline right after the write (no timer): the per-
+    // (chapter × stage) 3-newest rule + project 50MB cap are enforced inside
+    // pruneEvidenceFiles across BOTH evidence namings under the logs root —
+    // this top-level file AND any {chapterId}/parse-failure_*.json siblings.
+    pruneEvidenceFiles(logsDir);
     return filePath;
   } catch (err) {
     console.warn(

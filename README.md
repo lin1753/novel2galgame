@@ -340,6 +340,21 @@ curl -X POST http://localhost:3002/videos/generate -d '{"prompt":"sunset beach s
 
 **质量审计:** 2026-08-16 完成全量代码审计(12 packages + 2 apps,~22,000 LOC),3 轮审查修复 ~60 处隐形 bug(RAG 跨项目隔离、管线状态管理、Ren'Py 导出崩溃等)。详见 [PROGRESS.md](PROGRESS.md) Phase 10。
 
+## 🗄️ 证据文件与日志保留
+
+管线失败时会将 LLM 原始响应写为"证据文件"用于诊断,位置在 `data/projects/{pid}/logs/`(纯文件系统,不入数据库):
+
+- 顶层 `{chapterId}_{stage}_attempt{N}_{ts}.json` — 阶段输出未通过 schema 校验时转储(pipeline 侧)
+- `{chapterId}/parse-failure_{chapterId}_{stage}_attempt{N}_{ISO}.json` — 章节解析失败时转储(API 侧)
+
+三层保留策略(执行器 `pruneEvidenceFiles`,见 `packages/storage/src/filesystem/evidence-retention.ts`):
+
+1. **成功即清** — 章节终局成功后,该章的全部证据文件与内存缓冲立即清理;
+2. **失败留证** — 失败章节按 (章节 × 阶段) 分组,每组只保留最近 3 份(按修改时间,可调);
+3. **总量上限** — 每个项目 logs 目录总量默认 50MB,超出时从最旧证据开始清理;可用环境变量 `N2G_PROJECT_LOGS_MAX_BYTES` 自定义。
+
+> ⚠️ **隐私提示:证据文件内容含小说原文片段**(失败时的 LLM 原始响应)。分享日志、截图或提 issue 之前,不要原样粘贴证据文件内容。
+
 ## 🗺️ 路线图
 
 - [x] Phase 1-4 文本主链路 + 工作台 + 预览播放 + 评测框架

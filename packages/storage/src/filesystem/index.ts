@@ -28,3 +28,5 @@ export {
   readVNScript,
   readFidelityReport,
 } from "./project-fs.js";
+export { pruneEvidenceFiles } from "./evidence-retention.js";
+export type { PruneEvidenceOptions, PruneEvidenceResult } from "./evidence-retention.js";

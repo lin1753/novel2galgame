@@ -129,6 +129,22 @@ The per-stage artifact cache (`packages/pipeline/src/stages/stage-cache.ts`) key
 - 修改阶段逻辑、输出 schema 或后处理，必须递增 STAGE_VERSIONS 对应阶段版本 (`packages/pipeline/src/stages/types.ts`).
 - Schema drift is tripwired by `packages/pipeline/src/stages/__test__/schema-version-snapshot.test.ts` (hashes in `schema-hashes.json`): a schema change without a version bump fails the test. After bumping, regenerate the snapshot with `UPDATE_SCHEMA_SNAPSHOT=1` and commit it with the change.
 
+## Evidence File Retention (I3, 2026-10-09)
+
+Parse-failure 证据文件（两处产生者，均在 `data/projects/{pid}/logs/`，纯文件系统、不入库）：
+
+- 顶层 `{chapterId}_{stage}_attempt{N}_{ts}.json` — pipeline 侧 `packages/pipeline/src/stages/raw-evidence.ts` `dumpRawEvidence`
+- 子目录 `{chapterId}/parse-failure_{chapterId}_{stage}_attempt{N}_{ISO}.json` — API 侧 `apps/api/src/task-queue/task-queue.ts` `_writeParseFailureEvidence`
+
+三层保留策略（执行器 `pruneEvidenceFiles`，`packages/storage/src/filesystem/evidence-retention.ts`，api 与 pipeline 都从 `@novel2gal/storage` 导入）：
+
+1. **成功即清**：章节终局成功（或 waiting_review）后，队列删除该章两种命名的全部证据 + 清空 `capturedResponses` buffer（`_cleanupChapterEvidence`）。
+2. **每章每阶段最近 3 份**：同 (chapterId, stage) 分组按 mtime 只保留最近 3 份（`keepPerStage` 可调，默认 3），每次证据写入后内联执行（无定时器）。
+3. **项目 logs 总量上限**：默认 50MB，env `N2G_PROJECT_LOGS_MAX_BYTES` 可配；超出时从最旧的证据文件开始删，非证据文件只计数告警、绝不删除。
+
+**隐私警告：证据文件内容含小说原文片段（LLM 原始响应）。分享日志、截图或提 issue 前，不要原样粘贴证据文件内容。**
+
+
 ## Key Design Constraints
 
 - VN scripts use 10 step types: `bg`, `show`, `hide`, `narration`, `say`, `thought`, `pause`, `transition`, `action`, `scene_description`

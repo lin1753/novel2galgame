@@ -26,6 +26,7 @@ import type { ProjectState, SceneState } from "@novel2gal/core";
 import type { createDatabase } from "@novel2gal/storage";
 import {
   SceneRepository,
+  pruneEvidenceFiles,
 } from "@novel2gal/storage";
 import { config } from "../config/index.js";
 import path from "node:path";
@@ -92,6 +93,12 @@ export interface TaskQueueOptions {
    * "stop" — remaining pending chapters are skipped (never started, never
    * marked failed in the DB); each gets a skipped SSE event. */
   onChapterFailure?: "continue" | "stop";
+  /** I1: graph-engine fallback policy forwarded to runChapterWithGraph.
+   * "allow" (default, production) — LLM failures absorbed into degraded L0
+   * artifacts, outcome stays succeeded. "fail" (evaluation) — any stage
+   * degradation becomes state.error → outcome "failed"; the queue then counts
+   * the chapter as failed (retry, chapter_failed event, failure list). */
+  fallbackPolicy?: "allow" | "fail";
   dataDir: string;
   project: ProjectState;
   provider: LLMProvider;
@@ -124,6 +131,8 @@ export class PipelineTaskQueue {
   private reviewMode?: boolean;
   /** W1: failure policy after retries exhausted (default "continue"). */
   private onChapterFailure: "continue" | "stop";
+  /** I1: graph-engine fallback policy (default "allow", production). */
+  private fallbackPolicy: "allow" | "fail";
   /** W2: raw LLM responses captured this attempt (onResponse), per chapter.
    * Written to the run log dir on parse/quality failure. */
   private capturedResponses = new Map<string, Array<{ content: string; finishReason?: string; model?: string; at: string }>>();
@@ -192,6 +201,7 @@ export class PipelineTaskQueue {
     this.rag = opts.rag;
     this.reviewMode = opts.reviewMode;
     this.onChapterFailure = opts.onChapterFailure ?? "continue";
+    this.fallbackPolicy = opts.fallbackPolicy ?? "allow";
   }
 
   /** Enqueue chapters for processing in strict chronological chapter index order. */
@@ -560,11 +570,93 @@ export class PipelineTaskQueue {
         evidenceNote: "raw LLM responses captured before the failure (newest last). Response payload only — no credentials or request headers are ever recorded.",
         responses,
       }, null, 2), "utf-8");
+      // I3: retention right after the write — per (chapter × stage) 3-newest
+      // + project 50MB cap. Root prune covers both namings (this file and any
+      // top-level {chapterId}_*.json from the pipeline side).
+      pruneEvidenceFiles(path.join(this.dataDir, "projects", this.project.projectId, "logs"));
       return filePath;
     } catch (err) {
       console.warn(`[PipelineTaskQueue] Failed to write parse-failure evidence for ${chapterId}:`, err);
       return undefined;
     }
+  }
+
+  /** I3 (acceptance 3): wipe a chapter's evidence after its terminal success.
+   * Covers BOTH producer namings — the queue's parse-failure files under
+   * logs/{chapterId}/ and the pipeline's top-level {chapterId}_*.json — plus
+   * the in-memory capturedResponses buffer (prevents retention of raw novel
+   * text for a chapter that no longer needs it). Best-effort: any failure
+   * warns and never breaks the success path. Only ever touches files whose
+   * name starts with this chapter's own id prefix. */
+  private _cleanupChapterEvidence(chapterId: string): void {
+    // Always drop the in-memory buffer — evidence for a succeeded chapter
+    // has no diagnostic value and holds raw novel text.
+    this.capturedResponses.delete(chapterId);
+    try {
+      const logsRoot = path.join(
+        this.dataDir, "projects", this.project.projectId, "logs",
+      );
+      if (!fs.existsSync(logsRoot)) return;
+      // (b) top-level {chapterId}_*.json (dumpRawEvidence naming)
+      for (const ent of fs.readdirSync(logsRoot, { withFileTypes: true })) {
+        if (ent.isFile() && ent.name.startsWith(`${chapterId}_`) && ent.name.endsWith(".json")) {
+          fs.rmSync(path.join(logsRoot, ent.name), { force: true });
+        }
+      }
+      // (a) logs/{chapterId}/parse-failure_*.json (queue naming)
+      const chDir = path.join(logsRoot, chapterId);
+      if (fs.existsSync(chDir)) {
+        let remaining = 0;
+        for (const ent of fs.readdirSync(chDir, { withFileTypes: true })) {
+          if (ent.isFile() && ent.name.startsWith("parse-failure_") && ent.name.endsWith(".json")) {
+            fs.rmSync(path.join(chDir, ent.name), { force: true });
+          } else {
+            remaining++;
+          }
+        }
+        // Drop the chapter dir itself when the wipe emptied it (no orphan
+        // empty dirs accumulating per chapter).
+        if (remaining === 0) fs.rmdirSync(chDir);
+      }
+    } catch (err) {
+      console.warn(`[PipelineTaskQueue] Evidence cleanup failed for ${chapterId}:`, err);
+    }
+  }
+
+  /**
+   * I1: the UNIFIED "did this chapter attempt succeed?" judgment. Every
+   * counting and status mutation in the .then path is gated by it (see
+   * _runChapterAttempt), so "completed", chapter_ready and the completed SSE
+   * event can only ever fire when this returns true.
+   *
+   * Contract (graph engine sets `result.outcome`; legacy results carry no
+   * outcome field):
+   * - outcome "succeeded"         → true (real success, full .then path)
+   * - outcome "waiting_review"    → true — NOT terminal completion: the
+   *   review flow holds the chapter (reviewMode interrupted the graph,
+   *   onWaitingReview paused the watchdog, the review TTL owns the thread).
+   *   True here means "do not mark failed and do not count as a terminal
+   *   failure" — the review-approve path later re-runs/resumes the chapter.
+   *   Marking it failed would be wrong; it is equally not counted as a
+   *   normal completion downstream (no sceneCount/manifest stats ride a
+   *   waiting chapter's events in a way the export path would consume — the
+   *   run is paused, not done).
+   * - outcome "failed"            → false (soft failure → throw into .catch:
+   *   retry policy, failed status, chapter_failed event, failure list)
+   * - outcome "cancelled"         → the .then returns early BEFORE calling
+   *   this (cancel() already owns the chapter) — defensive false here is
+   *   unreachable; kept explicit for exhaustiveness.
+   * - outcome undefined (legacy)   → true (legacy path has no outcome
+   *   channel; success = resolved without throwing. Legacy is the stage-4
+   *   deletion target — behavior preserved as-is until then).
+   */
+  private _isChapterSuccess(result: any): boolean {
+    const outcome = result?.outcome as string | undefined;
+    if (outcome === undefined) return true; // legacy monolithic result shape
+    if (outcome === "failed") return false; // soft failure → failure path
+    // "succeeded" and "waiting_review" both continue down the .then path;
+    // see the contract above for why waiting_review is NOT "failed".
+    return outcome === "succeeded" || outcome === "waiting_review";
   }
 
   private _runChapterAttempt(chapter: QueueChapter, attempt: number) {
@@ -612,6 +704,51 @@ export class PipelineTaskQueue {
 
     this._runChapterPipeline(chapter, abort.signal, attempt)
       .then((result) => {
+        // I1: graph-engine outcome routing — the ONE judgment of whether this
+        // chapter attempt counts as a success happens here (see
+        // _isChapterSuccess). Every counting/status mutation below is gated
+        // by it, so a soft failure can never reach "completed".
+        const outcome = (result as any)?.outcome as string | undefined;
+        // outcome "cancelled": the graph RESOLVED (not threw) after a cancel.
+        // Two owners:
+        // - user cancel — cancel() already set results[chapterId]="cancelled"
+        //   and emitted its event; run-chapter-graph marked the thread
+        //   cancelled+cleaned. Stand down: do NOT overwrite "cancelled" with
+        //   completed or failed.
+        // - watchdog timeout that the graph absorbed into state.cancelled
+        //   (isTimedOut) — a FAILURE, not a cancel: before I1 this fell
+        //   through to "completed" (timeout marked chapter_ready — bug). Throw
+        //   into the shared .catch, whose isTimedOut branch owns the timeout
+        //   message + retry policy (its cancel-guard still lets a real user
+        //   cancel win if both raced).
+        if (outcome === "cancelled") {
+          if (isTimedOut) {
+            throw new Error(`${WATCHDOG_TIMEOUT_MARKER}: Chapter watchdog fired (graph resolved cancelled after timeout)`);
+          }
+          return;
+        }
+        // outcome "failed" (soft failure: state.error set, e.g. a stage
+        // degraded under fallbackPolicy=fail) — NOT a success. Wrap it in an
+        // Error and throw into the SHARED .catch below so it takes the exact
+        // same path as a hard failure: retry policy, terminal "failed"
+        // status, chapter_failed event, last_error bookkeeping, failure
+        // list — and never increments completed/readyChapters (the chapter
+        // is never marked chapter_ready, so DB-side updateChapterCounts
+        // naturally excludes it). The thrown Error's name is "Error", so
+        // the catch's isUserCancel guard (AbortError/ABORTED) never
+        // misreads it as a cancel.
+        if (!this._isChapterSuccess(result)) {
+          const softError = new Error(
+            (result as any)?.graphError ?? "graph outcome: failed",
+          );
+          throw softError;
+        }
+        // I3 (acceptance 3): terminal success (or waiting_review — the
+        // review flow holds the chapter, not a failure) wipes this chapter's
+        // evidence: both on-disk namings + the capturedResponses buffer.
+        // Evidence only ever exists after a failure; on success it is dead
+        // weight holding raw novel text.
+        this._cleanupChapterEvidence(chapter.chapterId);
         this.results.set(chapter.chapterId, "completed");
         // Update chapter status in database
         try {
@@ -890,6 +1027,8 @@ export class PipelineTaskQueue {
         sceneRepo: this.sceneRepo,
         rag: this.rag,
         reviewMode: this.reviewMode ?? false,
+        // I1: queue-level fallback policy (default allow). Tests pin fail.
+        fallbackPolicy: this.fallbackPolicy,
         onWaitingReview: () => this.watchdogs.get(chapter.chapterId)?.pause(),
         // W2: attempt number → stage ctx → parse-failure evidence file names.
         attempt,
@@ -899,6 +1038,16 @@ export class PipelineTaskQueue {
         sceneCount: result.sceneCount,
         fidelityResults: Object.values((result.state as any).sceneResults ?? {}),
         characters: (result.state as any).characters ?? [],
+        // I1: the graph engine's terminal outcome travels with the result so
+        // the queue's .then can judge success via _isChapterSuccess — the
+        // graph RESOLVES with outcome:"failed"/"cancelled"/"waiting_review"
+        // instead of throwing (recovery-protocol semantics), and the old
+        // shape dropped the outcome entirely.
+        outcome: result.outcome,
+        // state.error text for the soft-failure throw (outcome:"failed" only;
+        // undefined otherwise — never a null that stringifies into messages).
+        graphError: (result.state as any)?.error ?? undefined,
+        manifest: result.manifest,
       };
     }
 
